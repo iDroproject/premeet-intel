@@ -1,7 +1,7 @@
 /**
  * content-script.js
  *
- * Main entry point for the Meeting Intel content script.
+ * Main entry point for the Bright People Intel content script.
  *
  * Execution order guaranteed by manifest content_scripts array:
  *   1. attendee-extractor.js  → defines window.AttendeeExtractor
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const LOG_PREFIX = '[Meeting Intel]';
+  const LOG_PREFIX = '[BPI]';
 
   // ─── Guard: only run on Google Calendar ────────────────────────────────────
 
@@ -44,7 +44,7 @@
 
   // ─── Initialise ─────────────────────────────────────────────────────────────
 
-  console.log(LOG_PREFIX, 'Initialising Meeting Intel v1.0.0 on', window.location.href);
+  console.log(LOG_PREFIX, 'Initialising Bright People Intel v2.0.0 on', window.location.href);
 
   /** @type {CalendarObserver} */
   const observer = new window.CalendarObserver();

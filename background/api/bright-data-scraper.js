@@ -1,7 +1,7 @@
 /**
  * background/api/bright-data-scraper.js
  *
- * Meeting Intel – Bright Data Web Scraper API Client
+ * Bright People Intel – Bright Data Web Scraper API Client
  *
  * Provides two lookup strategies:
  *   1. scrapeByLinkedInUrl()  – synchronous scrape of a known LinkedIn profile URL.
@@ -20,7 +20,7 @@
 
 'use strict';
 
-const LOG_PREFIX = '[Meeting Intel][BrightData]';
+const LOG_PREFIX = '[BPI][BrightData]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

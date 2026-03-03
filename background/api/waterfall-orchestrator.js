@@ -1,7 +1,7 @@
 /**
  * background/api/waterfall-orchestrator.js
  *
- * Meeting Intel – Waterfall Fetch Orchestrator
+ * Bright People Intel – Waterfall Fetch Orchestrator
  *
  * Executes a multi-layer lookup cascade for a given person:
  *
@@ -31,11 +31,18 @@ import {
 
 import { pickBestProfile, mergeBusinessEnrichedData } from './response-normalizer.js';
 
-const LOG_PREFIX = '[Meeting Intel][Waterfall]';
+const LOG_PREFIX = '[BPI][Waterfall]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+const PIPELINE_STEPS = [
+  { id: 'cache',             label: 'Checking cache...',                          icon: 'cache',     percent: 5  },
+  { id: 'serp-discovery',    label: 'Searching SERP by email...',                 icon: 'search',    percent: 30 },
+  { id: 'linkedin-enriched', label: 'Enriching from LinkedIn & business data...', icon: 'linkedin',  percent: 70 },
+  { id: 'deep-lookup',       label: 'Deep lookup...',                             icon: 'magnifier', percent: 90 },
+];
 
 const LAYER_TIMEOUTS = {
   serpDiscovery:       20_000,
@@ -70,29 +77,58 @@ function withTimeout(promise, ms, layerName) {
 
 export class WaterfallOrchestrator {
 
-  constructor(cacheManager, apiToken) {
+  constructor(cacheManager, apiToken, logBuffer) {
     this._cache = cacheManager;
     this._apiToken = apiToken;
+    this._logBuffer = logBuffer || null;
+    this._personName = '';
+    this._stepsState = PIPELINE_STEPS.map(s => ({ ...s, status: 'pending' }));
     this.onProgress = null;
   }
 
-  _notifyProgress(label) {
+  _notifyProgress(stepId, status) {
+    const stepIndex = this._stepsState.findIndex(s => s.id === stepId);
+    if (stepIndex >= 0) {
+      this._stepsState[stepIndex].status = status;
+    }
+
+    const activeStep = this._stepsState.find(s => s.id === stepId);
+    const payload = {
+      label:      activeStep?.label || '',
+      percent:    activeStep?.percent || 0,
+      step:       stepIndex + 1,
+      totalSteps: this._stepsState.length,
+      stepId,
+      stepStatus: status,
+      personName: this._personName,
+      stepsState: this._stepsState.map(s => ({ ...s })),
+    };
+
     if (typeof this.onProgress !== 'function') return;
-    try { this.onProgress(label); } catch (_) { /* swallow */ }
+    try { this.onProgress(payload); } catch (_) { /* swallow */ }
   }
 
-  async _runLayer(layerName, progressLabel, fn, timeoutMs) {
-    this._notifyProgress(progressLabel);
+  async _runLayer(layerName, stepId, fn, timeoutMs) {
+    this._notifyProgress(stepId, 'active');
     console.log(LOG_PREFIX, `Layer: ${layerName}`);
     const start = Date.now();
 
     try {
       const result = await withTimeout(fn(), timeoutMs, layerName);
       const elapsedMs = Date.now() - start;
-      console.log(LOG_PREFIX, `Layer ${layerName} ${result.success ? 'succeeded' : 'no data'} in ${elapsedMs}ms`);
+      const status = result.success ? 'completed' : 'failed';
+      this._notifyProgress(stepId, status);
+      if (this._logBuffer) {
+        this._logBuffer.info('Waterfall', `${layerName} ${status} in ${elapsedMs}ms`);
+      }
+      console.log(LOG_PREFIX, `Layer ${layerName} ${status} in ${elapsedMs}ms`);
       return { ...result, elapsedMs };
     } catch (err) {
       const elapsedMs = Date.now() - start;
+      this._notifyProgress(stepId, 'failed');
+      if (this._logBuffer) {
+        this._logBuffer.error('Waterfall', `${layerName} failed in ${elapsedMs}ms: ${err.message}`);
+      }
       console.warn(LOG_PREFIX, `Layer ${layerName} failed in ${elapsedMs}ms: ${err.message}`);
       return { success: false, error: err.message, elapsedMs };
     }
@@ -212,21 +248,30 @@ export class WaterfallOrchestrator {
     const identifier = name || email || 'unknown';
     const cacheKey = `person_${normaliseCacheKey(email || name || identifier)}`;
 
+    // Initialise per-fetch state so the orchestrator is reusable.
+    this._personName = name || email || 'unknown';
+    this._stepsState = PIPELINE_STEPS.map(s => ({ ...s, status: 'pending' }));
+
     console.log(LOG_PREFIX, `Waterfall started for: "${identifier}"`);
 
     // ── Layer 1: Cache ──────────────────────────────────────────────────────
     const cacheResult = await this._runLayer(
-      'cache', 'Checking cache...', () => this._layerCache(cacheKey), 500
+      'cache', 'cache', () => this._layerCache(cacheKey), 500
     );
     if (cacheResult.success && cacheResult._cachedData) {
       console.log(LOG_PREFIX, `Cache hit for "${identifier}"`);
+      // Mark remaining steps as skipped so the UI reflects the short-circuit.
+      for (const step of this._stepsState) {
+        if (step.status === 'pending') {
+          this._notifyProgress(step.id, 'skipped');
+        }
+      }
       return cacheResult._cachedData;
     }
 
     // ── Layer 2: SERP Discovery ─────────────────────────────────────────────
     const serpResult = await this._runLayer(
-      'serp-discovery',
-      'Searching Google for LinkedIn profile...',
+      'serp-discovery', 'serp-discovery',
       () => this._layerSerpDiscovery(email, name, company),
       LAYER_TIMEOUTS.serpDiscovery
     );
@@ -234,25 +279,33 @@ export class WaterfallOrchestrator {
     if (serpResult.success && serpResult.linkedInUrl) {
       // ── Layer 3+4: LinkedIn Scrape + Business Enriched (parallel) ───────
       const enrichedResult = await this._runLayer(
-        'linkedin-enriched',
-        'Fetching LinkedIn profile & business data...',
+        'linkedin-enriched', 'linkedin-enriched',
         () => this._layerLinkedInAndEnrich(serpResult.linkedInUrl),
         LAYER_TIMEOUTS.linkedInAndEnrich
       );
 
       if (enrichedResult.success) {
+        // Deep lookup is no longer needed — mark it skipped.
+        this._notifyProgress('deep-lookup', 'skipped');
+
         const data = await this._finalise(
           enrichedResult, name, email, cacheKey, identifier,
           { serpVerified: true }
         );
-        if (data) return data;
+        if (data) {
+          // Emit 100% completion.
+          this._notifyProgress('linkedin-enriched', 'completed');
+          return data;
+        }
       }
+    } else {
+      // SERP failed — LinkedIn+Enriched step is not reachable; mark skipped.
+      this._notifyProgress('linkedin-enriched', 'skipped');
     }
 
     // ── Layer 5: Deep Lookup (fallback) ─────────────────────────────────────
     const deepResult = await this._runLayer(
-      'deep-lookup',
-      'Trying deep lookup...',
+      'deep-lookup', 'deep-lookup',
       () => this._layerDeepLookup(name, company),
       LAYER_TIMEOUTS.deepLookup
     );
@@ -262,11 +315,14 @@ export class WaterfallOrchestrator {
         deepResult, name, email, cacheKey, identifier,
         { serpVerified: false }
       );
-      if (data) return data;
+      if (data) {
+        // Emit 100% completion.
+        this._notifyProgress('deep-lookup', 'completed');
+        return data;
+      }
     }
 
     // ── Layer 6: All failed ─────────────────────────────────────────────────
-    this._notifyProgress('No data found');
     const errors = [serpResult, deepResult]
       .filter((r) => r.error)
       .map((r) => r.error)

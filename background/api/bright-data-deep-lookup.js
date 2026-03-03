@@ -1,7 +1,7 @@
 /**
  * background/api/bright-data-deep-lookup.js
  *
- * Meeting Intel – Bright Data Deep Lookup API Client
+ * Bright People Intel – Bright Data Deep Lookup API Client
  *
  * Uses Bright Data's `discover_new` / `discover_by=name` trigger endpoint
  * to perform real-time person enrichment when no LinkedIn URL is available.
@@ -35,7 +35,7 @@ import {
   downloadSnapshot,
 } from './bright-data-scraper.js';
 
-const LOG_PREFIX = '[Meeting Intel][DeepLookup]';
+const LOG_PREFIX = '[BPI][DeepLookup]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

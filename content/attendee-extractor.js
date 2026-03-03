@@ -1,8 +1,8 @@
 /**
  * AttendeeExtractor
  *
- * Extracts attendee names and emails from Google Calendar event popups and
- * detail panels using multiple fallback selector strategies.
+ * Bright People Intel — Extracts attendee names and emails from Google Calendar
+ * event popups and detail panels using multiple fallback selector strategies.
  *
  * Loaded as a plain content script (no ES module imports).
  * The class is defined on the shared content-script scope.
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const LOG_PREFIX = '[Meeting Intel][AttendeeExtractor]';
+  const LOG_PREFIX = '[BPI][AttendeeExtractor]';
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -307,7 +307,7 @@
 
   // Expose to shared content-script scope.
   window.AttendeeExtractor = AttendeeExtractor;
-  window.MeetingIntel = window.MeetingIntel || {};
-  window.MeetingIntel.nameFromEmail = nameFromEmail;
-  window.MeetingIntel.deriveCompanyFromEmail = deriveCompanyFromEmail;
+  window.BrightPeopleIntel = window.BrightPeopleIntel || {};
+  window.BrightPeopleIntel.nameFromEmail = nameFromEmail;
+  window.BrightPeopleIntel.deriveCompanyFromEmail = deriveCompanyFromEmail;
 })();

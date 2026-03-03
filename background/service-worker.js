@@ -1,7 +1,7 @@
 /**
  * background/service-worker.js
  *
- * Meeting Intel – Background Service Worker
+ * Bright People Intel – Background Service Worker
  *
  * Responsibilities:
  *   - Configure chrome.sidePanel behaviour on install.
@@ -27,10 +27,11 @@
 import { WaterfallOrchestrator } from './api/waterfall-orchestrator.js';
 
 import { CacheManager } from './cache/cache-manager.js';
+import { LogBuffer } from './log-buffer.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const LOG_PREFIX = '[Meeting Intel][SW]';
+const LOG_PREFIX = '[BPI][SW]';
 
 /** Bright Data API token (internal). */
 const API_TOKEN = '30728b24f3b8fa70b816bb2936d5451c19941d910a6d330a2b7f04b19cf4b1d9';
@@ -65,6 +66,8 @@ const MessageType = /** @type {const} */ ({
   PERSON_BACKGROUND_RESULT: 'PERSON_BACKGROUND_RESULT',
   GET_CACHE_STATS:          'GET_CACHE_STATS',
   CLEAR_CACHE:              'CLEAR_CACHE',
+  GET_LOGS:                 'GET_LOGS',
+  GET_HISTORY:              'GET_HISTORY',
   PING:                     'PING',
 });
 
@@ -72,6 +75,9 @@ const MessageType = /** @type {const} */ ({
 
 /** Shared CacheManager instance for this service worker lifecycle. */
 const cache = new CacheManager();
+
+/** Shared LogBuffer instance for structured in-memory logging. */
+const logBuffer = new LogBuffer();
 
 // ─── Side Panel Setup ────────────────────────────────────────────────────────
 
@@ -90,6 +96,20 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   } catch (err) {
     // setPanelBehavior is available from Chrome 116; log gracefully if absent.
     console.warn(LOG_PREFIX, 'Could not set panel behaviour:', err.message);
+  }
+
+  // Clear old cache keys from v1 (mi_* prefix) on update
+  if (details.reason === 'update') {
+    try {
+      const all = await chrome.storage.local.get(null);
+      const oldKeys = Object.keys(all).filter(k => k.startsWith('mi_'));
+      if (oldKeys.length > 0) {
+        await chrome.storage.local.remove(oldKeys);
+        console.log(LOG_PREFIX, `Migrated: removed ${oldKeys.length} old mi_* cache keys`);
+      }
+    } catch (err) {
+      console.warn(LOG_PREFIX, 'Cache migration failed:', err.message);
+    }
   }
 
   await registerAlarms();
@@ -133,11 +153,25 @@ async function registerAlarms() {
 // ─── Core Fetch Pipeline ─────────────────────────────────────────────────────
 
 /**
+ * Resolve the Bright Data API token.
+ * Reads from chrome.storage.sync first; falls back to the hardcoded default.
+ */
+async function resolveApiToken() {
+  try {
+    const result = await chrome.storage.sync.get('brightdata_api_token');
+    if (result.brightdata_api_token) return result.brightdata_api_token;
+  } catch (err) {
+    console.warn(LOG_PREFIX, 'Failed to read token from storage:', err.message);
+  }
+  return API_TOKEN;
+}
+
+/**
  * Fetch background information for a person using the WaterfallOrchestrator.
  *
  * The orchestrator's `onProgress` callback is wired to push `FETCH_PROGRESS`
- * messages to the side panel so the user sees which layer is currently running
- * (e.g. "Trying LinkedIn scrape…", "Trying deep lookup…").
+ * messages to the side panel so the user sees structured progress state for
+ * each pipeline step (label, percent, stepsState, etc.).
  *
  * A fresh WaterfallOrchestrator is created per call so it always uses the
  * most recently resolved API token.
@@ -147,18 +181,32 @@ async function registerAlarms() {
  * @throws {Error} When no data could be retrieved from any source.
  */
 async function fetchPersonBackground(payload) {
-  const orchestrator = new WaterfallOrchestrator(cache, API_TOKEN);
+  const identifier = payload.name || payload.email || 'unknown';
+  logBuffer.info('SW', 'Fetching: ' + identifier);
 
-  // Wire progress updates to the side panel.
-  orchestrator.onProgress = async (label) => {
-    console.log(LOG_PREFIX, 'Waterfall progress:', label);
+  const apiToken = await resolveApiToken();
+  const orchestrator = new WaterfallOrchestrator(cache, apiToken, logBuffer);
+
+  // Wire structured progress updates to the side panel.
+  orchestrator.onProgress = async (progressPayload) => {
+    console.log(LOG_PREFIX, 'Waterfall progress:', progressPayload.stepId, progressPayload.stepStatus);
     await notifySidePanel({
       type:    MessageType.FETCH_PROGRESS,
-      payload: { label },
+      payload: progressPayload,
     });
   };
 
-  return orchestrator.fetch(payload);
+  try {
+    const personData = await orchestrator.fetch(payload);
+    logBuffer.info('SW', 'Result: ' + personData.name, {
+      source:     personData._source,
+      confidence: personData._confidence,
+    });
+    return personData;
+  } catch (err) {
+    logBuffer.error('SW', 'Fetch failed: ' + err.message);
+    throw err;
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -304,6 +352,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .then(() => cache.getStats())
         .then((stats) => {
           console.log(LOG_PREFIX, 'Cache cleared by popup');
+          logBuffer.info('Cache', 'Cache cleared');
           sendResponse({ ok: true, stats });
         })
         .catch((err) => {
@@ -327,6 +376,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
 
       return true;
+    }
+
+    // ── GET_LOGS ──────────────────────────────────────────────────────────────
+    case MessageType.GET_LOGS: {
+      const filters = message.payload || {};
+      const entries = logBuffer.getEntries(filters);
+      const modules = logBuffer.getModules();
+      sendResponse({ ok: true, entries, modules });
+      return false;
+    }
+
+    // ── GET_HISTORY ────────────────────────────────────────────────────────────
+    case MessageType.GET_HISTORY: {
+      (async () => {
+        try {
+          const index = await chrome.storage.local.get('bpi__index');
+          const indexEntries = index['bpi__index'] || [];
+
+          const keys = indexEntries.map(e => e.key.startsWith('bpi_') ? e.key : `bpi_${e.key}`);
+          if (keys.length === 0) {
+            sendResponse({ ok: true, history: [] });
+            return;
+          }
+
+          const stored = await chrome.storage.local.get(keys);
+          const history = [];
+
+          for (const [, entry] of Object.entries(stored)) {
+            if (!entry?.data) continue;
+            const d = entry.data;
+            history.push({
+              name: d.name || 'Unknown',
+              currentTitle: d.currentTitle || null,
+              currentCompany: d.currentCompany || null,
+              email: d.email || null,
+              fetchedAt: d._fetchedAt || entry.createdAt,
+            });
+          }
+
+          history.sort((a, b) => new Date(b.fetchedAt) - new Date(a.fetchedAt));
+          sendResponse({ ok: true, history });
+        } catch (err) {
+          sendResponse({ ok: false, error: err.message });
+        }
+      })();
+      return true; // async sendResponse
     }
 
     // ── PING ──────────────────────────────────────────────────────────────────
@@ -409,5 +504,5 @@ registerAlarms().catch((err) => {
 
 console.log(
   LOG_PREFIX,
-  'Service worker started – Meeting Intel v' + chrome.runtime.getManifest().version
+  'Service worker started – Bright People Intel v' + chrome.runtime.getManifest().version
 );

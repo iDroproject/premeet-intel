@@ -7,85 +7,127 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; style-src 'self'; script-src 'self';"
     />
-    <title>Meeting Intel</title>
+    <title>Bright People Intel</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
 
     <!-- Gradient header -->
-    <header class="mp-header">
-      <div class="mp-header__icon" aria-hidden="true">MI</div>
-      <div class="mp-header__text">
-        <h1 class="mp-header__title">Meeting Intel</h1>
-        <p class="mp-header__version" id="mp-version">v&ndash;</p>
+    <header class="bp-header">
+      <div class="bp-header__icon" aria-hidden="true">BPI</div>
+      <div class="bp-header__text">
+        <h1 class="bp-header__title">Bright People Intel</h1>
+        <p class="bp-header__version" id="bp-version">v&ndash;</p>
       </div>
     </header>
 
-    <main class="mp-main">
+    <!-- Tab bar -->
+    <nav class="bp-tabs" role="tablist" aria-label="Popup sections">
+      <button class="bp-tab bp-tab--active" role="tab" aria-selected="true"
+              aria-controls="bp-tab-settings" id="bp-tab-btn-settings">Settings</button>
+      <button class="bp-tab" role="tab" aria-selected="false"
+              aria-controls="bp-tab-history" id="bp-tab-btn-history">History</button>
+      <button class="bp-tab" role="tab" aria-selected="false"
+              aria-controls="bp-tab-logs" id="bp-tab-btn-logs">Logs</button>
+    </nav>
 
-      <!-- Status pill -->
-      <section class="mp-section" aria-label="Extension status">
-        <div class="mp-status" id="mp-status" role="status" aria-live="polite">
-          <span class="mp-status__dot mp-status__dot--active" aria-hidden="true"></span>
-          <span id="mp-status-label">Active on Google Calendar</span>
+    <main class="bp-main">
+
+      <!-- ═══ Settings tab ═══ -->
+      <div class="bp-tab-panel" id="bp-tab-settings" role="tabpanel" aria-labelledby="bp-tab-btn-settings">
+
+        <!-- Status pill -->
+        <section class="bp-section" aria-label="Extension status">
+          <div class="bp-status" id="bp-status" role="status" aria-live="polite">
+            <span class="bp-status__dot bp-status__dot--active" aria-hidden="true"></span>
+            <span id="bp-status-label">Active on Google Calendar</span>
+          </div>
+        </section>
+
+        <!-- API Token -->
+        <section class="bp-section" aria-label="API settings">
+          <h2 class="bp-section__heading">API Token</h2>
+          <div class="bp-token-row">
+            <input type="password" id="bp-token-input" class="bp-token-input"
+                   placeholder="Paste Bright Data API token..." aria-label="Bright Data API token" />
+            <button type="button" id="bp-token-toggle" class="bp-btn-icon" aria-label="Show/hide token">
+              &#x1F441;
+            </button>
+          </div>
+          <div class="bp-token-actions">
+            <button type="button" id="bp-token-save" class="bp-btn bp-btn--primary bp-btn--sm">Save Token</button>
+            <a href="https://brightdata.com/cp/setting/users" target="_blank"
+               rel="noopener noreferrer" class="bp-link">Get API Token &rarr;</a>
+          </div>
+          <p class="bp-feedback" id="bp-token-feedback" role="alert" aria-live="polite" aria-atomic="true"></p>
+          <p class="bp-token-hint">Demo token: <code>3072****b1d9</code></p>
+        </section>
+
+        <!-- Cache management -->
+        <section class="bp-section" aria-label="Cache management">
+          <h2 class="bp-section__heading">Cache</h2>
+          <div class="bp-cache-grid" id="bp-cache-stats" aria-label="Cache statistics">
+            <div class="bp-cache-stat">
+              <span class="bp-cache-stat__value" id="bp-cache-count">&ndash;</span>
+              <span class="bp-cache-stat__label">Profiles</span>
+            </div>
+            <div class="bp-cache-stat">
+              <span class="bp-cache-stat__value" id="bp-cache-size">&ndash;</span>
+              <span class="bp-cache-stat__label">Storage</span>
+            </div>
+            <div class="bp-cache-stat" id="bp-cache-expired-row">
+              <span class="bp-cache-stat__value bp-cache-stat__value--warn" id="bp-cache-expired">&ndash;</span>
+              <span class="bp-cache-stat__label">Expired</span>
+            </div>
+          </div>
+          <button type="button" id="bp-cache-clear" class="bp-btn bp-btn--secondary">Clear Cache</button>
+          <p class="bp-feedback" id="bp-cache-feedback" role="alert" aria-live="polite" aria-atomic="true"></p>
+        </section>
+
+        <!-- Links -->
+        <section class="bp-section" aria-label="Useful links">
+          <h2 class="bp-section__heading">Links</h2>
+          <div class="bp-links">
+            <a href="https://brightdata.com/cp/setting/users" target="_blank" rel="noopener noreferrer" class="bp-link">Bright Data Settings</a>
+            <a href="https://brightdata.com/cp/zones" target="_blank" rel="noopener noreferrer" class="bp-link">API Zones</a>
+            <a href="https://docs.brightdata.com/" target="_blank" rel="noopener noreferrer" class="bp-link">Documentation</a>
+            <a href="https://github.com/iDroproject/gcal-meeting-intel" target="_blank" rel="noopener noreferrer" class="bp-link">View on GitHub</a>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- ═══ History tab ═══ -->
+      <div class="bp-tab-panel bp-hidden" id="bp-tab-history" role="tabpanel" aria-labelledby="bp-tab-btn-history">
+        <div class="bp-history-list" id="bp-history-list" aria-label="Lookup history">
+          <p class="bp-history-empty" id="bp-history-empty">No lookups yet.</p>
         </div>
-      </section>
+      </div>
 
-      <!-- Cache management -->
-      <section class="mp-section" aria-label="Cache management">
-        <h2 class="mp-section__heading">Cache</h2>
-        <div class="mp-cache-grid" id="mp-cache-stats" aria-label="Cache statistics">
-          <div class="mp-cache-stat">
-            <span class="mp-cache-stat__value" id="mp-cache-count">&ndash;</span>
-            <span class="mp-cache-stat__label">Profiles</span>
-          </div>
-          <div class="mp-cache-stat">
-            <span class="mp-cache-stat__value" id="mp-cache-size">&ndash;</span>
-            <span class="mp-cache-stat__label">Storage</span>
-          </div>
-          <div class="mp-cache-stat" id="mp-cache-expired-row">
-            <span
-              class="mp-cache-stat__value mp-cache-stat__value--warn"
-              id="mp-cache-expired"
-            >&ndash;</span>
-            <span class="mp-cache-stat__label">Expired</span>
-          </div>
+      <!-- ═══ Logs tab ═══ -->
+      <div class="bp-tab-panel bp-hidden" id="bp-tab-logs" role="tabpanel" aria-labelledby="bp-tab-btn-logs">
+        <div class="bp-logs-controls">
+          <select id="bp-logs-module" class="bp-select" aria-label="Filter by module">
+            <option value="">All modules</option>
+          </select>
+          <select id="bp-logs-level" class="bp-select" aria-label="Filter by level">
+            <option value="">All levels</option>
+            <option value="info">Info</option>
+            <option value="warn">Warn</option>
+            <option value="error">Error</option>
+          </select>
+          <button type="button" id="bp-logs-refresh" class="bp-btn-icon" aria-label="Refresh logs">&#x21BB;</button>
         </div>
-        <button type="button" id="mp-cache-clear" class="mp-btn mp-btn--secondary">
-          Clear Cache
-        </button>
-        <p
-          class="mp-feedback"
-          id="mp-cache-feedback"
-          role="alert"
-          aria-live="polite"
-          aria-atomic="true"
-        ></p>
-      </section>
-
-      <!-- About -->
-      <section class="mp-section mp-about" aria-label="About Meeting Intel">
-        <h2 class="mp-section__heading">About</h2>
-        <p class="mp-about__desc">
-          Professional background for Google Calendar attendees&mdash;right
-          inside the event without switching tabs.
-        </p>
-        <a
-          href="https://github.com/iDroproject/gcal-meeting-intel"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="mp-link"
-          aria-label="View Meeting Intel source code on GitHub (opens in new tab)"
-        >
-          View on GitHub
-        </a>
-      </section>
+        <div class="bp-logs-list" id="bp-logs-list" aria-label="Log entries">
+          <p class="bp-logs-empty" id="bp-logs-empty">No log entries.</p>
+        </div>
+      </div>
 
     </main>
 
-    <footer class="mp-footer">
-      <p class="mp-footer__text">
-        Meeting Intel &copy; <span id="mp-year"></span>
+    <footer class="bp-footer">
+      <p class="bp-footer__text">
+        Bright People Intel &copy; <span id="bp-year"></span>
       </p>
     </footer>
 

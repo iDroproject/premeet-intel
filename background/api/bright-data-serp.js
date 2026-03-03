@@ -1,7 +1,7 @@
 /**
  * background/api/bright-data-serp.js
  *
- * Meeting Intel – Bright Data SERP & Business Enriched API Client
+ * Bright People Intel – Bright Data SERP & Business Enriched API Client
  *
  * Provides:
  *   1. serpFindLinkedInUrl() – Google Search via SERP API to discover
@@ -19,7 +19,7 @@ import {
   downloadSnapshot,
 } from './bright-data-scraper.js';
 
-const LOG_PREFIX = '[Meeting Intel][SERP]';
+const LOG_PREFIX = '[BPI][SERP]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

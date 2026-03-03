@@ -1,9 +1,10 @@
 /**
  * ButtonInjector
  *
- * Injects "Know [FirstName]" action buttons into Google Calendar event popups
- * near the attendee list. Buttons are styled to match Google Calendar's design
- * language and communicate with the background service worker on click.
+ * Bright People Intel — Injects "Know [FirstName]" action buttons into Google
+ * Calendar event popups near the attendee list. Buttons are styled to match
+ * Google Calendar's design language and communicate with the background service
+ * worker on click.
  *
  * Loaded as a plain content script (no ES module imports).
  */
@@ -13,7 +14,7 @@
 (function () {
   'use strict';
 
-  const LOG_PREFIX = '[Meeting Intel][ButtonInjector]';
+  const LOG_PREFIX = '[BPI][ButtonInjector]';
 
   // ─── DOM Helpers ─────────────────────────────────────────────────────────
 
@@ -104,16 +105,16 @@
     const label = `Know ${displayName}`;
 
     const btn = document.createElement('button');
-    btn.className = 'meeting-intel-btn';
+    btn.className = 'bpi-btn';
     btn.setAttribute('type', 'button');
     btn.setAttribute('aria-label', `Get professional background on ${attendee.name || attendee.email}`);
-    btn.dataset.miName = attendee.name || '';
-    btn.dataset.miEmail = attendee.email || '';
-    btn.dataset.miCompany = attendee.company || '';
+    btn.dataset.bpiName = attendee.name || '';
+    btn.dataset.bpiEmail = attendee.email || '';
+    btn.dataset.bpiCompany = attendee.company || '';
 
     // Icon span.
     const icon = document.createElement('span');
-    icon.className = 'meeting-intel-icon';
+    icon.className = 'bpi-icon';
     icon.setAttribute('aria-hidden', 'true');
     icon.textContent = '\u{1F50D}'; // magnifying glass
 
@@ -201,13 +202,13 @@
 
   /**
    * ButtonInjector
-   * Injects Meeting Intel action buttons into an event popup element.
+   * Injects Bright People Intel action buttons into an event popup element.
    */
   class ButtonInjector {
     /**
      * Inject "Know [FirstName]" buttons into a popup for a list of attendees.
      * Safe to call multiple times – re-injection is prevented by checking for
-     * an existing `.meeting-intel-container` on the popup.
+     * an existing `.bpi-container` on the popup.
      *
      * @param {Element} popupEl - The event popup root element.
      * @param {Array<{name: string, email: string, company: string|null}>} attendees
@@ -220,7 +221,7 @@
       }
 
       // Guard: don't inject twice into the same popup.
-      if (popupEl.querySelector('.meeting-intel-container')) {
+      if (popupEl.querySelector('.bpi-container')) {
         console.log(LOG_PREFIX, 'Buttons already injected – skipping');
         return false;
       }
@@ -232,9 +233,9 @@
 
       // Build container.
       const container = document.createElement('div');
-      container.className = 'meeting-intel-container';
+      container.className = 'bpi-container';
       container.setAttribute('role', 'group');
-      container.setAttribute('aria-label', 'Meeting Intel – attendee lookup');
+      container.setAttribute('aria-label', 'Bright People Intel – attendee lookup');
 
       // One button per attendee.
       attendees.forEach((attendee) => {
@@ -270,13 +271,13 @@
     }
 
     /**
-     * Remove all injected Meeting Intel buttons from a popup element.
+     * Remove all injected Bright People Intel buttons from a popup element.
      *
      * @param {Element} popupEl
      */
     remove(popupEl) {
       if (!popupEl) return;
-      popupEl.querySelectorAll('.meeting-intel-container').forEach((el) => el.remove());
+      popupEl.querySelectorAll('.bpi-container').forEach((el) => el.remove());
     }
   }
 

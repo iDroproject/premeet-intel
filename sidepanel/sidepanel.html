@@ -7,155 +7,177 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' https:;"
     />
-    <title>Meeting Intel</title>
+    <title>Bright People Intel</title>
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
 
     <!-- Header -->
-    <header class="mi-header" role="banner">
-      <div class="mi-header__accent-line" aria-hidden="true"></div>
-      <div class="mi-header__content">
-        <div class="mi-header__logo" aria-hidden="true">MI</div>
-        <h1 class="mi-header__title">Meeting Intel</h1>
+    <header class="bpi-header" role="banner">
+      <div class="bpi-header__accent-line" aria-hidden="true"></div>
+      <div class="bpi-header__content">
+        <div class="bpi-header__logo" aria-hidden="true">BPI</div>
+        <h1 class="bpi-header__title">Bright People Intel</h1>
       </div>
     </header>
 
     <!-- Main Content -->
-    <main id="mi-main" class="mi-main" role="main">
+    <main id="bpi-main" class="bpi-main" role="main">
 
       <!-- Empty state -->
-      <section id="mi-empty-state" class="mi-empty-state" aria-label="Empty state" aria-live="polite">
-        <div class="mi-empty-state__icon" aria-hidden="true">&#x1F4C5;</div>
-        <p class="mi-empty-state__heading">No attendee selected</p>
-        <p class="mi-empty-state__body">
+      <section id="bpi-empty-state" class="bpi-empty-state" aria-label="Empty state" aria-live="polite">
+        <div class="bpi-empty-state__icon" aria-hidden="true">&#x1F4C5;</div>
+        <p class="bpi-empty-state__heading">No attendee selected</p>
+        <p class="bpi-empty-state__body">
           Click <strong>"Know [Name]"</strong> on a Google Calendar event to see
           that person's professional background here.
         </p>
-        <div class="mi-manual-search" id="mi-manual-search-empty">
-          <p class="mi-manual-search__label">Or search manually:</p>
-          <div class="mi-search-row">
+        <div class="bpi-manual-search" id="bpi-manual-search-empty">
+          <p class="bpi-manual-search__label">Or search manually:</p>
+          <div class="bpi-search-row">
             <input
               type="text"
-              id="mi-search-input-empty"
+              id="bpi-search-input-empty"
               placeholder="Enter name..."
-              class="mi-search-input"
+              class="bpi-search-input"
               aria-label="Search for a person by name"
             />
-            <button id="mi-search-btn-empty" type="button" class="mi-search-btn">Search</button>
+            <button id="bpi-search-btn-empty" type="button" class="bpi-search-btn">Search</button>
           </div>
         </div>
       </section>
 
       <!-- Loading state -->
-      <section id="mi-loading-state" class="mi-loading-state mi-hidden" aria-label="Loading" aria-live="polite" aria-busy="true">
-        <div class="mi-spinner" role="status">
-          <span class="mi-spinner__ring" aria-hidden="true"></span>
-          <span class="mi-sr-only">Loading...</span>
+      <section id="bpi-loading-state" class="bpi-loading-state bpi-hidden" aria-label="Loading" aria-live="polite" aria-busy="true">
+
+        <!-- Progress bar -->
+        <div class="bpi-progress" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+          <div class="bpi-progress__track">
+            <div class="bpi-progress__fill" id="bpi-progress-fill"></div>
+          </div>
+          <span class="bpi-progress__percent" id="bpi-progress-percent">0%</span>
         </div>
-        <p class="mi-loading-state__label" id="mi-loading-label">Fetching background...</p>
+
+        <!-- Animated name display -->
+        <div class="bpi-lookup-name" id="bpi-lookup-name" aria-live="polite">
+          <span class="bpi-lookup-name__text" id="bpi-lookup-name-text"></span>
+        </div>
+
+        <!-- Pipeline stepper -->
+        <div class="bpi-pipeline" id="bpi-pipeline" role="list" aria-label="Lookup pipeline steps">
+          <div class="bpi-pipeline__step bpi-pipeline__step--pending" data-step="cache" role="listitem">
+            <span class="bpi-pipeline__icon" aria-hidden="true">&#x1F4BE;</span>
+            <span class="bpi-pipeline__label">Checking cache...</span>
+            <span class="bpi-pipeline__status" aria-hidden="true"></span>
+          </div>
+          <div class="bpi-pipeline__step bpi-pipeline__step--pending" data-step="serp-discovery" role="listitem">
+            <span class="bpi-pipeline__icon" aria-hidden="true">&#x1F50D;</span>
+            <span class="bpi-pipeline__label">Searching SERP by email...</span>
+            <span class="bpi-pipeline__status" aria-hidden="true"></span>
+          </div>
+          <div class="bpi-pipeline__step bpi-pipeline__step--pending" data-step="linkedin-enriched" role="listitem">
+            <span class="bpi-pipeline__icon" aria-hidden="true">&#x1F4BC;</span>
+            <span class="bpi-pipeline__label">Enriching from LinkedIn &amp; business data...</span>
+            <span class="bpi-pipeline__status" aria-hidden="true"></span>
+          </div>
+          <div class="bpi-pipeline__step bpi-pipeline__step--pending" data-step="deep-lookup" role="listitem">
+            <span class="bpi-pipeline__icon" aria-hidden="true">&#x1F50E;</span>
+            <span class="bpi-pipeline__label">Deep lookup...</span>
+            <span class="bpi-pipeline__status" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <!-- Current status label -->
+        <p class="bpi-loading-state__label" id="bpi-loading-label">Fetching background...</p>
       </section>
 
-      <!-- Person card -->
-      <section id="mi-person-card" class="mi-person-card mi-hidden" aria-label="Person background" aria-live="polite">
-
-        <!-- Profile header -->
-        <div class="mi-profile-header">
-          <div class="mi-profile-header__avatar" id="mi-avatar" aria-hidden="true"></div>
-          <div class="mi-profile-header__info">
-            <h2 class="mi-profile-header__name" id="mi-name"></h2>
-            <p class="mi-profile-header__title" id="mi-job-title"></p>
-            <p class="mi-profile-header__company" id="mi-company"></p>
-            <p class="mi-profile-header__location" id="mi-location"></p>
+      <!-- Person card template (cloned for each lookup result) -->
+      <template id="bpi-person-card-template">
+        <section class="bpi-person-card" aria-label="Person background">
+          <div class="bpi-profile-header">
+            <div class="bpi-profile-header__avatar" data-ref="avatar" aria-hidden="true"></div>
+            <div class="bpi-profile-header__info">
+              <h2 class="bpi-profile-header__name" data-ref="name"></h2>
+              <p class="bpi-profile-header__title" data-ref="job-title"></p>
+              <p class="bpi-profile-header__company" data-ref="company"></p>
+              <p class="bpi-profile-header__location" data-ref="location"></p>
+            </div>
           </div>
-        </div>
-
-        <!-- Stats row -->
-        <div class="mi-stats-row" id="mi-stats-row">
-          <div class="mi-stat" id="mi-stat-connections">
-            <span class="mi-stat__value" id="mi-connections">--</span>
-            <span class="mi-stat__label">connections</span>
+          <div class="bpi-stats-row" data-ref="stats-row">
+            <div class="bpi-stat">
+              <span class="bpi-stat__value" data-ref="connections">--</span>
+              <span class="bpi-stat__label">connections</span>
+            </div>
+            <div class="bpi-stat">
+              <span class="bpi-stat__value" data-ref="followers">--</span>
+              <span class="bpi-stat__label">followers</span>
+            </div>
+            <div class="bpi-stat bpi-stat--clickable" data-ref="stat-confidence">
+              <span class="bpi-stat__value bpi-confidence-dot" data-ref="confidence"></span>
+              <span class="bpi-stat__label">match</span>
+            </div>
           </div>
-          <div class="mi-stat" id="mi-stat-followers">
-            <span class="mi-stat__value" id="mi-followers">--</span>
-            <span class="mi-stat__label">followers</span>
+          <div class="bpi-confidence-panel bpi-hidden" data-ref="confidence-panel" role="region" aria-label="Confidence details">
+            <div class="bpi-confidence-panel__header">
+              <span class="bpi-confidence-panel__title">Match Confidence</span>
+              <span class="bpi-confidence-panel__score" data-ref="confidence-score"></span>
+            </div>
+            <div class="bpi-confidence-panel__bar-wrap">
+              <div class="bpi-confidence-panel__bar" data-ref="confidence-bar"></div>
+            </div>
+            <ul class="bpi-confidence-panel__citations" data-ref="confidence-citations"></ul>
           </div>
-          <div class="mi-stat mi-stat--clickable" id="mi-stat-confidence">
-            <span class="mi-stat__value mi-confidence-dot" id="mi-confidence"></span>
-            <span class="mi-stat__label">match</span>
+          <div class="bpi-section" data-ref="bio-section">
+            <h3 class="bpi-section__heading">About</h3>
+            <p class="bpi-section__text" data-ref="bio"></p>
           </div>
-        </div>
-
-        <!-- Confidence Citations Panel -->
-        <div class="mi-confidence-panel mi-hidden" id="mi-confidence-panel" role="region" aria-label="Confidence details">
-          <div class="mi-confidence-panel__header">
-            <span class="mi-confidence-panel__title">Match Confidence</span>
-            <span class="mi-confidence-panel__score" id="mi-confidence-score"></span>
+          <div class="bpi-section" data-ref="experience-section">
+            <h3 class="bpi-section__heading">Experience</h3>
+            <div class="bpi-timeline" data-ref="experience-list"></div>
           </div>
-          <div class="mi-confidence-panel__bar-wrap">
-            <div class="mi-confidence-panel__bar" id="mi-confidence-bar"></div>
+          <div class="bpi-section" data-ref="education-section">
+            <h3 class="bpi-section__heading">Education</h3>
+            <div class="bpi-edu-list" data-ref="education-list"></div>
           </div>
-          <ul class="mi-confidence-panel__citations" id="mi-confidence-citations"></ul>
-        </div>
+          <div class="bpi-section" data-ref="posts-section">
+            <h3 class="bpi-section__heading">Recent Activity</h3>
+            <div class="bpi-posts-list" data-ref="posts-list"></div>
+          </div>
+          <div class="bpi-section" data-ref="linkedin-section">
+            <a class="bpi-linkedin-btn" data-ref="linkedin" href="#" target="_blank" rel="noopener noreferrer">
+              <span class="bpi-linkedin-btn__icon" aria-hidden="true">in</span>
+              View LinkedIn Profile
+            </a>
+          </div>
+          <footer class="bpi-card-footer">
+            <span class="bpi-badge" data-ref="source-badge"></span>
+            <time class="bpi-card-footer__time" data-ref="fetched-at"></time>
+          </footer>
+        </section>
+      </template>
 
-        <!-- About/Bio -->
-        <div class="mi-section" id="mi-bio-section">
-          <h3 class="mi-section__heading">About</h3>
-          <p class="mi-section__text" id="mi-bio"></p>
-        </div>
-
-        <!-- Experience -->
-        <div class="mi-section" id="mi-experience-section">
-          <h3 class="mi-section__heading">Experience</h3>
-          <div class="mi-timeline" id="mi-experience-list"></div>
-        </div>
-
-        <!-- Education -->
-        <div class="mi-section" id="mi-education-section">
-          <h3 class="mi-section__heading">Education</h3>
-          <div class="mi-edu-list" id="mi-education-list"></div>
-        </div>
-
-        <!-- Recent Activity -->
-        <div class="mi-section" id="mi-posts-section">
-          <h3 class="mi-section__heading">Recent Activity</h3>
-          <div class="mi-posts-list" id="mi-posts-list"></div>
-        </div>
-
-        <!-- LinkedIn button -->
-        <div class="mi-section" id="mi-linkedin-section">
-          <a class="mi-linkedin-btn" id="mi-linkedin" href="#" target="_blank" rel="noopener noreferrer">
-            <span class="mi-linkedin-btn__icon" aria-hidden="true">in</span>
-            View LinkedIn Profile
-          </a>
-        </div>
-
-        <!-- Footer -->
-        <footer class="mi-card-footer">
-          <span class="mi-badge" id="mi-source-badge"></span>
-          <time class="mi-card-footer__time" id="mi-fetched-at"></time>
-        </footer>
-      </section>
+      <!-- Card stack (accumulates results, newest on top) -->
+      <div id="bpi-card-stack" class="bpi-card-stack bpi-hidden" aria-label="Person results" aria-live="polite"></div>
 
       <!-- Error state -->
-      <section id="mi-error-state" class="mi-error-state mi-hidden" aria-label="Error" aria-live="assertive">
-        <div class="mi-error-state__icon" aria-hidden="true">&#x26A0;&#xFE0F;</div>
-        <p class="mi-error-state__heading">Something went wrong</p>
-        <p class="mi-error-state__body" id="mi-error-message">
+      <section id="bpi-error-state" class="bpi-error-state bpi-hidden" aria-label="Error" aria-live="assertive">
+        <div class="bpi-error-state__icon" aria-hidden="true">&#x26A0;&#xFE0F;</div>
+        <p class="bpi-error-state__heading">Something went wrong</p>
+        <p class="bpi-error-state__body" id="bpi-error-message">
           Could not load background information. Please try again.
         </p>
-        <button class="mi-retry-btn" id="mi-retry" type="button">Retry</button>
-        <div class="mi-manual-search" id="mi-manual-search-error">
-          <p class="mi-manual-search__label">Or search manually:</p>
-          <div class="mi-search-row">
+        <button class="bpi-retry-btn" id="bpi-retry" type="button">Retry</button>
+        <div class="bpi-manual-search" id="bpi-manual-search-error">
+          <p class="bpi-manual-search__label">Or search manually:</p>
+          <div class="bpi-search-row">
             <input
               type="text"
-              id="mi-search-input-error"
+              id="bpi-search-input-error"
               placeholder="Enter name..."
-              class="mi-search-input"
+              class="bpi-search-input"
               aria-label="Search for a person by name"
             />
-            <button id="mi-search-btn-error" type="button" class="mi-search-btn">Search</button>
+            <button id="bpi-search-btn-error" type="button" class="bpi-search-btn">Search</button>
           </div>
         </div>
       </section>

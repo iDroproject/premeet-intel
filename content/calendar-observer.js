@@ -1,9 +1,9 @@
 /**
  * CalendarObserver
  *
- * Watches the Google Calendar DOM for event popups and detail panels using
- * MutationObserver. When a popup is detected it runs the attendee extractor
- * and button injector.
+ * Bright People Intel — Watches the Google Calendar DOM for event popups and
+ * detail panels using MutationObserver. When a popup is detected it runs the
+ * attendee extractor and button injector.
  *
  * Loaded as a plain content script (no ES module imports).
  * Depends on AttendeeExtractor and ButtonInjector being defined earlier in
@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  const LOG_PREFIX = '[Meeting Intel][CalendarObserver]';
+  const LOG_PREFIX = '[BPI][CalendarObserver]';
 
   // ─── Popup Detection Helpers ─────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 /**
  * sidepanel.js
  *
- * Meeting Intel - Side Panel UI Controller
+ * Bright People Intel - Side Panel UI Controller
  *
  * Renders the full PersonData model from the response normalizer:
  *   - Profile header (avatar, name, title, company, location)
@@ -11,52 +11,34 @@
  *   - Education list
  *   - Recent activity/posts
  *   - LinkedIn link
+ *
+ * Supports multi-person card stacking: each lookup result is cloned from
+ * a <template> and prepended to a card stack (newest on top).
  */
 
 'use strict';
 
-const LOG_PREFIX = '[Meeting Intel][SidePanel]';
+const LOG_PREFIX = '[BPI][SidePanel]';
 
 // -- DOM References --
 
 const $ = (id) => document.getElementById(id);
 
 const Views = {
-  empty:   $('mi-empty-state'),
-  loading: $('mi-loading-state'),
-  card:    $('mi-person-card'),
-  error:   $('mi-error-state'),
+  empty:     $('bpi-empty-state'),
+  loading:   $('bpi-loading-state'),
+  cardStack: $('bpi-card-stack'),
+  error:     $('bpi-error-state'),
 };
 
 const El = {
-  avatar:           $('mi-avatar'),
-  name:             $('mi-name'),
-  jobTitle:         $('mi-job-title'),
-  company:          $('mi-company'),
-  location:         $('mi-location'),
-  statsRow:         $('mi-stats-row'),
-  connections:      $('mi-connections'),
-  followers:        $('mi-followers'),
-  confidence:       $('mi-confidence'),
-  confidencePanel:  $('mi-confidence-panel'),
-  confidenceScore:  $('mi-confidence-score'),
-  confidenceBar:    $('mi-confidence-bar'),
-  confidenceCitations: $('mi-confidence-citations'),
-  bioSection:       $('mi-bio-section'),
-  bio:              $('mi-bio'),
-  experienceSection: $('mi-experience-section'),
-  experienceList:   $('mi-experience-list'),
-  educationSection: $('mi-education-section'),
-  educationList:    $('mi-education-list'),
-  postsSection:     $('mi-posts-section'),
-  postsList:        $('mi-posts-list'),
-  linkedInSection:  $('mi-linkedin-section'),
-  linkedIn:         $('mi-linkedin'),
-  sourceBadge:      $('mi-source-badge'),
-  fetchedAt:        $('mi-fetched-at'),
-  errorMessage:     $('mi-error-message'),
-  retryBtn:         $('mi-retry'),
-  loadingLabel:     $('mi-loading-label'),
+  errorMessage:     $('bpi-error-message'),
+  retryBtn:         $('bpi-retry'),
+  loadingLabel:     $('bpi-loading-label'),
+  progressFill:     $('bpi-progress-fill'),
+  progressPercent:  $('bpi-progress-percent'),
+  lookupNameText:   $('bpi-lookup-name-text'),
+  pipeline:         $('bpi-pipeline'),
 };
 
 // -- State --
@@ -68,7 +50,7 @@ let lastPayload = null;
 function showView(viewName) {
   Object.entries(Views).forEach(([key, el]) => {
     if (!el) return;
-    el.classList.toggle('mi-hidden', key !== viewName);
+    el.classList.toggle('bpi-hidden', key !== viewName);
   });
 }
 
@@ -96,251 +78,280 @@ function formatNumber(n) {
 
 function confidenceLabel(level) {
   switch (level) {
-    case 'high':   return { text: 'High', cls: 'mi-confidence--high' };
-    case 'medium': return { text: 'Med', cls: 'mi-confidence--medium' };
-    default:       return { text: 'Low', cls: 'mi-confidence--low' };
+    case 'high':   return { text: 'High', cls: 'bpi-confidence--high' };
+    case 'medium': return { text: 'Med', cls: 'bpi-confidence--medium' };
+    default:       return { text: 'Low', cls: 'bpi-confidence--low' };
   }
 }
 
-// -- Render Functions --
+// -- Card Refs Helper --
 
-function renderAvatar(data) {
-  const el = El.avatar;
+/**
+ * Build a refs object from a cloned card element by querying data-ref attrs.
+ */
+function getCardRefs(cardEl) {
+  const r = (name) => cardEl.querySelector(`[data-ref="${name}"]`);
+  return {
+    avatar:              r('avatar'),
+    name:                r('name'),
+    jobTitle:            r('job-title'),
+    company:             r('company'),
+    location:            r('location'),
+    statsRow:            r('stats-row'),
+    connections:         r('connections'),
+    followers:           r('followers'),
+    confidence:          r('confidence'),
+    statConfidence:      r('stat-confidence'),
+    confidencePanel:     r('confidence-panel'),
+    confidenceScore:     r('confidence-score'),
+    confidenceBar:       r('confidence-bar'),
+    confidenceCitations: r('confidence-citations'),
+    bioSection:          r('bio-section'),
+    bio:                 r('bio'),
+    experienceSection:   r('experience-section'),
+    experienceList:      r('experience-list'),
+    educationSection:    r('education-section'),
+    educationList:       r('education-list'),
+    postsSection:        r('posts-section'),
+    postsList:           r('posts-list'),
+    linkedInSection:     r('linkedin-section'),
+    linkedIn:            r('linkedin'),
+    sourceBadge:         r('source-badge'),
+    fetchedAt:           r('fetched-at'),
+  };
+}
+
+// -- Card Render Functions --
+
+function renderAvatar(refs, data) {
+  const el = refs.avatar;
   if (!el) return;
 
   el.innerHTML = '';
-  el.className = 'mi-profile-header__avatar';
+  el.className = 'bpi-profile-header__avatar';
 
   if (data.avatarUrl && !data.avatarUrl.includes('/sc/h/')) {
-    // Real avatar image (skip LinkedIn default placeholder URLs)
     const img = document.createElement('img');
     img.src = data.avatarUrl;
     img.alt = data.name || '';
-    img.className = 'mi-avatar-img';
+    img.className = 'bpi-avatar-img';
     img.onerror = () => {
       img.remove();
       el.textContent = initialsFrom(data.name);
-      el.classList.add('mi-avatar--initials');
+      el.classList.add('bpi-avatar--initials');
     };
     el.appendChild(img);
   } else {
     el.textContent = initialsFrom(data.name);
-    el.classList.add('mi-avatar--initials');
+    el.classList.add('bpi-avatar--initials');
   }
 }
 
-function renderIdentity(data) {
-  if (El.name) El.name.textContent = data.name || 'Unknown';
-  if (El.jobTitle) {
-    El.jobTitle.textContent = data.currentTitle || '';
-    El.jobTitle.hidden = !data.currentTitle;
+function renderIdentity(refs, data) {
+  if (refs.name) refs.name.textContent = data.name || 'Unknown';
+  if (refs.jobTitle) {
+    refs.jobTitle.textContent = data.currentTitle || '';
+    refs.jobTitle.hidden = !data.currentTitle;
   }
-  if (El.company) {
-    El.company.textContent = data.currentCompany || '';
-    El.company.hidden = !data.currentCompany;
+  if (refs.company) {
+    refs.company.textContent = data.currentCompany || '';
+    refs.company.hidden = !data.currentCompany;
   }
-  if (El.location) {
-    El.location.textContent = data.location || '';
-    El.location.hidden = !data.location;
+  if (refs.location) {
+    refs.location.textContent = data.location || '';
+    refs.location.hidden = !data.location;
   }
 }
 
-function renderStats(data) {
-  if (El.connections) El.connections.textContent = formatNumber(data.connections);
-  if (El.followers) El.followers.textContent = formatNumber(data.followers);
+function renderStats(refs, data) {
+  if (refs.connections) refs.connections.textContent = formatNumber(data.connections);
+  if (refs.followers) refs.followers.textContent = formatNumber(data.followers);
 
-  if (El.confidence) {
+  if (refs.confidence) {
     const conf = confidenceLabel(data._confidence);
-    El.confidence.textContent = conf.text;
-    El.confidence.className = 'mi-stat__value mi-confidence-dot ' + conf.cls;
+    refs.confidence.textContent = conf.text;
+    refs.confidence.className = 'bpi-stat__value bpi-confidence-dot ' + conf.cls;
   }
 
-  // Hide stats row if no meaningful data
   const hasStats = data.connections || data.followers;
-  if (El.statsRow) El.statsRow.hidden = !hasStats;
+  if (refs.statsRow) refs.statsRow.hidden = !hasStats;
 }
 
-function renderConfidence(data) {
-  if (!El.confidencePanel) return;
+function renderConfidence(refs, data) {
+  if (!refs.confidencePanel) return;
 
   const citations = data._confidenceCitations || [];
   const score = data._confidenceScore || 0;
   const maxScore = 12;
 
-  // Score display.
-  if (El.confidenceScore) El.confidenceScore.textContent = `${score}/${maxScore}`;
+  if (refs.confidenceScore) refs.confidenceScore.textContent = `${score}/${maxScore}`;
 
-  // Progress bar.
-  if (El.confidenceBar) {
+  if (refs.confidenceBar) {
     const pct = Math.round((score / maxScore) * 100);
-    El.confidenceBar.style.width = `${pct}%`;
-    El.confidenceBar.className = 'mi-confidence-panel__bar';
-    if (data._confidence === 'high') El.confidenceBar.classList.add('mi-confidence-panel__bar--high');
-    else if (data._confidence === 'medium') El.confidenceBar.classList.add('mi-confidence-panel__bar--medium');
-    else El.confidenceBar.classList.add('mi-confidence-panel__bar--low');
+    refs.confidenceBar.style.width = `${pct}%`;
+    refs.confidenceBar.className = 'bpi-confidence-panel__bar';
+    if (data._confidence === 'high') refs.confidenceBar.classList.add('bpi-confidence-panel__bar--high');
+    else if (data._confidence === 'medium') refs.confidenceBar.classList.add('bpi-confidence-panel__bar--medium');
+    else refs.confidenceBar.classList.add('bpi-confidence-panel__bar--low');
   }
 
-  // Citations list.
-  if (El.confidenceCitations) {
-    El.confidenceCitations.innerHTML = '';
+  if (refs.confidenceCitations) {
+    refs.confidenceCitations.innerHTML = '';
     citations.forEach((c) => {
       const li = document.createElement('li');
-      li.className = 'mi-confidence-panel__citation';
-      li.innerHTML = `<span class="mi-confidence-panel__check">&#x2713;</span> ${escapeHtml(c.description)}`;
-      El.confidenceCitations.appendChild(li);
+      li.className = 'bpi-confidence-panel__citation';
+      li.innerHTML = `<span class="bpi-confidence-panel__check">&#x2713;</span> ${escapeHtml(c.description)}`;
+      refs.confidenceCitations.appendChild(li);
     });
   }
 
-  // Toggle: clicking confidence stat shows/hides the panel.
-  const statEl = document.getElementById('mi-stat-confidence');
-  if (statEl && citations.length > 0) {
-    statEl.style.cursor = 'pointer';
-    statEl.onclick = () => {
-      El.confidencePanel.classList.toggle('mi-hidden');
+  if (refs.statConfidence && citations.length > 0) {
+    refs.statConfidence.style.cursor = 'pointer';
+    refs.statConfidence.onclick = () => {
+      refs.confidencePanel.classList.toggle('bpi-hidden');
     };
   }
 }
 
-function renderBio(data) {
-  if (!El.bioSection || !El.bio) return;
+function renderBio(refs, data) {
+  if (!refs.bioSection || !refs.bio) return;
   if (data.bio) {
-    El.bio.textContent = data.bio;
-    El.bioSection.hidden = false;
+    refs.bio.textContent = data.bio;
+    refs.bioSection.hidden = false;
   } else {
-    El.bioSection.hidden = true;
+    refs.bioSection.hidden = true;
   }
 }
 
-function renderExperience(data) {
-  if (!El.experienceSection || !El.experienceList) return;
+function renderExperience(refs, data) {
+  if (!refs.experienceSection || !refs.experienceList) return;
 
-  El.experienceList.innerHTML = '';
+  refs.experienceList.innerHTML = '';
 
   if (!data.experience || data.experience.length === 0) {
-    El.experienceSection.hidden = true;
+    refs.experienceSection.hidden = true;
     return;
   }
 
-  El.experienceSection.hidden = false;
+  refs.experienceSection.hidden = false;
 
   data.experience.forEach((exp) => {
     const item = document.createElement('div');
-    item.className = 'mi-timeline__item';
+    item.className = 'bpi-timeline__item';
 
     let logoHtml = '';
     if (exp.companyLogoUrl) {
-      logoHtml = `<img class="mi-timeline__logo" src="${escapeHtml(exp.companyLogoUrl)}" alt="" onerror="this.style.display='none'" />`;
+      logoHtml = `<img class="bpi-timeline__logo" src="${escapeHtml(exp.companyLogoUrl)}" alt="" onerror="this.style.display='none'" />`;
     }
 
     const dateRange = [exp.startDate, exp.endDate].filter(Boolean).join(' - ');
 
     item.innerHTML = `
-      <div class="mi-timeline__header">
+      <div class="bpi-timeline__header">
         ${logoHtml}
-        <div class="mi-timeline__info">
-          <p class="mi-timeline__title">${escapeHtml(exp.title)}</p>
-          <p class="mi-timeline__company">${escapeHtml(exp.company)}</p>
-          ${dateRange ? `<p class="mi-timeline__date">${escapeHtml(dateRange)}</p>` : ''}
-          ${exp.location ? `<p class="mi-timeline__location">${escapeHtml(exp.location)}</p>` : ''}
+        <div class="bpi-timeline__info">
+          <p class="bpi-timeline__title">${escapeHtml(exp.title)}</p>
+          <p class="bpi-timeline__company">${escapeHtml(exp.company)}</p>
+          ${dateRange ? `<p class="bpi-timeline__date">${escapeHtml(dateRange)}</p>` : ''}
+          ${exp.location ? `<p class="bpi-timeline__location">${escapeHtml(exp.location)}</p>` : ''}
         </div>
       </div>
-      ${exp.description ? `<p class="mi-timeline__desc">${escapeHtml(exp.description)}</p>` : ''}
+      ${exp.description ? `<p class="bpi-timeline__desc">${escapeHtml(exp.description)}</p>` : ''}
     `;
 
-    El.experienceList.appendChild(item);
+    refs.experienceList.appendChild(item);
   });
 }
 
-function renderEducation(data) {
-  if (!El.educationSection || !El.educationList) return;
+function renderEducation(refs, data) {
+  if (!refs.educationSection || !refs.educationList) return;
 
-  El.educationList.innerHTML = '';
+  refs.educationList.innerHTML = '';
 
   if (!data.education || data.education.length === 0) {
-    El.educationSection.hidden = true;
+    refs.educationSection.hidden = true;
     return;
   }
 
-  El.educationSection.hidden = false;
+  refs.educationSection.hidden = false;
 
   data.education.forEach((edu) => {
     const item = document.createElement('div');
-    item.className = 'mi-edu__item';
+    item.className = 'bpi-edu__item';
 
     let logoHtml = '';
     if (edu.logoUrl) {
-      logoHtml = `<img class="mi-edu__logo" src="${escapeHtml(edu.logoUrl)}" alt="" onerror="this.style.display='none'" />`;
+      logoHtml = `<img class="bpi-edu__logo" src="${escapeHtml(edu.logoUrl)}" alt="" onerror="this.style.display='none'" />`;
     }
 
     const years = [edu.startYear, edu.endYear].filter(Boolean).join(' - ');
     const degreeLine = [edu.degree, edu.field].filter(Boolean).join(', ');
 
     item.innerHTML = `
-      <div class="mi-edu__header">
+      <div class="bpi-edu__header">
         ${logoHtml}
-        <div class="mi-edu__info">
-          <p class="mi-edu__institution">${escapeHtml(edu.institution)}</p>
-          ${degreeLine ? `<p class="mi-edu__degree">${escapeHtml(degreeLine)}</p>` : ''}
-          ${years ? `<p class="mi-edu__years">${escapeHtml(years)}</p>` : ''}
+        <div class="bpi-edu__info">
+          <p class="bpi-edu__institution">${escapeHtml(edu.institution)}</p>
+          ${degreeLine ? `<p class="bpi-edu__degree">${escapeHtml(degreeLine)}</p>` : ''}
+          ${years ? `<p class="bpi-edu__years">${escapeHtml(years)}</p>` : ''}
         </div>
       </div>
     `;
 
-    El.educationList.appendChild(item);
+    refs.educationList.appendChild(item);
   });
 }
 
-function renderPosts(data) {
-  if (!El.postsSection || !El.postsList) return;
+function renderPosts(refs, data) {
+  if (!refs.postsSection || !refs.postsList) return;
 
-  El.postsList.innerHTML = '';
+  refs.postsList.innerHTML = '';
 
   if (!data.recentPosts || data.recentPosts.length === 0) {
-    El.postsSection.hidden = true;
+    refs.postsSection.hidden = true;
     return;
   }
 
-  El.postsSection.hidden = false;
+  refs.postsSection.hidden = false;
 
-  // Show max 4 posts
   const posts = data.recentPosts.slice(0, 4);
 
   posts.forEach((post) => {
     const item = document.createElement('a');
-    item.className = 'mi-post__item';
+    item.className = 'bpi-post__item';
     item.href = post.link || '#';
     item.target = '_blank';
     item.rel = 'noopener noreferrer';
 
     let imgHtml = '';
     if (post.imageUrl) {
-      imgHtml = `<img class="mi-post__img" src="${escapeHtml(post.imageUrl)}" alt="" onerror="this.style.display='none'" />`;
+      imgHtml = `<img class="bpi-post__img" src="${escapeHtml(post.imageUrl)}" alt="" onerror="this.style.display='none'" />`;
     }
 
     item.innerHTML = `
       ${imgHtml}
-      <div class="mi-post__content">
-        <p class="mi-post__interaction">${escapeHtml(post.interaction)}</p>
-        <p class="mi-post__title">${escapeHtml(post.title ? post.title.slice(0, 120) + (post.title.length > 120 ? '...' : '') : '')}</p>
+      <div class="bpi-post__content">
+        <p class="bpi-post__interaction">${escapeHtml(post.interaction)}</p>
+        <p class="bpi-post__title">${escapeHtml(post.title ? post.title.slice(0, 120) + (post.title.length > 120 ? '...' : '') : '')}</p>
       </div>
     `;
 
-    El.postsList.appendChild(item);
+    refs.postsList.appendChild(item);
   });
 }
 
-function renderLinkedIn(data) {
-  if (!El.linkedInSection || !El.linkedIn) return;
+function renderLinkedIn(refs, data) {
+  if (!refs.linkedInSection || !refs.linkedIn) return;
   if (data.linkedinUrl) {
-    El.linkedIn.href = data.linkedinUrl;
-    El.linkedInSection.hidden = false;
+    refs.linkedIn.href = data.linkedinUrl;
+    refs.linkedInSection.hidden = false;
   } else {
-    El.linkedInSection.hidden = true;
+    refs.linkedInSection.hidden = true;
   }
 }
 
-function renderFooter(data) {
-  if (El.sourceBadge) {
+function renderFooter(refs, data) {
+  if (refs.sourceBadge) {
     const sourceMap = {
       'brightdata-url': 'LinkedIn',
       'brightdata-name': 'Search',
@@ -350,39 +361,90 @@ function renderFooter(data) {
       'mock': 'Demo',
       'error': 'Error',
     };
-    El.sourceBadge.textContent = sourceMap[data._source] || data._source || 'Unknown';
+    refs.sourceBadge.textContent = sourceMap[data._source] || data._source || 'Unknown';
   }
 
-  if (El.fetchedAt && data._fetchedAt) {
+  if (refs.fetchedAt && data._fetchedAt) {
     const d = new Date(data._fetchedAt);
-    El.fetchedAt.textContent = `Fetched ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    El.fetchedAt.dateTime = d.toISOString();
+    refs.fetchedAt.textContent = `Fetched ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    refs.fetchedAt.dateTime = d.toISOString();
+  }
+}
+
+// -- Progress Render --
+
+function renderProgress(progressPayload) {
+  const { percent, personName, stepsState, label } = progressPayload;
+
+  if (El.progressFill) {
+    El.progressFill.style.width = `${percent}%`;
+  }
+  if (El.progressPercent) {
+    El.progressPercent.textContent = `${percent}%`;
+  }
+
+  if (El.lookupNameText && personName) {
+    El.lookupNameText.textContent = `Looking up ${personName}...`;
+  }
+
+  if (El.pipeline && stepsState) {
+    stepsState.forEach(step => {
+      const stepEl = El.pipeline.querySelector(`[data-step="${step.id}"]`);
+      if (!stepEl) return;
+
+      stepEl.className = `bpi-pipeline__step bpi-pipeline__step--${step.status}`;
+
+      const statusEl = stepEl.querySelector('.bpi-pipeline__status');
+      if (statusEl) {
+        const icons = { pending: '', active: '', completed: '\u2713', failed: '\u2717', skipped: '\u2014' };
+        statusEl.textContent = icons[step.status] || '';
+      }
+    });
+  }
+
+  if (El.loadingLabel && label) {
+    El.loadingLabel.textContent = label;
   }
 }
 
 // -- Main Render --
 
+/**
+ * Clone the person card template, populate it with data, and prepend
+ * to the card stack (newest result on top).
+ */
 function renderPersonCard(data) {
   console.log(LOG_PREFIX, 'Rendering person card for:', data.name);
 
-  // Check for error response
   if (data._error) {
     showError(data._error);
     return;
   }
 
-  renderAvatar(data);
-  renderIdentity(data);
-  renderStats(data);
-  renderConfidence(data);
-  renderBio(data);
-  renderExperience(data);
-  renderEducation(data);
-  renderPosts(data);
-  renderLinkedIn(data);
-  renderFooter(data);
+  const template = document.getElementById('bpi-person-card-template');
+  if (!template) {
+    console.error(LOG_PREFIX, 'Person card template not found');
+    showError('UI error: card template missing');
+    return;
+  }
 
-  showView('card');
+  const cardEl = template.content.firstElementChild.cloneNode(true);
+  const refs = getCardRefs(cardEl);
+
+  renderAvatar(refs, data);
+  renderIdentity(refs, data);
+  renderStats(refs, data);
+  renderConfidence(refs, data);
+  renderBio(refs, data);
+  renderExperience(refs, data);
+  renderEducation(refs, data);
+  renderPosts(refs, data);
+  renderLinkedIn(refs, data);
+  renderFooter(refs, data);
+
+  // Prepend newest card to stack
+  Views.cardStack.prepend(cardEl);
+  showView('cardStack');
 }
 
 function showError(message) {
@@ -428,18 +490,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (El.loadingLabel && lastPayload?.name) {
         El.loadingLabel.textContent = `Looking up ${lastPayload.name}...`;
       }
+      // Reset progress UI
+      if (El.progressFill) El.progressFill.style.width = '0%';
+      if (El.progressPercent) El.progressPercent.textContent = '0%';
+      if (El.lookupNameText && lastPayload?.name) {
+        El.lookupNameText.textContent = `Looking up ${lastPayload.name}...`;
+      }
+      if (El.pipeline) {
+        El.pipeline.querySelectorAll('.bpi-pipeline__step').forEach(el => {
+          el.className = 'bpi-pipeline__step bpi-pipeline__step--pending';
+          const statusEl = el.querySelector('.bpi-pipeline__status');
+          if (statusEl) statusEl.textContent = '';
+        });
+      }
       showView('loading');
       sendResponse({ ok: true });
       break;
     }
 
-    // Progress updates pushed by the WaterfallOrchestrator as each layer runs.
-    // Reflect which lookup strategy is currently active in the loading label.
     case 'FETCH_PROGRESS': {
-      const label = message.payload?.label;
-      if (label && El.loadingLabel) {
-        El.loadingLabel.textContent = label;
-        console.log(LOG_PREFIX, 'Fetch progress:', label);
+      const progressPayload = message.payload;
+      console.log(LOG_PREFIX, 'Fetch progress:', progressPayload?.label);
+      if (progressPayload?.stepsState) {
+        renderProgress(progressPayload);
+      } else if (progressPayload?.label && El.loadingLabel) {
+        El.loadingLabel.textContent = progressPayload.label;
       }
       sendResponse({ ok: true });
       break;
@@ -473,20 +548,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // -- Manual Search --
 
-/**
- * Submit a manual search for a given name.
- * Shows the loading state immediately and sends FETCH_PERSON_BACKGROUND
- * to the service worker.
- *
- * @param {string} name - The name entered by the user.
- */
 function handleManualSearch(name) {
   const trimmed = name.trim();
   if (!trimmed) return;
 
   console.log(LOG_PREFIX, 'Manual search for:', trimmed);
 
-  // Build a minimal payload – no email or company available from manual input.
   const payload = { name: trimmed, email: null, company: null };
   lastPayload = payload;
 
@@ -505,18 +572,10 @@ function handleManualSearch(name) {
         console.warn(LOG_PREFIX, 'Manual search rejected by service worker:', response.error);
         showError(response.error || 'Could not start the search. Please try again.');
       }
-      // On success the service worker will push PERSON_BACKGROUND_RESULT
-      // through the message listener above.
     }
   );
 }
 
-/**
- * Wire up a search input + button pair for manual lookup.
- *
- * @param {string} inputId  - Element ID of the text input.
- * @param {string} buttonId - Element ID of the submit button.
- */
 function wireManualSearch(inputId, buttonId) {
   const inputEl = $(inputId);
   const btnEl   = $(buttonId);
@@ -540,7 +599,7 @@ function wireManualSearch(inputId, buttonId) {
 
 (function init() {
   console.log(LOG_PREFIX, 'Side panel initialised');
-  wireManualSearch('mi-search-input-empty', 'mi-search-btn-empty');
-  wireManualSearch('mi-search-input-error', 'mi-search-btn-error');
+  wireManualSearch('bpi-search-input-empty', 'bpi-search-btn-empty');
+  wireManualSearch('bpi-search-input-error', 'bpi-search-btn-error');
   showView('empty');
 })();

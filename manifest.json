@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Meeting Intel",
-  "version": "1.0.0",
-  "description": "Get professional background on meeting attendees directly in Google Calendar.",
+  "name": "Bright People Intel",
+  "version": "2.0.0",
+  "description": "Get professional background on meeting attendees directly in Google Calendar. Powered by Bright Data.",
 
   "permissions": [
     "storage",

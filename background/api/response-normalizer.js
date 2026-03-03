@@ -1,7 +1,7 @@
 /**
  * background/api/response-normalizer.js
  *
- * Meeting Intel – Bright Data Response Normalizer
+ * Bright People Intel – Bright Data Response Normalizer
  *
  * Converts raw Bright Data LinkedIn API responses into the unified
  * PersonData model. Includes confidence scoring with citations.
@@ -11,7 +11,7 @@
 
 'use strict';
 
-const LOG_PREFIX = '[Meeting Intel][Normalizer]';
+const LOG_PREFIX = '[BPI][Normalizer]';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
