@@ -105,7 +105,7 @@ export class WaterfallOrchestrator {
     };
 
     if (typeof this.onProgress !== 'function') return;
-    try { this.onProgress(payload); } catch (_) { /* swallow */ }
+    try { Promise.resolve(this.onProgress(payload)).catch(() => {}); } catch (_) { /* swallow */ }
   }
 
   async _runLayer(layerName, stepId, fn, timeoutMs) {

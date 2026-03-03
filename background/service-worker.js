@@ -36,9 +36,6 @@ const LOG_PREFIX = '[BPI][SW]';
 /** Bright Data API token (internal). */
 const API_TOKEN = '30728b24f3b8fa70b816bb2936d5451c19941d910a6d330a2b7f04b19cf4b1d9';
 
-/** Bright Data SERP API zone name. */
-const SERP_ZONE = 'serp';
-
 /**
  * Alarm name for the periodic upcoming-meeting pre-fetch.
  * Fires every 2 hours to warm the cache ahead of scheduled meetings.
@@ -127,19 +124,23 @@ chrome.runtime.onInstalled.addListener(async (details) => {
  */
 async function registerAlarms() {
   try {
-    // Cache eviction: runs every 30 minutes.
-    await chrome.alarms.create(ALARM_REFRESH_CACHE, {
-      delayInMinutes:  30,
-      periodInMinutes: 30,
-    });
+    // Only create alarms if they don't already exist (avoids resetting
+    // the timer on every service worker wake-up).
+    const existingCache = await chrome.alarms.get(ALARM_REFRESH_CACHE);
+    if (!existingCache) {
+      await chrome.alarms.create(ALARM_REFRESH_CACHE, {
+        delayInMinutes:  30,
+        periodInMinutes: 30,
+      });
+    }
 
-    // Upcoming-meeting pre-fetch: scaffold for Phase 5 Calendar integration.
-    // The alarm fires every 2 hours; the handler below logs the event but
-    // does not yet query the Calendar API.
-    await chrome.alarms.create(ALARM_PREFETCH_MEETINGS, {
-      delayInMinutes:  2,
-      periodInMinutes: 120,
-    });
+    const existingPrefetch = await chrome.alarms.get(ALARM_PREFETCH_MEETINGS);
+    if (!existingPrefetch) {
+      await chrome.alarms.create(ALARM_PREFETCH_MEETINGS, {
+        delayInMinutes:  2,
+        periodInMinutes: 120,
+      });
+    }
 
     console.log(
       LOG_PREFIX,

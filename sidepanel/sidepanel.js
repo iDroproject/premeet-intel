@@ -342,7 +342,7 @@ function renderPosts(refs, data) {
 
 function renderLinkedIn(refs, data) {
   if (!refs.linkedInSection || !refs.linkedIn) return;
-  if (data.linkedinUrl) {
+  if (data.linkedinUrl && /^https?:\/\/(www\.)?linkedin\.com\//i.test(data.linkedinUrl)) {
     refs.linkedIn.href = data.linkedinUrl;
     refs.linkedInSection.hidden = false;
   } else {
@@ -378,6 +378,9 @@ function renderProgress(progressPayload) {
 
   if (El.progressFill) {
     El.progressFill.style.width = `${percent}%`;
+    // Update ARIA on the progressbar container
+    const progressEl = El.progressFill.closest('[role="progressbar"]');
+    if (progressEl) progressEl.setAttribute('aria-valuenow', percent);
   }
   if (El.progressPercent) {
     El.progressPercent.textContent = `${percent}%`;

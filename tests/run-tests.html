@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bright People Intel -- Test Suite</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', monospace;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      padding: 20px;
+      line-height: 1.6;
+    }
+
+    h1 {
+      color: #00d4ff;
+      margin-bottom: 8px;
+      font-size: 1.4em;
+    }
+
+    h2 {
+      color: #ffa500;
+      margin: 20px 0 8px 0;
+      font-size: 1.1em;
+      border-bottom: 1px solid #333;
+      padding-bottom: 4px;
+    }
+
+    .subtitle {
+      color: #888;
+      font-size: 0.85em;
+      margin-bottom: 16px;
+    }
+
+    .controls {
+      margin: 16px 0;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: #2a2a4a;
+      color: #00d4ff;
+      border: 1px solid #00d4ff;
+      padding: 8px 16px;
+      font-family: inherit;
+      font-size: 0.85em;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      background: #00d4ff;
+      color: #1a1a2e;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.running {
+      border-color: #ffa500;
+      color: #ffa500;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    pre {
+      background: #0d0d1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-size: 0.82em;
+      min-height: 60px;
+      margin-bottom: 16px;
+    }
+
+    pre.all-pass {
+      border-color: #00cc66;
+    }
+
+    pre.has-failures {
+      border-color: #ff4444;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 0.8em;
+      margin-left: 8px;
+    }
+
+    .status.idle { background: #333; color: #888; }
+    .status.running { background: #ffa500; color: #000; }
+    .status.passed { background: #00cc66; color: #000; }
+    .status.failed { background: #ff4444; color: #fff; }
+
+    .info {
+      background: #2a2a3a;
+      border-left: 3px solid #00d4ff;
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-size: 0.82em;
+      color: #aaa;
+    }
+
+    .warning {
+      background: #3a2a1a;
+      border-left: 3px solid #ffa500;
+      padding: 10px 14px;
+      margin: 12px 0;
+      font-size: 0.82em;
+      color: #ccaa77;
+    }
+
+    footer {
+      margin-top: 24px;
+      padding-top: 12px;
+      border-top: 1px solid #333;
+      color: #555;
+      font-size: 0.75em;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Bright People Intel -- Test Suite</h1>
+  <p class="subtitle">Chrome Extension Unit & Integration Tests</p>
+
+  <!-- ── Unit Tests ─────────────────────────────────────────────────────────── -->
+
+  <h2>Unit Tests <span id="unit-status" class="status idle">idle</span></h2>
+
+  <div class="info">
+    Tests LogBuffer, Response Normalizer (pickBestProfile, mergeBusinessEnrichedData,
+    normalizeLinkedInProfile), Cache Key Normalization, WaterfallOrchestrator progress flow,
+    and MessageType enum. No network calls required.
+  </div>
+
+  <div class="controls">
+    <button id="btn-unit" onclick="runUnitTests()">Run Unit Tests</button>
+  </div>
+
+  <pre id="test-output">Click "Run Unit Tests" to start...</pre>
+
+  <!-- ── Integration Tests ──────────────────────────────────────────────────── -->
+
+  <h2>Integration Tests <span id="integration-status" class="status idle">idle</span></h2>
+
+  <div class="warning">
+    These tests make REAL API calls to Bright Data endpoints. They require a valid API token
+    and active network connectivity. Running them will consume API credits.
+  </div>
+
+  <div class="controls">
+    <button id="btn-integration" onclick="runIntegrationTests()">Run Integration Tests</button>
+  </div>
+
+  <pre id="integration-output">Click "Run Integration Tests" to start...</pre>
+
+  <!-- ── Footer ─────────────────────────────────────────────────────────────── -->
+
+  <footer>
+    Bright People Intel v2.0.0 | Test harness loaded at <span id="load-time"></span>
+  </footer>
+
+  <!-- ── Scripts ────────────────────────────────────────────────────────────── -->
+
+  <script>
+    document.getElementById('load-time').textContent = new Date().toISOString();
+  </script>
+
+  <script type="module">
+    // ── Unit Tests ──────────────────────────────────────────────────────────
+
+    let unitTestsModule = null;
+    let unitTestsLoaded = false;
+
+    window.runUnitTests = async function() {
+      const btn = document.getElementById('btn-unit');
+      const status = document.getElementById('unit-status');
+      const output = document.getElementById('test-output');
+
+      btn.disabled = true;
+      btn.classList.add('running');
+      btn.textContent = 'Running...';
+      status.textContent = 'running';
+      status.className = 'status running';
+      output.textContent = 'Loading and running unit tests...\n';
+      output.className = '';
+
+      try {
+        // Dynamic import of the test module. Each import runs the tests.
+        // We use a cache-busting query to allow re-runs.
+        const module = await import(`./api-tests.js?t=${Date.now()}`);
+        // Tests run automatically on import via TestRunner.run() at the end
+        // of api-tests.js. The output is written to #test-output by the harness.
+
+        // If the output is still showing loading message, the tests finished
+        // before the DOM update -- give a small delay.
+        await new Promise(r => setTimeout(r, 100));
+
+        if (output.className === 'all-pass') {
+          status.textContent = 'passed';
+          status.className = 'status passed';
+        } else if (output.className === 'has-failures') {
+          status.textContent = 'failed';
+          status.className = 'status failed';
+        } else {
+          status.textContent = 'done';
+          status.className = 'status passed';
+        }
+      } catch (err) {
+        output.textContent += `\nFATAL ERROR loading test module:\n${err.message}\n\n${err.stack || ''}`;
+        output.className = 'has-failures';
+        status.textContent = 'error';
+        status.className = 'status failed';
+        console.error('Unit test load error:', err);
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = 'Run Unit Tests';
+      }
+    };
+
+    // ── Integration Tests ──────────────────────────────────────────────────
+
+    window.runIntegrationTests = async function() {
+      const btn = document.getElementById('btn-integration');
+      const status = document.getElementById('integration-status');
+      const output = document.getElementById('integration-output');
+
+      btn.disabled = true;
+      btn.classList.add('running');
+      btn.textContent = 'Running...';
+      status.textContent = 'running';
+      status.className = 'status running';
+      output.textContent = 'Loading and running integration tests...\n';
+      output.className = '';
+
+      try {
+        const module = await import(`./integration-tests.js?t=${Date.now()}`);
+        const runner = module.IntegrationTests || window.IntegrationTests;
+
+        if (!runner) {
+          throw new Error('IntegrationTests runner not found in module exports');
+        }
+
+        const results = await runner.run();
+
+        if (results.failed === 0) {
+          status.textContent = 'passed';
+          status.className = 'status passed';
+        } else {
+          status.textContent = 'failed';
+          status.className = 'status failed';
+        }
+      } catch (err) {
+        output.textContent += `\nFATAL ERROR loading integration tests:\n${err.message}\n\n${err.stack || ''}`;
+        output.className = 'has-failures';
+        status.textContent = 'error';
+        status.className = 'status failed';
+        console.error('Integration test load error:', err);
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = 'Run Integration Tests';
+      }
+    };
+
+    // ── Auto-run from query params ──────────────────────────────────────────
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.has('unit') || params.has('all')) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => window.runUnitTests(), 200);
+    }
+
+    if (params.has('integration') || params.has('all')) {
+      // Stagger integration tests to avoid blocking unit tests
+      const delay = params.has('all') ? 2000 : 200;
+      setTimeout(() => window.runIntegrationTests(), delay);
+    }
+  </script>
+
+</body>
+</html>

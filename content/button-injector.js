@@ -177,23 +177,7 @@
     };
 
     try {
-      // Send fetch request to background service worker.
-      chrome.runtime.sendMessage(
-        { type: 'FETCH_PERSON_BACKGROUND', payload },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            console.error(
-              LOG_PREFIX,
-              'Error sending FETCH_PERSON_BACKGROUND:',
-              chrome.runtime.lastError.message
-            );
-          } else {
-            console.log(LOG_PREFIX, 'FETCH_PERSON_BACKGROUND acknowledged:', response);
-          }
-        }
-      );
-
-      // Request side panel to open.
+      // Open side panel FIRST so it's ready to receive the loading trigger.
       chrome.runtime.sendMessage(
         { type: 'OPEN_SIDE_PANEL' },
         (response) => {
@@ -206,6 +190,22 @@
           } else {
             console.log(LOG_PREFIX, 'OPEN_SIDE_PANEL acknowledged:', response);
           }
+
+          // Send fetch request AFTER side panel is open.
+          chrome.runtime.sendMessage(
+            { type: 'FETCH_PERSON_BACKGROUND', payload },
+            (fetchResponse) => {
+              if (chrome.runtime.lastError) {
+                console.error(
+                  LOG_PREFIX,
+                  'Error sending FETCH_PERSON_BACKGROUND:',
+                  chrome.runtime.lastError.message
+                );
+              } else {
+                console.log(LOG_PREFIX, 'FETCH_PERSON_BACKGROUND acknowledged:', fetchResponse);
+              }
+            }
+          );
 
           // Re-enable button after a short delay so user sees the loading state.
           setTimeout(() => {

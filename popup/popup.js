@@ -223,6 +223,10 @@ function wireCacheSection() {
 
 function loadHistory() {
   chrome.runtime.sendMessage({ type: 'GET_HISTORY' }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.warn(LOG_PREFIX, 'GET_HISTORY failed:', chrome.runtime.lastError.message);
+    }
+
     const listEl  = $('bp-history-list');
     const emptyEl = $('bp-history-empty');
     if (!listEl) return;
@@ -258,10 +262,10 @@ function loadHistory() {
       `;
 
       item.addEventListener('click', () => {
-        chrome.runtime.sendMessage({
-          type: 'FETCH_PERSON_BACKGROUND',
-          payload: { name: entry.name, email: entry.email, company: entry.currentCompany },
-        });
+        chrome.runtime.sendMessage(
+          { type: 'FETCH_PERSON_BACKGROUND', payload: { name: entry.name, email: entry.email, company: entry.currentCompany } },
+          () => { if (chrome.runtime.lastError) console.warn(LOG_PREFIX, 'History re-fetch:', chrome.runtime.lastError.message); }
+        );
         showFeedback($('bp-cache-feedback'), 'Loading in side panel...', 'success');
       });
 
@@ -281,6 +285,10 @@ function loadLogs() {
   if (levelSelect?.value)  filters.level  = levelSelect.value;
 
   chrome.runtime.sendMessage({ type: 'GET_LOGS', payload: filters }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.warn(LOG_PREFIX, 'GET_LOGS failed:', chrome.runtime.lastError.message);
+    }
+
     const listEl  = $('bp-logs-list');
     const emptyEl = $('bp-logs-empty');
     if (!listEl) return;

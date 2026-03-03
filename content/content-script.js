@@ -116,9 +116,7 @@
         return false;
     }
 
-    // Return true to keep the message channel open for async sendResponse calls
-    // (not needed here but good practice).
-    return true;
+    return false;
   });
 
   // ─── Cleanup on unload ─────────────────────────────────────────────────────

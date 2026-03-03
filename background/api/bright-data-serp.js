@@ -153,8 +153,12 @@ export async function scrapeBusinessEnriched(linkedInUrl, apiToken) {
 
     if (response.status === 202) {
       const body = await response.json();
-      console.log(LOG_PREFIX, 'Business Enriched async, snapshot:', body?.snapshot_id);
-      return { mode: 'snapshot', snapshotId: body?.snapshot_id };
+      const snapshotId = body?.snapshot_id;
+      if (!snapshotId) {
+        throw new Error('Business Enriched 202 response missing snapshot_id');
+      }
+      console.log(LOG_PREFIX, 'Business Enriched async, snapshot:', snapshotId);
+      return { mode: 'snapshot', snapshotId };
     }
 
     if (!response.ok) {
