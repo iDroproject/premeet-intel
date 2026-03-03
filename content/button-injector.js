@@ -73,25 +73,35 @@
   // ─── Button Factory ───────────────────────────────────────────────────────
 
   /**
-   * Build the first name from a full display name.
+   * Build a short display label from the attendee's name or email.
+   * Uses the full name (truncated to 25 chars) for readability.
    *
-   * @param {string} name
+   * @param {{ name: string, email: string }} attendee
    * @returns {string}
    */
-  function firstNameFrom(name) {
-    if (!name) return '';
-    return name.trim().split(/\s+/)[0];
+  function displayNameFor(attendee) {
+    const name = (attendee.name || '').trim();
+    if (name && !name.includes('@')) {
+      return name.length > 25 ? name.slice(0, 23) + '…' : name;
+    }
+    // Fallback: local part of email, title-cased.
+    const local = (attendee.email || '').split('@')[0] || '';
+    return local
+      .replace(/[._+\-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   /**
-   * Create a single "Know [FirstName]" button element.
+   * Create a single "Know [FullName]" button element.
    *
    * @param {{ name: string, email: string, company: string|null }} attendee
    * @returns {HTMLButtonElement}
    */
   function createAttendeeButton(attendee) {
-    const firstName = firstNameFrom(attendee.name) || attendee.email.split('@')[0];
-    const label = `Know ${firstName}`;
+    const displayName = displayNameFor(attendee);
+    const label = `Know ${displayName}`;
 
     const btn = document.createElement('button');
     btn.className = 'meeting-intel-btn';

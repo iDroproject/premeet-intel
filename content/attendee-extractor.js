@@ -113,10 +113,17 @@
 
       if (!email || !email.includes('@')) return;
 
-      const name =
+      // Prefer aria-label (often the full name), then textContent.
+      // If the resolved text looks like an email address, derive a
+      // human-readable name from the local part instead.
+      let name =
         el.getAttribute('aria-label') ||
         el.textContent.trim() ||
-        nameFromEmail(email);
+        '';
+
+      if (!name || name.includes('@')) {
+        name = nameFromEmail(email);
+      }
 
       results.push({
         name: name || nameFromEmail(email),
@@ -186,7 +193,12 @@
       const email = link.href.replace('mailto:', '').split('?')[0].trim();
       if (!email || !email.includes('@')) return;
 
-      const name = link.textContent.trim() || nameFromEmail(email);
+      let name = link.textContent.trim();
+      // If the link text is the email itself, derive a readable name.
+      if (!name || name.includes('@')) {
+        name = nameFromEmail(email);
+      }
+
       results.push({
         name: name || nameFromEmail(email),
         email,

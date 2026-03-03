@@ -413,7 +413,9 @@ export class WaterfallOrchestrator {
     );
 
     if (urlResult.success) {
-      return this._finalise(urlResult, name, email, cacheKey, identifier);
+      const data = await this._finalise(urlResult, name, email, cacheKey, identifier);
+      if (data) return data;
+      // _finalise returned null → data too thin, continue waterfall
     }
 
     // ── Layer 3: Deep Lookup ──────────────────────────────────────────────────
@@ -425,7 +427,8 @@ export class WaterfallOrchestrator {
     );
 
     if (deepResult.success) {
-      return this._finalise(deepResult, name, email, cacheKey, identifier);
+      const data = await this._finalise(deepResult, name, email, cacheKey, identifier);
+      if (data) return data;
     }
 
     // ── Layer 4: Name search ──────────────────────────────────────────────────
@@ -437,7 +440,8 @@ export class WaterfallOrchestrator {
     );
 
     if (nameResult.success) {
-      return this._finalise(nameResult, name, email, cacheKey, identifier);
+      const data = await this._finalise(nameResult, name, email, cacheKey, identifier);
+      if (data) return data;
     }
 
     // ── Layer 5: All layers failed ────────────────────────────────────────────
@@ -457,13 +461,17 @@ export class WaterfallOrchestrator {
    * Normalise raw profiles from a successful layer, attach email, cache the
    * result, and return the final PersonData object.
    *
+   * If the normalised data is too thin (name is 'Unknown' AND confidence is
+   * 'low'), the method returns `null` instead of a PersonData object.  The
+   * caller interprets a `null` return as "this layer didn't produce usable
+   * data" and continues to the next waterfall layer.
+   *
    * @param {LayerResult}  layerResult
    * @param {string}       name
    * @param {string}       email
    * @param {string}       cacheKey
    * @param {string}       identifier   Human-readable label for logging.
-   * @returns {Promise<import('./response-normalizer.js').PersonData>}
-   * @throws {Error} If normalisation produces no usable PersonData.
+   * @returns {Promise<import('./response-normalizer.js').PersonData|null>}
    */
   async _finalise(layerResult, name, email, cacheKey, identifier) {
     const { profiles, source } = layerResult;
@@ -471,9 +479,21 @@ export class WaterfallOrchestrator {
     const personData = pickBestProfile(profiles, name, source);
 
     if (!personData) {
-      throw new Error(
-        `Could not normalise any profile for "${identifier}" from source "${source}"`
+      console.log(
+        LOG_PREFIX,
+        `Could not normalise any profile for "${identifier}" from source "${source}" – skipping`
       );
+      return null;
+    }
+
+    // Quality gate: if the result is essentially empty, skip it so the
+    // waterfall continues to a deeper (but slower) layer.
+    if (personData.name === 'Unknown' && personData._confidence === 'low') {
+      console.log(
+        LOG_PREFIX,
+        `Layer "${source}" returned low-quality result for "${identifier}" – skipping to next layer`
+      );
+      return null;
     }
 
     // Carry over the calendar-event email when the API didn't provide one.
