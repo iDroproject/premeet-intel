@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' https:;"
+    />
+    <title>Meeting Intel</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+
+    <!-- Header -->
+    <header class="mi-header" role="banner">
+      <div class="mi-header__logo" aria-hidden="true">&#x1F50D;</div>
+      <h1 class="mi-header__title">Meeting Intel</h1>
+    </header>
+
+    <!-- Main Content -->
+    <main id="mi-main" class="mi-main" role="main">
+
+      <!-- Empty state -->
+      <section id="mi-empty-state" class="mi-empty-state" aria-label="Empty state" aria-live="polite">
+        <div class="mi-empty-state__icon" aria-hidden="true">&#x1F4C5;</div>
+        <p class="mi-empty-state__heading">No attendee selected</p>
+        <p class="mi-empty-state__body">
+          Click <strong>"Know [Name]"</strong> on a Google Calendar event to see
+          that person's professional background here.
+        </p>
+      </section>
+
+      <!-- Loading state -->
+      <section id="mi-loading-state" class="mi-loading-state mi-hidden" aria-label="Loading" aria-live="polite" aria-busy="true">
+        <div class="mi-spinner" role="status">
+          <span class="mi-spinner__ring" aria-hidden="true"></span>
+          <span class="mi-sr-only">Loading...</span>
+        </div>
+        <p class="mi-loading-state__label" id="mi-loading-label">Fetching background...</p>
+      </section>
+
+      <!-- Person card -->
+      <section id="mi-person-card" class="mi-person-card mi-hidden" aria-label="Person background" aria-live="polite">
+
+        <!-- Profile header -->
+        <div class="mi-profile-header">
+          <div class="mi-profile-header__avatar" id="mi-avatar" aria-hidden="true"></div>
+          <div class="mi-profile-header__info">
+            <h2 class="mi-profile-header__name" id="mi-name"></h2>
+            <p class="mi-profile-header__title" id="mi-job-title"></p>
+            <p class="mi-profile-header__company" id="mi-company"></p>
+            <p class="mi-profile-header__location" id="mi-location"></p>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="mi-stats-row" id="mi-stats-row">
+          <div class="mi-stat" id="mi-stat-connections">
+            <span class="mi-stat__value" id="mi-connections">--</span>
+            <span class="mi-stat__label">connections</span>
+          </div>
+          <div class="mi-stat" id="mi-stat-followers">
+            <span class="mi-stat__value" id="mi-followers">--</span>
+            <span class="mi-stat__label">followers</span>
+          </div>
+          <div class="mi-stat" id="mi-stat-confidence">
+            <span class="mi-stat__value mi-confidence-dot" id="mi-confidence"></span>
+            <span class="mi-stat__label">match</span>
+          </div>
+        </div>
+
+        <!-- About/Bio -->
+        <div class="mi-section" id="mi-bio-section">
+          <h3 class="mi-section__heading">About</h3>
+          <p class="mi-section__text" id="mi-bio"></p>
+        </div>
+
+        <!-- Experience -->
+        <div class="mi-section" id="mi-experience-section">
+          <h3 class="mi-section__heading">Experience</h3>
+          <div class="mi-timeline" id="mi-experience-list"></div>
+        </div>
+
+        <!-- Education -->
+        <div class="mi-section" id="mi-education-section">
+          <h3 class="mi-section__heading">Education</h3>
+          <div class="mi-edu-list" id="mi-education-list"></div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="mi-section" id="mi-posts-section">
+          <h3 class="mi-section__heading">Recent Activity</h3>
+          <div class="mi-posts-list" id="mi-posts-list"></div>
+        </div>
+
+        <!-- LinkedIn button -->
+        <div class="mi-section" id="mi-linkedin-section">
+          <a class="mi-linkedin-btn" id="mi-linkedin" href="#" target="_blank" rel="noopener noreferrer">
+            <span class="mi-linkedin-btn__icon" aria-hidden="true">in</span>
+            View LinkedIn Profile
+          </a>
+        </div>
+
+        <!-- Footer -->
+        <footer class="mi-card-footer">
+          <span class="mi-badge" id="mi-source-badge"></span>
+          <time class="mi-card-footer__time" id="mi-fetched-at"></time>
+        </footer>
+      </section>
+
+      <!-- Error state -->
+      <section id="mi-error-state" class="mi-error-state mi-hidden" aria-label="Error" aria-live="assertive">
+        <div class="mi-error-state__icon" aria-hidden="true">&#x26A0;&#xFE0F;</div>
+        <p class="mi-error-state__heading">Something went wrong</p>
+        <p class="mi-error-state__body" id="mi-error-message">
+          Could not load background information. Please try again.
+        </p>
+        <button class="mi-retry-btn" id="mi-retry" type="button">Retry</button>
+      </section>
+
+    </main>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
