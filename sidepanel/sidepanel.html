@@ -14,8 +14,11 @@
 
     <!-- Header -->
     <header class="mi-header" role="banner">
-      <div class="mi-header__logo" aria-hidden="true">&#x1F50D;</div>
-      <h1 class="mi-header__title">Meeting Intel</h1>
+      <div class="mi-header__accent-line" aria-hidden="true"></div>
+      <div class="mi-header__content">
+        <div class="mi-header__logo" aria-hidden="true">MI</div>
+        <h1 class="mi-header__title">Meeting Intel</h1>
+      </div>
     </header>
 
     <!-- Main Content -->
@@ -77,10 +80,22 @@
             <span class="mi-stat__value" id="mi-followers">--</span>
             <span class="mi-stat__label">followers</span>
           </div>
-          <div class="mi-stat" id="mi-stat-confidence">
+          <div class="mi-stat mi-stat--clickable" id="mi-stat-confidence">
             <span class="mi-stat__value mi-confidence-dot" id="mi-confidence"></span>
             <span class="mi-stat__label">match</span>
           </div>
+        </div>
+
+        <!-- Confidence Citations Panel -->
+        <div class="mi-confidence-panel mi-hidden" id="mi-confidence-panel" role="region" aria-label="Confidence details">
+          <div class="mi-confidence-panel__header">
+            <span class="mi-confidence-panel__title">Match Confidence</span>
+            <span class="mi-confidence-panel__score" id="mi-confidence-score"></span>
+          </div>
+          <div class="mi-confidence-panel__bar-wrap">
+            <div class="mi-confidence-panel__bar" id="mi-confidence-bar"></div>
+          </div>
+          <ul class="mi-confidence-panel__citations" id="mi-confidence-citations"></ul>
         </div>
 
         <!-- About/Bio -->

@@ -38,6 +38,10 @@ const El = {
   connections:      $('mi-connections'),
   followers:        $('mi-followers'),
   confidence:       $('mi-confidence'),
+  confidencePanel:  $('mi-confidence-panel'),
+  confidenceScore:  $('mi-confidence-score'),
+  confidenceBar:    $('mi-confidence-bar'),
+  confidenceCitations: $('mi-confidence-citations'),
   bioSection:       $('mi-bio-section'),
   bio:              $('mi-bio'),
   experienceSection: $('mi-experience-section'),
@@ -154,6 +158,47 @@ function renderStats(data) {
   // Hide stats row if no meaningful data
   const hasStats = data.connections || data.followers;
   if (El.statsRow) El.statsRow.hidden = !hasStats;
+}
+
+function renderConfidence(data) {
+  if (!El.confidencePanel) return;
+
+  const citations = data._confidenceCitations || [];
+  const score = data._confidenceScore || 0;
+  const maxScore = 12;
+
+  // Score display.
+  if (El.confidenceScore) El.confidenceScore.textContent = `${score}/${maxScore}`;
+
+  // Progress bar.
+  if (El.confidenceBar) {
+    const pct = Math.round((score / maxScore) * 100);
+    El.confidenceBar.style.width = `${pct}%`;
+    El.confidenceBar.className = 'mi-confidence-panel__bar';
+    if (data._confidence === 'high') El.confidenceBar.classList.add('mi-confidence-panel__bar--high');
+    else if (data._confidence === 'medium') El.confidenceBar.classList.add('mi-confidence-panel__bar--medium');
+    else El.confidenceBar.classList.add('mi-confidence-panel__bar--low');
+  }
+
+  // Citations list.
+  if (El.confidenceCitations) {
+    El.confidenceCitations.innerHTML = '';
+    citations.forEach((c) => {
+      const li = document.createElement('li');
+      li.className = 'mi-confidence-panel__citation';
+      li.innerHTML = `<span class="mi-confidence-panel__check">&#x2713;</span> ${escapeHtml(c.description)}`;
+      El.confidenceCitations.appendChild(li);
+    });
+  }
+
+  // Toggle: clicking confidence stat shows/hides the panel.
+  const statEl = document.getElementById('mi-stat-confidence');
+  if (statEl && citations.length > 0) {
+    statEl.style.cursor = 'pointer';
+    statEl.onclick = () => {
+      El.confidencePanel.classList.toggle('mi-hidden');
+    };
+  }
 }
 
 function renderBio(data) {
@@ -300,6 +345,7 @@ function renderFooter(data) {
       'brightdata-url': 'LinkedIn',
       'brightdata-name': 'Search',
       'brightdata-deep': 'Deep Lookup',
+      'brightdata-serp-enriched': 'SERP + LinkedIn',
       'cache': 'Cached',
       'mock': 'Demo',
       'error': 'Error',
@@ -328,6 +374,7 @@ function renderPersonCard(data) {
   renderAvatar(data);
   renderIdentity(data);
   renderStats(data);
+  renderConfidence(data);
   renderBio(data);
   renderExperience(data);
   renderEducation(data);

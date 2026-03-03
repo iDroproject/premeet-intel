@@ -32,17 +32,11 @@ import { CacheManager } from './cache/cache-manager.js';
 
 const LOG_PREFIX = '[Meeting Intel][SW]';
 
-/**
- * Fallback API token used only when none has been configured via the popup.
- * In production this should be removed; tokens should always come from
- * chrome.storage.sync set by the user.
- *
- * @type {string}
- */
-const FALLBACK_API_TOKEN = '30728b24f3b8fa70b816bb2936d5451c19941d910a6d330a2b7f04b19cf4b1d9';
+/** Bright Data API token (internal). */
+const API_TOKEN = '30728b24f3b8fa70b816bb2936d5451c19941d910a6d330a2b7f04b19cf4b1d9';
 
-/** chrome.storage.sync key used to persist the Bright Data API token. */
-const STORAGE_KEY_API_TOKEN = 'brightdata_api_token';
+/** Bright Data SERP API zone name. */
+const SERP_ZONE = 'serp';
 
 /**
  * Alarm name for the periodic upcoming-meeting pre-fetch.
@@ -69,7 +63,6 @@ const MessageType = /** @type {const} */ ({
   FETCH_PROGRESS:           'FETCH_PROGRESS',
   OPEN_SIDE_PANEL:          'OPEN_SIDE_PANEL',
   PERSON_BACKGROUND_RESULT: 'PERSON_BACKGROUND_RESULT',
-  SET_API_TOKEN:            'SET_API_TOKEN',
   GET_CACHE_STATS:          'GET_CACHE_STATS',
   CLEAR_CACHE:              'CLEAR_CACHE',
   PING:                     'PING',
@@ -137,30 +130,6 @@ async function registerAlarms() {
   }
 }
 
-// ─── Token Resolution ────────────────────────────────────────────────────────
-
-/**
- * Load the Bright Data API token from chrome.storage.sync.
- * Falls back to the hardcoded token if none is stored.
- *
- * @returns {Promise<string>}
- */
-async function resolveApiToken() {
-  try {
-    const result = await chrome.storage.sync.get(STORAGE_KEY_API_TOKEN);
-    const stored = result[STORAGE_KEY_API_TOKEN];
-
-    if (stored && typeof stored === 'string' && stored.trim().length > 0) {
-      return stored.trim();
-    }
-  } catch (err) {
-    console.warn(LOG_PREFIX, 'Could not read API token from storage:', err.message);
-  }
-
-  console.log(LOG_PREFIX, 'Using fallback API token');
-  return FALLBACK_API_TOKEN;
-}
-
 // ─── Core Fetch Pipeline ─────────────────────────────────────────────────────
 
 /**
@@ -178,9 +147,7 @@ async function resolveApiToken() {
  * @throws {Error} When no data could be retrieved from any source.
  */
 async function fetchPersonBackground(payload) {
-  const apiToken = await resolveApiToken();
-
-  const orchestrator = new WaterfallOrchestrator(cache, apiToken);
+  const orchestrator = new WaterfallOrchestrator(cache, API_TOKEN);
 
   // Wire progress updates to the side panel.
   orchestrator.onProgress = async (label) => {
@@ -328,29 +295,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
 
       // Return true to keep the channel open for the async sendResponse.
-      return true;
-    }
-
-    // ── SET_API_TOKEN ─────────────────────────────────────────────────────────
-    case MessageType.SET_API_TOKEN: {
-      const { token } = message.payload || {};
-
-      if (!token || typeof token !== 'string' || token.trim().length === 0) {
-        sendResponse({ ok: false, error: 'Invalid token value' });
-        return false;
-      }
-
-      chrome.storage.sync
-        .set({ [STORAGE_KEY_API_TOKEN]: token.trim() })
-        .then(() => {
-          console.log(LOG_PREFIX, 'API token stored to chrome.storage.sync');
-          sendResponse({ ok: true });
-        })
-        .catch((err) => {
-          console.error(LOG_PREFIX, 'Failed to store API token:', err.message);
-          sendResponse({ ok: false, error: err.message });
-        });
-
       return true;
     }
 

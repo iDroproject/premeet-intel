@@ -45,6 +45,31 @@
     // Some versions render event chips that expand into panels.
     if (node.classList.contains('OcVpRe') || node.classList.contains('V65ue')) return true;
 
+    // Full-page event editing form – detect the Guests section container.
+    if (isEditFormPage() && isEditFormGuestSection(node)) return true;
+
+    return false;
+  }
+
+  /**
+   * Check whether the current URL is a GCal event editing form.
+   * @returns {boolean}
+   */
+  function isEditFormPage() {
+    const path = window.location.pathname;
+    return path.includes('/eventedit/') || path.includes('/r/eventedit/');
+  }
+
+  /**
+   * Check whether a DOM node looks like the Guests section on the edit form.
+   * @param {Node} node
+   * @returns {boolean}
+   */
+  function isEditFormGuestSection(node) {
+    if (!(node instanceof Element)) return false;
+    const label = (node.getAttribute('aria-label') || '').toLowerCase();
+    if (label.includes('guest') || label.includes('attendee')) return true;
+    if (node.querySelector && node.querySelector('[data-email], [data-hovercard-id], [aria-label*="guest" i]')) return true;
     return false;
   }
 
@@ -151,7 +176,7 @@
 
           // Check descendants (GCal often inserts a wrapper then populates it).
           const descendantPopups = node.querySelectorAll(
-            '[role="dialog"], [data-eventid], .OcVpRe, .V65ue'
+            '[role="dialog"], [data-eventid], .OcVpRe, .V65ue, [aria-label*="guest" i], [aria-label*="attendee" i]'
           );
           descendantPopups.forEach((p) => candidatePopups.add(p));
 
@@ -234,7 +259,7 @@
      */
     _scanExisting() {
       const existing = document.querySelectorAll(
-        '[role="dialog"], [data-eventid], .OcVpRe, .V65ue'
+        '[role="dialog"], [data-eventid], .OcVpRe, .V65ue, [aria-label*="guest" i], [aria-label*="attendee" i]'
       );
 
       if (existing.length === 0) return;

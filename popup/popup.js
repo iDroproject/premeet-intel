@@ -28,9 +28,7 @@ const FEEDBACK_TTL_MS = 4000;
 document.addEventListener('DOMContentLoaded', () => {
   populateStaticInfo();
   pingServiceWorker();
-  loadTokenStatus();
   loadCacheStats();
-  wireTokenSection();
   wireCacheSection();
 });
 
@@ -98,111 +96,6 @@ function setStatusInactive(dotEl, labelEl) {
   if (statusEl) {
     statusEl.classList.add('mp-status--inactive');
   }
-}
-
-// ─── Token Section ────────────────────────────────────────────────────────────
-
-/**
- * Check whether a token is already stored and show a masked placeholder.
- * We never read the actual token value back into the input for security;
- * instead we show a placeholder that tells the user a token is set.
- */
-function loadTokenStatus() {
-  chrome.storage.sync.get('brightdata_api_token', (result) => {
-    if (chrome.runtime.lastError) {
-      console.warn(LOG_PREFIX, 'Could not read token status:', chrome.runtime.lastError.message);
-      return;
-    }
-
-    const token = result['brightdata_api_token'];
-    const inputEl = $('mp-token-input');
-
-    if (token && typeof token === 'string' && token.trim().length > 0) {
-      // Show a masked placeholder – do NOT put the real token in the field.
-      if (inputEl) {
-        inputEl.placeholder = 'Token saved (paste to replace)';
-      }
-      console.log(LOG_PREFIX, 'Token is already configured');
-    }
-  });
-}
-
-/**
- * Wire up the Save button and the show/hide toggle for the token input.
- */
-function wireTokenSection() {
-  const saveBtn   = $('mp-token-save');
-  const toggleBtn = $('mp-token-toggle');
-  const inputEl   = $('mp-token-input');
-  const iconEl    = $('mp-token-toggle-icon');
-
-  if (!saveBtn || !inputEl) return;
-
-  // Save button handler
-  saveBtn.addEventListener('click', handleTokenSave);
-
-  // Allow pressing Enter in the input to save
-  inputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') handleTokenSave();
-  });
-
-  // Show/hide toggle
-  if (toggleBtn && iconEl) {
-    toggleBtn.addEventListener('click', () => {
-      const isPassword = inputEl.type === 'password';
-      inputEl.type = isPassword ? 'text' : 'password';
-      // Eye open vs. eye closed using simple unicode fallback
-      iconEl.textContent = isPassword ? '\u{1F576}' : '\u{1F441}';
-      toggleBtn.setAttribute('aria-label', isPassword ? 'Hide token' : 'Show token');
-    });
-  }
-}
-
-/**
- * Read the token input, validate, send to service worker, and show feedback.
- */
-function handleTokenSave() {
-  const inputEl   = $('mp-token-input');
-  const saveBtn   = $('mp-token-save');
-  const feedbackEl = $('mp-token-feedback');
-
-  const value = inputEl?.value?.trim();
-
-  if (!value) {
-    showFeedback(feedbackEl, 'Please enter a token.', 'error');
-    inputEl?.focus();
-    return;
-  }
-
-  // Disable the button while saving.
-  if (saveBtn) saveBtn.disabled = true;
-
-  chrome.runtime.sendMessage(
-    { type: 'SET_API_TOKEN', payload: { token: value } },
-    (response) => {
-      if (saveBtn) saveBtn.disabled = false;
-
-      if (chrome.runtime.lastError) {
-        console.error(LOG_PREFIX, 'SET_API_TOKEN failed:', chrome.runtime.lastError.message);
-        showFeedback(feedbackEl, 'Could not save token. Extension may need a reload.', 'error');
-        return;
-      }
-
-      if (response?.ok) {
-        console.log(LOG_PREFIX, 'Token saved successfully');
-        // Clear the input and show success
-        if (inputEl) {
-          inputEl.value = '';
-          inputEl.placeholder = 'Token saved (paste to replace)';
-        }
-        showFeedback(feedbackEl, 'Token saved successfully.', 'success');
-      } else {
-        const msg = response?.error || 'Unknown error';
-        console.error(LOG_PREFIX, 'SET_API_TOKEN error:', msg);
-        showFeedback(feedbackEl, `Failed to save: ${msg}`, 'error');
-      }
-    }
-  );
 }
 
 // ─── Cache Section ────────────────────────────────────────────────────────────

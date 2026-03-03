@@ -64,9 +64,13 @@
     if (currentUrl !== lastUrl) {
       lastUrl = currentUrl;
       console.log(LOG_PREFIX, 'SPA navigation detected, new URL:', currentUrl);
-      // The CalendarObserver's MutationObserver continues running across
-      // navigations because it watches document.body. Nothing extra needed
-      // here; just log for debugging.
+
+      // On event editing form, proactively scan for the Guests section
+      // after a delay to let the DOM render fully.
+      if (currentUrl.includes('/eventedit/') || currentUrl.includes('/r/eventedit/')) {
+        console.log(LOG_PREFIX, 'Edit form detected, scheduling scan');
+        setTimeout(() => observer._scanExisting(), 1200);
+      }
     }
   });
 

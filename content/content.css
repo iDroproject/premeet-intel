@@ -1,191 +1,221 @@
 /**
  * content.css
  *
- * Styles for Meeting Intel injected UI elements.
- * Designed to complement Google Calendar's Material Design 3 aesthetic.
- *
- * Scoped under .meeting-intel-* class names to avoid collisions with GCal styles.
+ * Meeting Intel injected UI — Apple-quality glass-morphism design.
+ * All tokens scoped under --meeting-intel-* to avoid GCal collisions.
+ * All class names scoped under .meeting-intel-* for the same reason.
  */
 
-/* ── Container ─────────────────────────────────────────────────────────────── */
+/* ── Design Tokens ──────────────────────────────────────────────────────────── */
+
+:root {
+  --meeting-intel-accent:       #6C5CE7;
+  --meeting-intel-accent-end:   #a29bfe;
+  --meeting-intel-accent-bg:    rgba(108, 92, 231, 0.08);
+  --meeting-intel-text:         #1A1A2E;
+  --meeting-intel-text-sec:     #6B7280;
+  --meeting-intel-glass-bg:     rgba(255, 255, 255, 0.72);
+  --meeting-intel-glass-blur:   blur(20px) saturate(180%);
+  --meeting-intel-glass-border: 1px solid rgba(255, 255, 255, 0.2);
+  --meeting-intel-sep:          rgba(108, 92, 231, 0.12);
+  --meeting-intel-shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+  --meeting-intel-shadow-md:    0 4px 6px rgba(0, 0, 0, 0.04), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --meeting-intel-shadow-lift:  0 6px 16px rgba(108, 92, 231, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
+  --meeting-intel-font:         -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --meeting-intel-radius:       12px;
+  --meeting-intel-ease:         cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── Entrance Animation ─────────────────────────────────────────────────────── */
+
+@keyframes meeting-intel-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes meeting-intel-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Container ──────────────────────────────────────────────────────────────── */
 
 .meeting-intel-container {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 8px 12px;
-  margin: 6px 0;
-  /* Subtle separator from surrounding GCal content */
-  border-top: 1px solid #e0e0e0;
+  padding: 10px 12px;
+  margin: 4px 0;
+  border-top: 1px solid var(--meeting-intel-sep);
+  background: var(--meeting-intel-glass-bg);
+  -webkit-backdrop-filter: var(--meeting-intel-glass-blur);
+  backdrop-filter: var(--meeting-intel-glass-blur);
+  box-shadow: var(--meeting-intel-shadow-sm);
+  animation: meeting-intel-fade-in 320ms var(--meeting-intel-ease) both;
 }
 
-/* ── Base Button ───────────────────────────────────────────────────────────── */
+/* ── Base Button ────────────────────────────────────────────────────────────── */
 
 .meeting-intel-btn {
-  /* Reset browser defaults */
+  /* Reset */
   appearance: none;
   -webkit-appearance: none;
   border: none;
   background: none;
   cursor: pointer;
-  font-family: inherit;
 
   /* Layout */
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 14px 6px 10px;
+  padding: 6px 13px 6px 10px;
 
-  /* Typography – match GCal button labels */
-  font-size: 13px;
+  /* Typography */
+  font-family: var(--meeting-intel-font);
+  font-size: 12.5px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0.01em;
   white-space: nowrap;
+  color: var(--meeting-intel-accent);
 
-  /* Visual */
-  color: #1a73e8;          /* Google blue */
-  background-color: #ffffff;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
+  /* Glass surface */
+  background: var(--meeting-intel-glass-bg);
+  -webkit-backdrop-filter: var(--meeting-intel-glass-blur);
+  backdrop-filter: var(--meeting-intel-glass-blur);
+  border: var(--meeting-intel-glass-border);
+  border-radius: var(--meeting-intel-radius);
+  box-shadow: var(--meeting-intel-shadow-sm);
 
-  /* Transition */
-  transition:
-    background-color 120ms ease,
-    box-shadow 120ms ease,
-    border-color 120ms ease;
-
-  /* Prevent layout interference with GCal */
+  /* Behaviour */
   position: relative;
   z-index: 1;
   user-select: none;
+  transition:
+    transform      200ms var(--meeting-intel-ease),
+    box-shadow     200ms var(--meeting-intel-ease),
+    background     200ms var(--meeting-intel-ease),
+    border-color   200ms var(--meeting-intel-ease);
 }
 
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .meeting-intel-btn {
-    color: #8ab4f8;         /* Google blue – dark mode tint */
-    background-color: #2d2e30;
-    border-color: #5f6368;
-  }
-
-  .meeting-intel-container {
-    border-top-color: #3c4043;
-  }
-}
-
-/* ── Hover & Focus ─────────────────────────────────────────────────────────── */
+/* ── Hover & Focus ──────────────────────────────────────────────────────────── */
 
 .meeting-intel-btn:hover {
-  background-color: #e8f0fe;
-  border-color: #1a73e8;
-  box-shadow:
-    0 1px 2px 0 rgba(60, 64, 67, 0.10),
-    0 1px 3px 1px rgba(60, 64, 67, 0.08);
+  transform: translateY(-1px);
+  background: var(--meeting-intel-accent-bg);
+  border-color: rgba(108, 92, 231, 0.25);
+  box-shadow: var(--meeting-intel-shadow-lift);
 }
 
 .meeting-intel-btn:focus-visible {
-  outline: 2px solid #1a73e8;
+  outline: 2px solid var(--meeting-intel-accent);
   outline-offset: 2px;
+  box-shadow: var(--meeting-intel-shadow-md);
 }
 
 .meeting-intel-btn:active {
-  background-color: #d2e3fc;
-  box-shadow: none;
+  transform: translateY(0.5px);
+  box-shadow: var(--meeting-intel-shadow-sm);
+  background: rgba(108, 92, 231, 0.12);
 }
 
-@media (prefers-color-scheme: dark) {
-  .meeting-intel-btn:hover {
-    background-color: #3c4470;
-    border-color: #8ab4f8;
-  }
-
-  .meeting-intel-btn:focus-visible {
-    outline-color: #8ab4f8;
-  }
-
-  .meeting-intel-btn:active {
-    background-color: #2d3759;
-  }
-}
-
-/* ── Disabled ─────────────────────────────────────────────────────────────── */
+/* ── Disabled ───────────────────────────────────────────────────────────────── */
 
 .meeting-intel-btn:disabled {
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.5;
+  transform: none;
 }
 
-/* ── Icon ──────────────────────────────────────────────────────────────────── */
+/* ── Icon ───────────────────────────────────────────────────────────────────── */
 
 .meeting-intel-btn .meeting-intel-icon {
   font-size: 14px;
   line-height: 1;
-  /* Prevents the emoji from shifting the baseline */
-  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
 }
 
-/* ── Loading State ─────────────────────────────────────────────────────────── */
+/* ── Loading State ──────────────────────────────────────────────────────────── */
 
 .meeting-intel-btn.loading {
-  color: #80868b;
-  border-color: #dadce0;
+  color: var(--meeting-intel-text-sec);
   pointer-events: none;
 }
 
 .meeting-intel-btn.loading .meeting-intel-icon {
-  /* Replace icon with a CSS spinner */
   display: inline-block;
-  width: 13px;
-  height: 13px;
-  border: 2px solid #dadce0;
-  border-top-color: #1a73e8;
+  width: 12px;
+  height: 12px;
+  border: 1.75px solid rgba(108, 92, 231, 0.2);
+  border-top-color: var(--meeting-intel-accent);
   border-radius: 50%;
-  animation: meeting-intel-spin 0.7s linear infinite;
-  font-size: 0; /* hide the emoji character */
+  animation: meeting-intel-spin 0.65s linear infinite;
+  font-size: 0;
 }
 
-@keyframes meeting-intel-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+/* ── Dark Mode ──────────────────────────────────────────────────────────────── */
 
 @media (prefers-color-scheme: dark) {
-  .meeting-intel-btn.loading {
-    color: #9aa0a6;
-    border-color: #5f6368;
+  :root {
+    --meeting-intel-accent:       #a29bfe;
+    --meeting-intel-accent-end:   #6C5CE7;
+    --meeting-intel-accent-bg:    rgba(162, 155, 254, 0.12);
+    --meeting-intel-text:         #E8E8F0;
+    --meeting-intel-text-sec:     #9CA3AF;
+    --meeting-intel-glass-bg:     rgba(28, 27, 46, 0.72);
+    --meeting-intel-glass-border: 1px solid rgba(255, 255, 255, 0.08);
+    --meeting-intel-sep:          rgba(162, 155, 254, 0.15);
+    --meeting-intel-shadow-lift:  0 6px 16px rgba(108, 92, 231, 0.30), 0 2px 6px rgba(0, 0, 0, 0.30);
   }
 
   .meeting-intel-btn.loading .meeting-intel-icon {
-    border-color: #5f6368;
-    border-top-color: #8ab4f8;
+    border-color: rgba(162, 155, 254, 0.2);
+    border-top-color: var(--meeting-intel-accent);
   }
 }
 
-/* ── Accessibility ─────────────────────────────────────────────────────────── */
+/* ── Reduced Motion ─────────────────────────────────────────────────────────── */
 
-/* High-contrast mode */
-@media (forced-colors: active) {
-  .meeting-intel-btn {
-    border: 2px solid ButtonText;
-    color: ButtonText;
-    background: ButtonFace;
-  }
-
-  .meeting-intel-btn:hover {
-    border-color: Highlight;
-    color: Highlight;
-  }
-}
-
-/* Reduce motion for users who prefer it */
 @media (prefers-reduced-motion: reduce) {
+  .meeting-intel-container {
+    animation: none;
+  }
+
   .meeting-intel-btn {
     transition: none;
   }
 
   .meeting-intel-btn.loading .meeting-intel-icon {
     animation: none;
+    opacity: 0.5;
+  }
+}
+
+/* ── High Contrast ──────────────────────────────────────────────────────────── */
+
+@media (forced-colors: active) {
+  .meeting-intel-container {
+    border-top: 1px solid ButtonText;
+    background: Canvas;
+    backdrop-filter: none;
+  }
+
+  .meeting-intel-btn {
+    border: 2px solid ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+
+  .meeting-intel-btn:hover {
+    border-color: Highlight;
+    color: Highlight;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .meeting-intel-btn:focus-visible {
+    outline: 2px solid Highlight;
   }
 }

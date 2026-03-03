@@ -7,90 +7,50 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; style-src 'self'; script-src 'self';"
     />
-    <title>Meeting Intel – Settings</title>
+    <title>Meeting Intel</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
 
-    <!-- Header -->
+    <!-- Gradient header -->
     <header class="mp-header">
-      <div class="mp-header__logo" aria-hidden="true">&#x1F50D;</div>
+      <div class="mp-header__icon" aria-hidden="true">MI</div>
       <div class="mp-header__text">
         <h1 class="mp-header__title">Meeting Intel</h1>
-        <p class="mp-header__version" id="mp-version">v–</p>
+        <p class="mp-header__version" id="mp-version">v&ndash;</p>
       </div>
     </header>
 
     <main class="mp-main">
 
-      <!-- Status indicator -->
+      <!-- Status pill -->
       <section class="mp-section" aria-label="Extension status">
         <div class="mp-status" id="mp-status" role="status" aria-live="polite">
           <span class="mp-status__dot mp-status__dot--active" aria-hidden="true"></span>
-          <span class="mp-status__label" id="mp-status-label">Active on Google Calendar</span>
+          <span id="mp-status-label">Active on Google Calendar</span>
         </div>
       </section>
 
-      <hr class="mp-divider" />
-
-      <!-- API Token section -->
-      <section class="mp-section" aria-label="API token configuration">
-        <h2 class="mp-section__heading">Bright Data API Token</h2>
-        <p class="mp-section__desc">
-          Required to fetch LinkedIn profiles. Get your token from
-          <a href="https://brightdata.com" target="_blank" rel="noopener noreferrer" class="mp-link">brightdata.com</a>.
-        </p>
-        <div class="mp-token-row">
-          <div class="mp-input-wrap" role="group" aria-label="API token input">
-            <input
-              type="password"
-              id="mp-token-input"
-              class="mp-input"
-              placeholder="Paste your API token here"
-              autocomplete="off"
-              spellcheck="false"
-              aria-label="Bright Data API token"
-            />
-            <button
-              type="button"
-              id="mp-token-toggle"
-              class="mp-input-toggle"
-              aria-label="Show token"
-              title="Show / hide token"
-            >
-              <span id="mp-token-toggle-icon" aria-hidden="true">&#x1F441;</span>
-            </button>
-          </div>
-          <button type="button" id="mp-token-save" class="mp-btn mp-btn--primary">Save</button>
-        </div>
-        <p
-          class="mp-feedback"
-          id="mp-token-feedback"
-          role="alert"
-          aria-live="polite"
-          aria-atomic="true"
-        ></p>
-      </section>
-
-      <hr class="mp-divider" />
-
-      <!-- Cache section -->
+      <!-- Cache management -->
       <section class="mp-section" aria-label="Cache management">
         <h2 class="mp-section__heading">Cache</h2>
-        <dl class="mp-stats-list" id="mp-cache-stats" aria-label="Cache statistics">
-          <div class="mp-stat-row">
-            <dt class="mp-stat-row__label">Cached profiles</dt>
-            <dd class="mp-stat-row__value" id="mp-cache-count">–</dd>
+        <div class="mp-cache-grid" id="mp-cache-stats" aria-label="Cache statistics">
+          <div class="mp-cache-stat">
+            <span class="mp-cache-stat__value" id="mp-cache-count">&ndash;</span>
+            <span class="mp-cache-stat__label">Profiles</span>
           </div>
-          <div class="mp-stat-row">
-            <dt class="mp-stat-row__label">Storage used</dt>
-            <dd class="mp-stat-row__value" id="mp-cache-size">–</dd>
+          <div class="mp-cache-stat">
+            <span class="mp-cache-stat__value" id="mp-cache-size">&ndash;</span>
+            <span class="mp-cache-stat__label">Storage</span>
           </div>
-          <div class="mp-stat-row" id="mp-cache-expired-row">
-            <dt class="mp-stat-row__label">Expired entries</dt>
-            <dd class="mp-stat-row__value mp-stat-row__value--warn" id="mp-cache-expired">–</dd>
+          <div class="mp-cache-stat" id="mp-cache-expired-row">
+            <span
+              class="mp-cache-stat__value mp-cache-stat__value--warn"
+              id="mp-cache-expired"
+            >&ndash;</span>
+            <span class="mp-cache-stat__label">Expired</span>
           </div>
-        </dl>
+        </div>
         <button type="button" id="mp-cache-clear" class="mp-btn mp-btn--secondary">
           Clear Cache
         </button>
@@ -103,23 +63,21 @@
         ></p>
       </section>
 
-      <hr class="mp-divider" />
-
-      <!-- About section -->
+      <!-- About -->
       <section class="mp-section mp-about" aria-label="About Meeting Intel">
         <h2 class="mp-section__heading">About</h2>
         <p class="mp-about__desc">
-          Meeting Intel shows you professional background for Google Calendar attendees—
-          right inside the event without switching tabs.
+          Professional background for Google Calendar attendees&mdash;right
+          inside the event without switching tabs.
         </p>
         <a
           href="https://github.com/iDroproject/gcal-meeting-intel"
           target="_blank"
           rel="noopener noreferrer"
-          class="mp-link mp-about__github"
-          aria-label="View source on GitHub"
+          class="mp-link"
+          aria-label="View Meeting Intel source code on GitHub (opens in new tab)"
         >
-          <span aria-hidden="true">&#x2665;</span> View on GitHub
+          View on GitHub
         </a>
       </section>
 

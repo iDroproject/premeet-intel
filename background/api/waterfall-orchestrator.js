@@ -3,46 +3,13 @@
  *
  * Meeting Intel – Waterfall Fetch Orchestrator
  *
- * Executes a five-layer lookup cascade for a given person, stopping at the
- * first layer that returns usable profile data.  Each layer has an individual
- * timeout and full error isolation so a failure in one layer never prevents
- * the next from running.
- *
- * Waterfall layers (in execution order):
+ * Executes a multi-layer lookup cascade for a given person:
  *
  *   Layer 1 – Cache check (instant)
- *     Checks CacheManager for a non-expired entry.  A hit short-circuits
- *     the entire cascade and returns immediately.
- *
- *   Layer 2 – LinkedIn URL scrape (~5–15 s)
- *     Derives a candidate LinkedIn profile URL from the person's name,
- *     then asks Bright Data to scrape it synchronously.  Requires a
- *     derivable URL slug; skipped when the name is missing or ambiguous.
- *
- *   Layer 3 – Deep Lookup by name + company (~10–30 s)
- *     Calls Bright Data's `discover_new / discover_by=name` endpoint with
- *     the person's name and (when available) their company.  More accurate
- *     than the filter API because Bright Data actively resolves the best
- *     matching profile rather than just filtering a static dataset.
- *
- *   Layer 4 – Filter API name search (async, up to ~60 s)
- *     Falls back to the filter-dataset search + snapshot polling flow.
- *     This path is slowest but has the widest reach.
- *
- *   Layer 5 – Error / partial data
- *     All layers have failed.  Throws a structured error so the caller can
- *     surface an appropriate error state in the UI.
- *
- * Progress callbacks:
- *   The orchestrator accepts an optional `onProgress` callback that is
- *   invoked at the start of each layer with a human-readable label.  The
- *   service worker uses this to push `FETCH_PROGRESS` messages to the side
- *   panel so users see live status updates.
- *
- * Usage:
- *   const orchestrator = new WaterfallOrchestrator(cacheManager, apiToken);
- *   orchestrator.onProgress = (label) => { ... };
- *   const personData = await orchestrator.fetch({ name, email, company });
+ *   Layer 2 – SERP Discovery: Google Search for LinkedIn URL via email/name
+ *   Layer 3+4 – LinkedIn Scrape + Business Enriched (parallel, using URL from Layer 2)
+ *   Layer 5 – Deep Lookup fallback (name + company, when SERP fails)
+ *   Layer 6 – Error
  *
  * @module waterfall-orchestrator
  */
@@ -53,401 +20,254 @@ import {
   scrapeByLinkedInUrl,
   pollSnapshotUntilReady,
   downloadSnapshot,
-  searchByNameAndFetch,
 } from './bright-data-scraper.js';
 
 import { deepLookupByName } from './bright-data-deep-lookup.js';
 
-import { pickBestProfile } from './response-normalizer.js';
+import {
+  serpFindLinkedInUrl,
+  scrapeBusinessEnriched,
+} from './bright-data-serp.js';
+
+import { pickBestProfile, mergeBusinessEnrichedData } from './response-normalizer.js';
 
 const LOG_PREFIX = '[Meeting Intel][Waterfall]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** TTL for newly cached results: 7 days. */
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/**
- * Per-layer timeouts in milliseconds.
- * Layer 2 and 3 can resolve quickly; layer 4 polls a snapshot so it gets
- * the full 60-second budget.
- *
- * @type {Record<string, number>}
- */
 const LAYER_TIMEOUTS = {
-  urlScrape:   25_000,
-  deepLookup:  45_000,
-  nameSearch:  90_000,  // includes snapshot polling
+  serpDiscovery:       20_000,
+  linkedInAndEnrich:   55_000,
+  deepLookup:          45_000,
 };
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/**
- * @typedef {Object} FetchPayload
- * @property {string}      name     Full name of the person (required).
- * @property {string}      [email]  Calendar event email address (optional).
- * @property {string|null} [company] Company name for disambiguation (optional).
- */
-
-/**
- * @typedef {Object} LayerResult
- * @property {boolean}        success
- * @property {Array<Object>}  [profiles]   Raw profile objects from the API.
- * @property {string}         [source]     Source label for the normalizer.
- * @property {string}         [error]      Error message when success=false.
- * @property {number}         elapsedMs    Wall-clock time taken by this layer.
- */
-
-// ─── Internal Helpers ────────────────────────────────────────────────────────
-
-/**
- * Attempt to derive a likely LinkedIn profile URL from a person's full name.
- *
- * Generates the canonical hyphenated-lowercase slug format.  This is a
- * best-effort heuristic and will be wrong for profiles with custom slugs.
- *
- * @param {string}      name   Full name, e.g. "Jane Doe".
- * @param {string|null} email  Unused here but kept for future hinting.
- * @returns {string|null}      Candidate URL or null if the name is unusable.
- */
-function deriveLinkedInUrl(name, email) {
-  if (!name || !name.trim()) return null;
-
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
-
-  if (!slug || slug === '-') return null;
-
-  return `https://www.linkedin.com/in/${slug}/`;
-}
-
-/**
- * Normalise a person's name into a safe cache key segment.
- * Lowercases, trims, and collapses non-alphanumeric characters to underscores.
- *
- * @param {string} name
- * @returns {string}
- */
-function normaliseCacheKey(name) {
-  return name
+function normaliseCacheKey(value) {
+  return (value || 'unknown')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '_')
     .replace(/_+/g, '_');
 }
 
-/**
- * Race a Promise against a timeout.
- * Rejects with a clear error message when the deadline is exceeded.
- *
- * @template T
- * @param {Promise<T>} promise
- * @param {number}     ms       Deadline in milliseconds.
- * @param {string}     layerName  Used in the rejection message.
- * @returns {Promise<T>}
- */
 function withTimeout(promise, ms, layerName) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`[${layerName}] timed out after ${ms / 1000}s`)),
       ms
     );
-
     promise.then(
       (v) => { clearTimeout(timer); resolve(v); },
-      (e) => { clearTimeout(timer); reject(e);  }
+      (e) => { clearTimeout(timer); reject(e); }
     );
   });
 }
 
 // ─── WaterfallOrchestrator ───────────────────────────────────────────────────
 
-/**
- * Orchestrates a multi-layer waterfall fetch for LinkedIn profile data.
- *
- * Instantiated once per service-worker lifecycle and reused across requests.
- * The `onProgress` callback is replaced for each fetch invocation by the
- * service-worker message handler so progress messages reach the correct tab.
- */
 export class WaterfallOrchestrator {
 
-  /**
-   * @param {import('../cache/cache-manager.js').CacheManager} cacheManager
-   *   Shared CacheManager instance.
-   * @param {string} apiToken
-   *   Bright Data API bearer token.
-   */
   constructor(cacheManager, apiToken) {
-    /** @type {import('../cache/cache-manager.js').CacheManager} */
-    this._cache    = cacheManager;
-
-    /** @type {string} */
+    this._cache = cacheManager;
     this._apiToken = apiToken;
-
-    /**
-     * Optional progress callback.  The service worker replaces this before
-     * each `fetch()` call with a function that pushes FETCH_PROGRESS messages
-     * to the side panel.
-     *
-     * @type {((label: string) => void) | null}
-     */
     this.onProgress = null;
   }
 
-  // ─── Private helpers ───────────────────────────────────────────────────────
-
-  /**
-   * Fire the progress callback if one is registered.
-   * Errors from the callback are swallowed so they never abort the waterfall.
-   *
-   * @param {string} label  Human-readable status string sent to the side panel.
-   * @returns {void}
-   */
   _notifyProgress(label) {
     if (typeof this.onProgress !== 'function') return;
-    try {
-      this.onProgress(label);
-    } catch (err) {
-      console.warn(LOG_PREFIX, 'onProgress callback threw:', err.message);
-    }
+    try { this.onProgress(label); } catch (_) { /* swallow */ }
   }
 
-  /**
-   * Execute a single waterfall layer, capturing timing and isolating errors.
-   *
-   * @param {string}            layerName   Identifier used in logs.
-   * @param {string}            progressLabel  Label sent to the progress callback.
-   * @param {() => Promise<LayerResult>} fn  The layer's implementation.
-   * @param {number}            timeoutMs   Hard deadline for this layer.
-   * @returns {Promise<LayerResult>}  Always resolves; never rejects.
-   */
   async _runLayer(layerName, progressLabel, fn, timeoutMs) {
     this._notifyProgress(progressLabel);
     console.log(LOG_PREFIX, `Layer: ${layerName}`);
-
     const start = Date.now();
 
     try {
       const result = await withTimeout(fn(), timeoutMs, layerName);
       const elapsedMs = Date.now() - start;
-
-      if (result.success) {
-        console.log(
-          LOG_PREFIX,
-          `Layer ${layerName} succeeded in ${elapsedMs}ms – ` +
-          `${result.profiles?.length ?? 0} profile(s)`
-        );
-      } else {
-        console.log(
-          LOG_PREFIX,
-          `Layer ${layerName} returned no data in ${elapsedMs}ms`
-        );
-      }
-
+      console.log(LOG_PREFIX, `Layer ${layerName} ${result.success ? 'succeeded' : 'no data'} in ${elapsedMs}ms`);
       return { ...result, elapsedMs };
-
     } catch (err) {
       const elapsedMs = Date.now() - start;
-      console.warn(
-        LOG_PREFIX,
-        `Layer ${layerName} failed in ${elapsedMs}ms: ${err.message}`
-      );
+      console.warn(LOG_PREFIX, `Layer ${layerName} failed in ${elapsedMs}ms: ${err.message}`);
       return { success: false, error: err.message, elapsedMs };
     }
   }
 
-  // ─── Layer implementations ─────────────────────────────────────────────────
+  // ── Layer implementations ─────────────────────────────────────────────────
 
-  /**
-   * Layer 1: Cache check.
-   *
-   * @param {string} cacheKey
-   * @returns {Promise<LayerResult>}
-   */
   async _layerCache(cacheKey) {
     const cached = await this._cache.get(cacheKey);
-    if (cached) {
-      return { success: true, profiles: null, source: 'cache', _cachedData: cached };
-    }
+    if (cached) return { success: true, _cachedData: cached };
     return { success: false };
   }
 
   /**
-   * Layer 2: Scrape a derived LinkedIn URL synchronously.
-   *
-   * @param {string}      name
-   * @param {string|null} email
-   * @returns {Promise<LayerResult>}
+   * Layer 2: SERP Discovery – find LinkedIn URL via Google Search.
+   * Tries email first (most specific), then "name company" as fallback.
    */
-  async _layerUrlScrape(name, email) {
-    const candidateUrl = deriveLinkedInUrl(name, email);
+  async _layerSerpDiscovery(email, name, company) {
+    let linkedInUrl = null;
 
-    if (!candidateUrl) {
-      console.log(LOG_PREFIX, 'Layer URL-scrape: no derivable URL, skipping');
-      return { success: false, error: 'No derivable LinkedIn URL' };
+    // Primary: search by email
+    if (email && email.includes('@')) {
+      console.log(LOG_PREFIX, 'SERP: searching by email:', email);
+      linkedInUrl = await serpFindLinkedInUrl(email, this._apiToken);
     }
 
-    console.log(LOG_PREFIX, 'Layer URL-scrape: trying', candidateUrl);
-
-    const scrapeResult = await scrapeByLinkedInUrl(candidateUrl, this._apiToken);
-    let profiles;
-
-    if (scrapeResult.mode === 'direct') {
-      profiles = scrapeResult.profiles;
-    } else {
-      // mode === 'snapshot'
-      console.log(
-        LOG_PREFIX,
-        'URL-scrape returned async snapshot, polling:', scrapeResult.snapshotId
-      );
-      await pollSnapshotUntilReady(scrapeResult.snapshotId, this._apiToken);
-      profiles = await downloadSnapshot(scrapeResult.snapshotId, this._apiToken);
+    // Fallback: search by "name company"
+    if (!linkedInUrl && name) {
+      const query = company ? `${name} ${company}` : name;
+      console.log(LOG_PREFIX, 'SERP: searching by name:', query);
+      linkedInUrl = await serpFindLinkedInUrl(query, this._apiToken);
     }
 
-    if (!Array.isArray(profiles) || profiles.length === 0) {
-      return { success: false, error: 'URL scrape returned empty results' };
+    if (!linkedInUrl) {
+      return { success: false, error: 'SERP found no LinkedIn URL' };
     }
 
-    return { success: true, profiles, source: 'brightdata-url' };
+    return { success: true, linkedInUrl, source: 'serp' };
   }
 
   /**
-   * Layer 3: Deep Lookup by name + company.
-   *
-   * @param {string}      name
-   * @param {string|null} company
-   * @returns {Promise<LayerResult>}
+   * Layer 3+4: LinkedIn Scrape + Business Enriched (parallel).
+   * Both use the LinkedIn URL discovered by SERP.
    */
-  async _layerDeepLookup(name, company) {
-    if (!name) {
-      return { success: false, error: 'No name available for deep lookup' };
+  async _layerLinkedInAndEnrich(linkedInUrl) {
+    const [scrapeResult, enrichResult] = await Promise.allSettled([
+      scrapeByLinkedInUrl(linkedInUrl, this._apiToken),
+      scrapeBusinessEnriched(linkedInUrl, this._apiToken),
+    ]);
+
+    let profiles = [];
+    let enrichedData = null;
+
+    // Process LinkedIn People scrape
+    if (scrapeResult.status === 'fulfilled') {
+      const result = scrapeResult.value;
+      if (result.mode === 'direct') {
+        profiles = result.profiles || [];
+      } else if (result.mode === 'snapshot' && result.snapshotId) {
+        try {
+          await pollSnapshotUntilReady(result.snapshotId, this._apiToken);
+          profiles = await downloadSnapshot(result.snapshotId, this._apiToken);
+        } catch (err) {
+          console.warn(LOG_PREFIX, 'LinkedIn snapshot poll failed:', err.message);
+        }
+      }
+    } else {
+      console.warn(LOG_PREFIX, 'LinkedIn scrape failed:', scrapeResult.reason?.message);
     }
 
-    console.log(
-      LOG_PREFIX,
-      `Layer deep-lookup: name="${name}"` +
-      (company ? `, company="${company}"` : '')
-    );
+    // Process Business Enriched
+    if (enrichResult.status === 'fulfilled') {
+      const result = enrichResult.value;
+      if (result.mode === 'direct') {
+        enrichedData = result.profiles;
+      } else if (result.mode === 'snapshot' && result.snapshotId) {
+        try {
+          await pollSnapshotUntilReady(result.snapshotId, this._apiToken);
+          enrichedData = await downloadSnapshot(result.snapshotId, this._apiToken);
+        } catch (err) {
+          console.warn(LOG_PREFIX, 'Business Enriched snapshot poll failed:', err.message);
+        }
+      }
+    } else {
+      console.warn(LOG_PREFIX, 'Business Enriched failed:', enrichResult.reason?.message);
+    }
+
+    if (!profiles.length && (!enrichedData || !enrichedData.length)) {
+      return { success: false, error: 'Both scrape and enrichment returned empty' };
+    }
+
+    return {
+      success: true,
+      profiles,
+      enrichedData,
+      source: 'brightdata-serp-enriched',
+    };
+  }
+
+  /**
+   * Layer 5: Deep Lookup by name + company (fallback when SERP fails).
+   */
+  async _layerDeepLookup(name, company) {
+    if (!name) return { success: false, error: 'No name for deep lookup' };
 
     const profiles = await deepLookupByName(name, company, this._apiToken);
-
     if (!profiles || profiles.length === 0) {
       return { success: false, error: 'Deep lookup returned no profiles' };
     }
-
     return { success: true, profiles, source: 'brightdata-deep' };
   }
 
-  /**
-   * Layer 4: Filter API name search (async with snapshot polling).
-   *
-   * @param {string} name
-   * @returns {Promise<LayerResult>}
-   */
-  async _layerNameSearch(name) {
-    if (!name) {
-      return { success: false, error: 'No name available for name search' };
-    }
+  // ── Public API ────────────────────────────────────────────────────────────
 
-    console.log(LOG_PREFIX, `Layer name-search: "${name}"`);
-
-    const profiles = await searchByNameAndFetch(name, this._apiToken);
-
-    if (!Array.isArray(profiles) || profiles.length === 0) {
-      return { success: false, error: 'Name search returned no profiles' };
-    }
-
-    return { success: true, profiles, source: 'brightdata-name' };
-  }
-
-  // ─── Public API ────────────────────────────────────────────────────────────
-
-  /**
-   * Fetch enriched profile data for a person using the full waterfall cascade.
-   *
-   * The orchestrator executes layers in sequence, stopping at the first
-   * successful result.  Each layer is individually timed and error-isolated.
-   *
-   * Progress labels are pushed via `onProgress` so the side panel can display
-   * live status updates.
-   *
-   * @param {FetchPayload} payload  Person identity fields from the calendar event.
-   * @returns {Promise<import('./response-normalizer.js').PersonData>}
-   *   Fully normalised PersonData on success.
-   * @throws {Error} When every layer fails and no usable data could be obtained.
-   */
   async fetch(payload) {
     const { name, email, company } = payload;
     const identifier = name || email || 'unknown';
+    const cacheKey = `person_${normaliseCacheKey(email || name || identifier)}`;
 
-    console.log(
-      LOG_PREFIX,
-      `Waterfall fetch started for: "${identifier}"`
-    );
+    console.log(LOG_PREFIX, `Waterfall started for: "${identifier}"`);
 
-    const cacheKey = `person_${normaliseCacheKey(name || email || identifier)}`;
-
-    // ── Layer 1: Cache ────────────────────────────────────────────────────────
+    // ── Layer 1: Cache ──────────────────────────────────────────────────────
     const cacheResult = await this._runLayer(
-      'cache',
-      'Checking cache…',
-      () => this._layerCache(cacheKey),
-      500   // Cache is synchronous-ish; 500 ms is a generous upper bound.
+      'cache', 'Checking cache...', () => this._layerCache(cacheKey), 500
     );
-
     if (cacheResult.success && cacheResult._cachedData) {
-      console.log(LOG_PREFIX, `Cache hit for "${identifier}" – waterfall done`);
+      console.log(LOG_PREFIX, `Cache hit for "${identifier}"`);
       return cacheResult._cachedData;
     }
 
-    // ── Layer 2: URL-based scrape ─────────────────────────────────────────────
-    const urlResult = await this._runLayer(
-      'url-scrape',
-      'Trying LinkedIn scrape…',
-      () => this._layerUrlScrape(name, email),
-      LAYER_TIMEOUTS.urlScrape
+    // ── Layer 2: SERP Discovery ─────────────────────────────────────────────
+    const serpResult = await this._runLayer(
+      'serp-discovery',
+      'Searching Google for LinkedIn profile...',
+      () => this._layerSerpDiscovery(email, name, company),
+      LAYER_TIMEOUTS.serpDiscovery
     );
 
-    if (urlResult.success) {
-      const data = await this._finalise(urlResult, name, email, cacheKey, identifier);
-      if (data) return data;
-      // _finalise returned null → data too thin, continue waterfall
+    if (serpResult.success && serpResult.linkedInUrl) {
+      // ── Layer 3+4: LinkedIn Scrape + Business Enriched (parallel) ───────
+      const enrichedResult = await this._runLayer(
+        'linkedin-enriched',
+        'Fetching LinkedIn profile & business data...',
+        () => this._layerLinkedInAndEnrich(serpResult.linkedInUrl),
+        LAYER_TIMEOUTS.linkedInAndEnrich
+      );
+
+      if (enrichedResult.success) {
+        const data = await this._finalise(
+          enrichedResult, name, email, cacheKey, identifier,
+          { serpVerified: true }
+        );
+        if (data) return data;
+      }
     }
 
-    // ── Layer 3: Deep Lookup ──────────────────────────────────────────────────
+    // ── Layer 5: Deep Lookup (fallback) ─────────────────────────────────────
     const deepResult = await this._runLayer(
       'deep-lookup',
-      'Trying deep lookup…',
+      'Trying deep lookup...',
       () => this._layerDeepLookup(name, company),
       LAYER_TIMEOUTS.deepLookup
     );
 
     if (deepResult.success) {
-      const data = await this._finalise(deepResult, name, email, cacheKey, identifier);
+      const data = await this._finalise(
+        deepResult, name, email, cacheKey, identifier,
+        { serpVerified: false }
+      );
       if (data) return data;
     }
 
-    // ── Layer 4: Name search ──────────────────────────────────────────────────
-    const nameResult = await this._runLayer(
-      'name-search',
-      'Searching by name…',
-      () => this._layerNameSearch(name),
-      LAYER_TIMEOUTS.nameSearch
-    );
-
-    if (nameResult.success) {
-      const data = await this._finalise(nameResult, name, email, cacheKey, identifier);
-      if (data) return data;
-    }
-
-    // ── Layer 5: All layers failed ────────────────────────────────────────────
+    // ── Layer 6: All failed ─────────────────────────────────────────────────
     this._notifyProgress('No data found');
-
-    const errors = [urlResult, deepResult, nameResult]
+    const errors = [serpResult, deepResult]
       .filter((r) => r.error)
       .map((r) => r.error)
       .join('; ');
@@ -458,64 +278,49 @@ export class WaterfallOrchestrator {
   }
 
   /**
-   * Normalise raw profiles from a successful layer, attach email, cache the
-   * result, and return the final PersonData object.
-   *
-   * If the normalised data is too thin (name is 'Unknown' AND confidence is
-   * 'low'), the method returns `null` instead of a PersonData object.  The
-   * caller interprets a `null` return as "this layer didn't produce usable
-   * data" and continues to the next waterfall layer.
-   *
-   * @param {LayerResult}  layerResult
-   * @param {string}       name
-   * @param {string}       email
-   * @param {string}       cacheKey
-   * @param {string}       identifier   Human-readable label for logging.
-   * @returns {Promise<import('./response-normalizer.js').PersonData|null>}
+   * Normalise, merge enriched data, quality-gate, cache, and return PersonData.
+   * Returns null if result is too thin (name=Unknown + low confidence).
    */
-  async _finalise(layerResult, name, email, cacheKey, identifier) {
-    const { profiles, source } = layerResult;
+  async _finalise(layerResult, name, email, cacheKey, identifier, context = {}) {
+    const { profiles, enrichedData, source } = layerResult;
 
-    const personData = pickBestProfile(profiles, name, source);
+    const personData = pickBestProfile(profiles, name, source, {
+      email,
+      serpVerified: context.serpVerified || false,
+    });
 
     if (!personData) {
-      console.log(
-        LOG_PREFIX,
-        `Could not normalise any profile for "${identifier}" from source "${source}" – skipping`
-      );
+      console.log(LOG_PREFIX, `No usable profile for "${identifier}" from "${source}"`);
       return null;
     }
 
-    // Quality gate: if the result is essentially empty, skip it so the
-    // waterfall continues to a deeper (but slower) layer.
+    // Quality gate: skip low-quality Unknown results.
     if (personData.name === 'Unknown' && personData._confidence === 'low') {
-      console.log(
-        LOG_PREFIX,
-        `Layer "${source}" returned low-quality result for "${identifier}" – skipping to next layer`
-      );
+      console.log(LOG_PREFIX, `Low-quality result for "${identifier}" from "${source}" — skipping`);
       return null;
     }
 
-    // Carry over the calendar-event email when the API didn't provide one.
+    // Merge business enriched data if available.
+    if (enrichedData && Array.isArray(enrichedData) && enrichedData.length > 0) {
+      const merged = mergeBusinessEnrichedData(personData, enrichedData[0]);
+      Object.assign(personData, merged);
+    }
+
+    // Carry over calendar email.
     if (email && !personData.email) {
       personData.email = email;
     }
 
-    // Cache result (non-fatal if it fails).
+    // Cache (non-fatal).
     try {
       await this._cache.set(cacheKey, personData, CACHE_TTL_MS);
-    } catch (cacheErr) {
-      console.warn(
-        LOG_PREFIX,
-        `Failed to cache result for "${identifier}":`,
-        cacheErr.message
-      );
+    } catch (err) {
+      console.warn(LOG_PREFIX, `Cache write failed for "${identifier}":`, err.message);
     }
 
     console.log(
       LOG_PREFIX,
-      `Waterfall complete for "${personData.name}" – ` +
-      `source: ${personData._source}, confidence: ${personData._confidence}`
+      `Waterfall complete for "${personData.name}" — source: ${personData._source}, confidence: ${personData._confidence}`
     );
 
     return personData;
