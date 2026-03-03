@@ -1,0 +1,65 @@
+{
+  "manifest_version": 3,
+  "name": "Meeting Intel",
+  "version": "1.0.0",
+  "description": "Get professional background on meeting attendees directly in Google Calendar.",
+
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "activeTab",
+    "alarms"
+  ],
+
+  "host_permissions": [
+    "https://calendar.google.com/*",
+    "https://api.brightdata.com/*"
+  ],
+
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://calendar.google.com/*"],
+      "js": [
+        "content/attendee-extractor.js",
+        "content/button-injector.js",
+        "content/calendar-observer.js",
+        "content/content-script.js"
+      ],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*.png"],
+      "matches": ["https://calendar.google.com/*"]
+    }
+  ]
+}

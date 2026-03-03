@@ -1,0 +1,225 @@
+/**
+ * popup.css
+ *
+ * Styles for the Meeting Intel browser action popup.
+ * Fixed width popup following Chrome extension conventions.
+ */
+
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Root ─────────────────────────────────────────────────────────────────── */
+
+:root {
+  --mp-color-primary:          #1a73e8;
+  --mp-color-primary-hover:    #1557b0;
+  --mp-color-surface:          #ffffff;
+  --mp-color-surface-variant:  #f1f3f4;
+  --mp-color-on-surface:       #202124;
+  --mp-color-on-surface-muted: #5f6368;
+  --mp-color-outline:          #dadce0;
+  --mp-color-success:          #137333;
+  --mp-color-success-bg:       #e6f4ea;
+  --mp-font: 'Google Sans', Roboto, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mp-color-primary:          #8ab4f8;
+    --mp-color-primary-hover:    #a8c7fa;
+    --mp-color-surface:          #202124;
+    --mp-color-surface-variant:  #2d2e30;
+    --mp-color-on-surface:       #e8eaed;
+    --mp-color-on-surface-muted: #9aa0a6;
+    --mp-color-outline:          #3c4043;
+    --mp-color-success:          #81c995;
+    --mp-color-success-bg:       #0f3322;
+  }
+}
+
+/* ── Body ─────────────────────────────────────────────────────────────────── */
+
+body {
+  width: 300px;
+  font-family: var(--mp-font);
+  font-size: 14px;
+  color: var(--mp-color-on-surface);
+  background-color: var(--mp-color-surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+.mp-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 12px;
+  background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%);
+  color: #ffffff;
+}
+
+.mp-header__logo {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.mp-header__title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+
+.mp-header__tagline {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 1px;
+}
+
+/* ── Main ─────────────────────────────────────────────────────────────────── */
+
+.mp-main {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Status Section ───────────────────────────────────────────────────────── */
+
+.mp-status-section {
+  padding: 10px 0;
+}
+
+.mp-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  background-color: var(--mp-color-success-bg);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mp-color-success);
+}
+
+.mp-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mp-status__dot--active {
+  background-color: var(--mp-color-success);
+  box-shadow: 0 0 0 2px rgba(19, 115, 51, 0.25);
+}
+
+.mp-status__dot--inactive {
+  background-color: var(--mp-color-on-surface-muted);
+}
+
+/* ── Divider ──────────────────────────────────────────────────────────────── */
+
+.mp-divider {
+  border: none;
+  border-top: 1px solid var(--mp-color-outline);
+  margin: 8px 0;
+}
+
+/* ── Info Section ─────────────────────────────────────────────────────────── */
+
+.mp-info-section {
+  padding: 8px 0;
+}
+
+.mp-info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mp-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.mp-info-row__label {
+  color: var(--mp-color-on-surface-muted);
+  font-weight: normal;
+}
+
+.mp-info-row__value {
+  color: var(--mp-color-on-surface);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── How-to Section ───────────────────────────────────────────────────────── */
+
+.mp-how-section {
+  padding: 8px 0;
+}
+
+.mp-how-section__heading {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mp-color-on-surface-muted);
+  margin-bottom: 8px;
+}
+
+.mp-how-list {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mp-color-on-surface);
+}
+
+.mp-how-list li::marker {
+  color: var(--mp-color-primary);
+  font-weight: 600;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────────── */
+
+.mp-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--mp-color-outline);
+  text-align: center;
+}
+
+.mp-footer__text {
+  font-size: 11px;
+  color: var(--mp-color-on-surface-muted);
+}
+
+/* ── Accessibility ────────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--mp-color-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

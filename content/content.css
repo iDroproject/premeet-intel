@@ -1,0 +1,191 @@
+/**
+ * content.css
+ *
+ * Styles for Meeting Intel injected UI elements.
+ * Designed to complement Google Calendar's Material Design 3 aesthetic.
+ *
+ * Scoped under .meeting-intel-* class names to avoid collisions with GCal styles.
+ */
+
+/* ── Container ─────────────────────────────────────────────────────────────── */
+
+.meeting-intel-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  margin: 6px 0;
+  /* Subtle separator from surrounding GCal content */
+  border-top: 1px solid #e0e0e0;
+}
+
+/* ── Base Button ───────────────────────────────────────────────────────────── */
+
+.meeting-intel-btn {
+  /* Reset browser defaults */
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+
+  /* Layout */
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px 6px 10px;
+
+  /* Typography – match GCal button labels */
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+
+  /* Visual */
+  color: #1a73e8;          /* Google blue */
+  background-color: #ffffff;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+
+  /* Transition */
+  transition:
+    background-color 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease;
+
+  /* Prevent layout interference with GCal */
+  position: relative;
+  z-index: 1;
+  user-select: none;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .meeting-intel-btn {
+    color: #8ab4f8;         /* Google blue – dark mode tint */
+    background-color: #2d2e30;
+    border-color: #5f6368;
+  }
+
+  .meeting-intel-container {
+    border-top-color: #3c4043;
+  }
+}
+
+/* ── Hover & Focus ─────────────────────────────────────────────────────────── */
+
+.meeting-intel-btn:hover {
+  background-color: #e8f0fe;
+  border-color: #1a73e8;
+  box-shadow:
+    0 1px 2px 0 rgba(60, 64, 67, 0.10),
+    0 1px 3px 1px rgba(60, 64, 67, 0.08);
+}
+
+.meeting-intel-btn:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+}
+
+.meeting-intel-btn:active {
+  background-color: #d2e3fc;
+  box-shadow: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .meeting-intel-btn:hover {
+    background-color: #3c4470;
+    border-color: #8ab4f8;
+  }
+
+  .meeting-intel-btn:focus-visible {
+    outline-color: #8ab4f8;
+  }
+
+  .meeting-intel-btn:active {
+    background-color: #2d3759;
+  }
+}
+
+/* ── Disabled ─────────────────────────────────────────────────────────────── */
+
+.meeting-intel-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ── Icon ──────────────────────────────────────────────────────────────────── */
+
+.meeting-intel-btn .meeting-intel-icon {
+  font-size: 14px;
+  line-height: 1;
+  /* Prevents the emoji from shifting the baseline */
+  vertical-align: middle;
+}
+
+/* ── Loading State ─────────────────────────────────────────────────────────── */
+
+.meeting-intel-btn.loading {
+  color: #80868b;
+  border-color: #dadce0;
+  pointer-events: none;
+}
+
+.meeting-intel-btn.loading .meeting-intel-icon {
+  /* Replace icon with a CSS spinner */
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid #dadce0;
+  border-top-color: #1a73e8;
+  border-radius: 50%;
+  animation: meeting-intel-spin 0.7s linear infinite;
+  font-size: 0; /* hide the emoji character */
+}
+
+@keyframes meeting-intel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .meeting-intel-btn.loading {
+    color: #9aa0a6;
+    border-color: #5f6368;
+  }
+
+  .meeting-intel-btn.loading .meeting-intel-icon {
+    border-color: #5f6368;
+    border-top-color: #8ab4f8;
+  }
+}
+
+/* ── Accessibility ─────────────────────────────────────────────────────────── */
+
+/* High-contrast mode */
+@media (forced-colors: active) {
+  .meeting-intel-btn {
+    border: 2px solid ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+  }
+
+  .meeting-intel-btn:hover {
+    border-color: Highlight;
+    color: Highlight;
+  }
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  .meeting-intel-btn {
+    transition: none;
+  }
+
+  .meeting-intel-btn.loading .meeting-intel-icon {
+    animation: none;
+  }
+}
