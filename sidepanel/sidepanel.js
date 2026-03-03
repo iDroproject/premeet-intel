@@ -299,6 +299,7 @@ function renderFooter(data) {
     const sourceMap = {
       'brightdata-url': 'LinkedIn',
       'brightdata-name': 'Search',
+      'brightdata-deep': 'Deep Lookup',
       'cache': 'Cached',
       'mock': 'Demo',
       'error': 'Error',
@@ -385,6 +386,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     }
 
+    // Progress updates pushed by the WaterfallOrchestrator as each layer runs.
+    // Reflect which lookup strategy is currently active in the loading label.
+    case 'FETCH_PROGRESS': {
+      const label = message.payload?.label;
+      if (label && El.loadingLabel) {
+        El.loadingLabel.textContent = label;
+        console.log(LOG_PREFIX, 'Fetch progress:', label);
+      }
+      sendResponse({ ok: true });
+      break;
+    }
+
     case 'PERSON_BACKGROUND_RESULT': {
       const data = message.payload;
       if (!data) {
@@ -411,9 +424,76 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// -- Manual Search --
+
+/**
+ * Submit a manual search for a given name.
+ * Shows the loading state immediately and sends FETCH_PERSON_BACKGROUND
+ * to the service worker.
+ *
+ * @param {string} name - The name entered by the user.
+ */
+function handleManualSearch(name) {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+
+  console.log(LOG_PREFIX, 'Manual search for:', trimmed);
+
+  // Build a minimal payload – no email or company available from manual input.
+  const payload = { name: trimmed, email: null, company: null };
+  lastPayload = payload;
+
+  if (El.loadingLabel) {
+    El.loadingLabel.textContent = `Looking up ${trimmed}...`;
+  }
+  showView('loading');
+
+  chrome.runtime.sendMessage(
+    { type: 'FETCH_PERSON_BACKGROUND', payload },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error(LOG_PREFIX, 'Manual search message failed:', chrome.runtime.lastError.message);
+        showError('Could not reach the background service. Please try again.');
+      } else if (response && !response.ok) {
+        console.warn(LOG_PREFIX, 'Manual search rejected by service worker:', response.error);
+        showError(response.error || 'Could not start the search. Please try again.');
+      }
+      // On success the service worker will push PERSON_BACKGROUND_RESULT
+      // through the message listener above.
+    }
+  );
+}
+
+/**
+ * Wire up a search input + button pair for manual lookup.
+ *
+ * @param {string} inputId  - Element ID of the text input.
+ * @param {string} buttonId - Element ID of the submit button.
+ */
+function wireManualSearch(inputId, buttonId) {
+  const inputEl = $(inputId);
+  const btnEl   = $(buttonId);
+
+  if (!inputEl || !btnEl) return;
+
+  btnEl.addEventListener('click', () => {
+    handleManualSearch(inputEl.value);
+    inputEl.value = '';
+  });
+
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      handleManualSearch(inputEl.value);
+      inputEl.value = '';
+    }
+  });
+}
+
 // -- Init --
 
 (function init() {
   console.log(LOG_PREFIX, 'Side panel initialised');
+  wireManualSearch('mi-search-input-empty', 'mi-search-btn-empty');
+  wireManualSearch('mi-search-input-error', 'mi-search-btn-error');
   showView('empty');
 })();

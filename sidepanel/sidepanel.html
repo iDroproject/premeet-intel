@@ -29,6 +29,19 @@
           Click <strong>"Know [Name]"</strong> on a Google Calendar event to see
           that person's professional background here.
         </p>
+        <div class="mi-manual-search" id="mi-manual-search-empty">
+          <p class="mi-manual-search__label">Or search manually:</p>
+          <div class="mi-search-row">
+            <input
+              type="text"
+              id="mi-search-input-empty"
+              placeholder="Enter name..."
+              class="mi-search-input"
+              aria-label="Search for a person by name"
+            />
+            <button id="mi-search-btn-empty" type="button" class="mi-search-btn">Search</button>
+          </div>
+        </div>
       </section>
 
       <!-- Loading state -->
@@ -117,6 +130,19 @@
           Could not load background information. Please try again.
         </p>
         <button class="mi-retry-btn" id="mi-retry" type="button">Retry</button>
+        <div class="mi-manual-search" id="mi-manual-search-error">
+          <p class="mi-manual-search__label">Or search manually:</p>
+          <div class="mi-search-row">
+            <input
+              type="text"
+              id="mi-search-input-error"
+              placeholder="Enter name..."
+              class="mi-search-input"
+              aria-label="Search for a person by name"
+            />
+            <button id="mi-search-btn-error" type="button" class="mi-search-btn">Search</button>
+          </div>
+        </div>
       </section>
 
     </main>
