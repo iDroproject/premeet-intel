@@ -5,29 +5,26 @@
  *
  * Responsibilities:
  *   - Configure chrome.sidePanel behaviour on install.
- *   - Handle FETCH_PERSON_BACKGROUND: cache-check → Bright Data API → normalise → push result.
+ *   - Handle FETCH_PERSON_BACKGROUND: delegate to WaterfallOrchestrator,
+ *     stream FETCH_PROGRESS updates to the side panel while each layer runs.
  *   - Handle OPEN_SIDE_PANEL: open the side panel for the sender tab.
  *   - Handle SET_API_TOKEN: persist the Bright Data API token to chrome.storage.sync.
  *   - Handle GET_CACHE_STATS: return cache stats to the popup.
  *   - Handle PING: liveness check.
+ *   - Scaffold chrome.alarms for pre-fetching upcoming calendar meetings (Phase 5).
  *
  * Architecture notes:
  *   - This file uses ES module syntax (`type: module` in manifest.json).
  *   - All external HTTP calls are made here so host_permissions bypass CORS.
  *   - The API token is loaded from chrome.storage.sync; a hardcoded fallback
  *     is used only when the stored token is absent.
+ *   - The WaterfallOrchestrator is created fresh per fetch call so it always
+ *     uses the most recently resolved API token.
  */
 
 'use strict';
 
-import {
-  scrapeByLinkedInUrl,
-  searchByNameAndFetch,
-  pollSnapshotUntilReady,
-  downloadSnapshot,
-} from './api/bright-data-scraper.js';
-
-import { pickBestProfile } from './api/response-normalizer.js';
+import { WaterfallOrchestrator } from './api/waterfall-orchestrator.js';
 
 import { CacheManager } from './cache/cache-manager.js';
 
@@ -47,16 +44,35 @@ const FALLBACK_API_TOKEN = '30728b24f3b8fa70b816bb2936d5451c19941d910a6d330a2b7f
 /** chrome.storage.sync key used to persist the Bright Data API token. */
 const STORAGE_KEY_API_TOKEN = 'brightdata_api_token';
 
-/** Cache TTL: 7 days in milliseconds. */
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Alarm name for the periodic upcoming-meeting pre-fetch.
+ * Fires every 2 hours to warm the cache ahead of scheduled meetings.
+ * The actual Calendar API lookup is implemented in Phase 5.
+ *
+ * @type {string}
+ */
+const ALARM_PREFETCH_MEETINGS = 'prefetch-upcoming-meetings';
 
+/**
+ * Alarm name for the periodic cache-eviction sweep.
+ *
+ * @type {string}
+ */
+const ALARM_REFRESH_CACHE = 'refresh-cache';
+
+/**
+ * Enumeration of all message type strings used across the extension.
+ * Centralised here to prevent typo-driven bugs across components.
+ */
 const MessageType = /** @type {const} */ ({
-  FETCH_PERSON_BACKGROUND: 'FETCH_PERSON_BACKGROUND',
-  OPEN_SIDE_PANEL:         'OPEN_SIDE_PANEL',
+  FETCH_PERSON_BACKGROUND:  'FETCH_PERSON_BACKGROUND',
+  FETCH_PROGRESS:           'FETCH_PROGRESS',
+  OPEN_SIDE_PANEL:          'OPEN_SIDE_PANEL',
   PERSON_BACKGROUND_RESULT: 'PERSON_BACKGROUND_RESULT',
-  SET_API_TOKEN:           'SET_API_TOKEN',
-  GET_CACHE_STATS:         'GET_CACHE_STATS',
-  PING:                    'PING',
+  SET_API_TOKEN:            'SET_API_TOKEN',
+  GET_CACHE_STATS:          'GET_CACHE_STATS',
+  CLEAR_CACHE:              'CLEAR_CACHE',
+  PING:                     'PING',
 });
 
 // ─── Module-level singletons ─────────────────────────────────────────────────
@@ -67,19 +83,59 @@ const cache = new CacheManager();
 // ─── Side Panel Setup ────────────────────────────────────────────────────────
 
 /**
- * Configure side panel behaviour on extension install or update.
+ * Configure side panel behaviour and register alarms on extension install
+ * or update.
  */
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log(LOG_PREFIX, 'Extension installed/updated:', details.reason);
 
+  // Configure the side panel to open only on explicit programmatic open() calls
+  // (not automatically when the toolbar icon is clicked).
   try {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
     console.log(LOG_PREFIX, 'Side panel behaviour configured');
   } catch (err) {
-    // setPanelBehavior available from Chrome 116; log gracefully if absent.
+    // setPanelBehavior is available from Chrome 116; log gracefully if absent.
     console.warn(LOG_PREFIX, 'Could not set panel behaviour:', err.message);
   }
+
+  await registerAlarms();
 });
+
+// ─── Alarm Registration ───────────────────────────────────────────────────────
+
+/**
+ * Create (or replace) the recurring alarms used by the service worker.
+ *
+ * Called both on `onInstalled` and on each service-worker startup so the
+ * alarms survive extension updates and service-worker restarts.
+ *
+ * @returns {Promise<void>}
+ */
+async function registerAlarms() {
+  try {
+    // Cache eviction: runs every 30 minutes.
+    await chrome.alarms.create(ALARM_REFRESH_CACHE, {
+      delayInMinutes:  30,
+      periodInMinutes: 30,
+    });
+
+    // Upcoming-meeting pre-fetch: scaffold for Phase 5 Calendar integration.
+    // The alarm fires every 2 hours; the handler below logs the event but
+    // does not yet query the Calendar API.
+    await chrome.alarms.create(ALARM_PREFETCH_MEETINGS, {
+      delayInMinutes:  2,
+      periodInMinutes: 120,
+    });
+
+    console.log(
+      LOG_PREFIX,
+      'Alarms registered:', ALARM_REFRESH_CACHE, '+', ALARM_PREFETCH_MEETINGS
+    );
+  } catch (err) {
+    console.error(LOG_PREFIX, 'Failed to register alarms:', err.message);
+  }
+}
 
 // ─── Token Resolution ────────────────────────────────────────────────────────
 
@@ -105,171 +161,37 @@ async function resolveApiToken() {
   return FALLBACK_API_TOKEN;
 }
 
-// ─── LinkedIn URL Derivation ─────────────────────────────────────────────────
+// ─── Core Fetch Pipeline ─────────────────────────────────────────────────────
 
 /**
- * Attempt to derive a likely LinkedIn profile URL from a person's name and
- * (optionally) their email domain.
+ * Fetch background information for a person using the WaterfallOrchestrator.
  *
- * This is a heuristic: it generates the canonical slug format LinkedIn uses
- * (hyphenated lowercase name). It will be wrong for profiles that chose a
- * custom slug, but gives the scraper a first URL to try.
+ * The orchestrator's `onProgress` callback is wired to push `FETCH_PROGRESS`
+ * messages to the side panel so the user sees which layer is currently running
+ * (e.g. "Trying LinkedIn scrape…", "Trying deep lookup…").
  *
- * @param {string}      name   Full name, e.g. "Jane Doe".
- * @param {string|null} email  Optional email for additional hinting.
- * @returns {string|null}      Candidate URL, or null if name is unusable.
- */
-function deriveLinkedInUrl(name, email) {
-  if (!name || !name.trim()) return null;
-
-  // Build a slug from the name: lowercase, replace spaces with hyphens,
-  // strip characters that are invalid in LinkedIn slugs.
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
-
-  if (!slug || slug === '-') return null;
-
-  return `https://www.linkedin.com/in/${slug}/`;
-}
-
-/**
- * Normalise a person's name into a safe cache key segment.
- * Lowercases, trims, and replaces non-alphanumeric characters with underscores.
- *
- * @param {string} name
- * @returns {string}
- */
-function normaliseCacheKey(name) {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '_')
-    .replace(/_+/g, '_');
-}
-
-// ─── Core Fetch Orchestrator ─────────────────────────────────────────────────
-
-/**
- * Fetch background information for a person.
- *
- * Strategy:
- *   1. Check cache – return immediately if a fresh entry exists.
- *   2. Try scraping by a derived LinkedIn URL (fast path – synchronous API).
- *   3. If the scrape returns a pending snapshot, poll and download it.
- *   4. If the URL scrape yields no usable data, fall back to a name search.
- *   5. Normalise the raw response to PersonData.
- *   6. Cache the result.
- *   7. Return the PersonData (or throw on unrecoverable failure).
+ * A fresh WaterfallOrchestrator is created per call so it always uses the
+ * most recently resolved API token.
  *
  * @param {{ name: string, email: string, company: string|null }} payload
  * @returns {Promise<import('./api/response-normalizer.js').PersonData>}
  * @throws {Error} When no data could be retrieved from any source.
  */
 async function fetchPersonBackground(payload) {
-  const { name, email, company } = payload;
   const apiToken = await resolveApiToken();
 
-  // ── 1. Cache check ──────────────────────────────────────────────────────────
-  const cacheKey = `person_${normaliseCacheKey(name || email)}`;
+  const orchestrator = new WaterfallOrchestrator(cache, apiToken);
 
-  const cached = await cache.get(cacheKey);
-  if (cached) {
-    console.log(LOG_PREFIX, `Cache hit for "${name || email}"`);
-    return cached;
-  }
+  // Wire progress updates to the side panel.
+  orchestrator.onProgress = async (label) => {
+    console.log(LOG_PREFIX, 'Waterfall progress:', label);
+    await notifySidePanel({
+      type:    MessageType.FETCH_PROGRESS,
+      payload: { label },
+    });
+  };
 
-  console.log(LOG_PREFIX, `Cache miss – fetching from Bright Data for: "${name || email}"`);
-
-  // ── 2. Try URL-based scrape first ───────────────────────────────────────────
-  const candidateUrl = deriveLinkedInUrl(name, email);
-  let rawProfiles    = null;
-  let source         = 'brightdata-url';
-
-  if (candidateUrl) {
-    console.log(LOG_PREFIX, 'Trying URL-based scrape:', candidateUrl);
-
-    try {
-      const scrapeResult = await scrapeByLinkedInUrl(candidateUrl, apiToken);
-
-      if (scrapeResult.mode === 'direct') {
-        rawProfiles = scrapeResult.profiles;
-        console.log(LOG_PREFIX, `Direct scrape returned ${rawProfiles.length} profile(s)`);
-      } else if (scrapeResult.mode === 'snapshot') {
-        // ── 3. Poll the snapshot ─────────────────────────────────────────────
-        console.log(LOG_PREFIX, 'Polling snapshot from URL scrape:', scrapeResult.snapshotId);
-        await pollSnapshotUntilReady(scrapeResult.snapshotId, apiToken);
-        rawProfiles = await downloadSnapshot(scrapeResult.snapshotId, apiToken);
-        console.log(LOG_PREFIX, `Snapshot download returned ${rawProfiles.length} profile(s)`);
-      }
-    } catch (urlScrapeErr) {
-      console.warn(
-        LOG_PREFIX,
-        'URL-based scrape failed, will try name search:',
-        urlScrapeErr.message
-      );
-      // Fall through to name search below.
-    }
-  }
-
-  // ── 4. Name search fallback ─────────────────────────────────────────────────
-  //
-  // We fall back to name search if:
-  //   a) We had no candidate URL to try.
-  //   b) The URL scrape threw an error.
-  //   c) The URL scrape returned an empty array (profile not found at that slug).
-
-  const urlScrapeYieldedData = Array.isArray(rawProfiles) && rawProfiles.length > 0;
-
-  if (!urlScrapeYieldedData && name) {
-    source = 'brightdata-name';
-    console.log(LOG_PREFIX, 'Falling back to name search for:', name);
-
-    try {
-      rawProfiles = await searchByNameAndFetch(name, apiToken);
-      console.log(LOG_PREFIX, `Name search returned ${rawProfiles?.length ?? 0} profile(s)`);
-    } catch (nameSearchErr) {
-      console.error(LOG_PREFIX, 'Name search also failed:', nameSearchErr.message);
-      throw new Error(
-        `Could not retrieve background for "${name || email}": ` +
-        nameSearchErr.message
-      );
-    }
-  }
-
-  // At this point if we still have no profiles, surface a clear error.
-  if (!Array.isArray(rawProfiles) || rawProfiles.length === 0) {
-    throw new Error(
-      `No profile data returned by Bright Data for "${name || email}"`
-    );
-  }
-
-  // ── 5. Normalise ────────────────────────────────────────────────────────────
-  const personData = pickBestProfile(rawProfiles, name, source);
-
-  if (!personData) {
-    throw new Error(`Could not normalise any profile for "${name || email}"`);
-  }
-
-  // Carry over the email from the calendar event if the API didn't provide one.
-  // (PersonData doesn't have an email field by default; we attach it here for
-  //  the side panel to display.)
-  if (email && !personData.email) {
-    personData.email = email;
-  }
-
-  // ── 6. Cache ────────────────────────────────────────────────────────────────
-  try {
-    await cache.set(cacheKey, personData, CACHE_TTL_MS);
-  } catch (cacheErr) {
-    // Caching failure is non-fatal; log and continue.
-    console.warn(LOG_PREFIX, 'Failed to cache result:', cacheErr.message);
-  }
-
-  return personData;
+  return orchestrator.fetch(payload);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -432,6 +354,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    // ── CLEAR_CACHE ───────────────────────────────────────────────────────────
+    case MessageType.CLEAR_CACHE: {
+      cache.clear()
+        .then(() => cache.getStats())
+        .then((stats) => {
+          console.log(LOG_PREFIX, 'Cache cleared by popup');
+          sendResponse({ ok: true, stats });
+        })
+        .catch((err) => {
+          console.error(LOG_PREFIX, 'CLEAR_CACHE failed:', err.message);
+          sendResponse({ ok: false, error: err.message });
+        });
+
+      return true;
+    }
+
     // ── GET_CACHE_STATS ───────────────────────────────────────────────────────
     case MessageType.GET_CACHE_STATS: {
       cache.getStats()
@@ -463,21 +401,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 /**
  * Periodic alarm handler.
- * The `refresh-cache` alarm triggers a scan for and removal of expired entries.
+ *
+ * `refresh-cache`: evicts expired cache entries by reading stats (which
+ *   performs lazy deletion on observed expired keys).
+ *
+ * `prefetch-upcoming-meetings`: scaffold for Phase 5 Calendar API integration.
+ *   When implemented, this will query Google Calendar for meetings in the next
+ *   2 hours and pre-warm the cache for each attendee.
  */
 chrome.alarms.onAlarm.addListener((alarm) => {
   console.log(LOG_PREFIX, 'Alarm fired:', alarm.name);
 
   switch (alarm.name) {
-    case 'refresh-cache':
+
+    case ALARM_REFRESH_CACHE:
       // Evict any entries that have passed their TTL by calling getStats,
-      // which internally observes expiry during enumeration.  A dedicated
-      // purgeExpired helper can be added to CacheManager in a future phase.
+      // which internally performs lazy deletion on expired keys.
+      // A dedicated purgeExpired() helper can be added to CacheManager later.
       cache.getStats()
         .then((stats) => {
           console.log(
             LOG_PREFIX,
-            `Cache refresh alarm: ${stats.count} valid, ${stats.expiredCount} expired`
+            `Cache refresh alarm: ${stats.count} valid, ` +
+            `${stats.expiredCount} expired, ` +
+            `~${Math.round(stats.sizeBytesEst / 1024)} KB used`
           );
         })
         .catch((err) => {
@@ -485,12 +432,36 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         });
       break;
 
+    case ALARM_PREFETCH_MEETINGS:
+      // Phase 5 – Google Calendar API integration.
+      //
+      // When implemented, this block will:
+      //   1. Call chrome.identity.getAuthToken() to obtain an OAuth2 token.
+      //   2. Query the Calendar API for events starting in the next 2 hours.
+      //   3. For each attendee not already in cache, trigger a
+      //      WaterfallOrchestrator.fetch() call to warm the cache ahead of
+      //      the meeting.
+      //
+      // For now, log a placeholder to confirm the alarm is firing.
+      console.log(
+        LOG_PREFIX,
+        'Pre-fetch alarm fired (Phase 5 Calendar integration not yet implemented)'
+      );
+      break;
+
     default:
       console.warn(LOG_PREFIX, 'Unknown alarm:', alarm.name);
   }
 });
 
-// ─── Startup log ─────────────────────────────────────────────────────────────
+// ─── Startup ─────────────────────────────────────────────────────────────────
+
+// Re-register alarms on each service-worker startup.  The `onInstalled`
+// handler only runs on install/update, not on every SW wake-up, so alarms
+// must also be created here to survive service-worker restarts.
+registerAlarms().catch((err) => {
+  console.error(LOG_PREFIX, 'Alarm registration on startup failed:', err.message);
+});
 
 console.log(
   LOG_PREFIX,
