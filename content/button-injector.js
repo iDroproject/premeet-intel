@@ -71,6 +71,18 @@
     return null;
   }
 
+  /**
+   * Check if the extension context is still valid (not invalidated by reload/update).
+   * @returns {boolean}
+   */
+  function isContextValid() {
+    try {
+      return !!chrome.runtime?.id;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ─── Button Factory ───────────────────────────────────────────────────────
 
   /**
@@ -145,6 +157,12 @@
   function handleButtonClick(btn, attendee) {
     if (btn.classList.contains('loading')) return;
 
+    // Guard against stale content scripts after extension reload/update.
+    if (!isContextValid()) {
+      console.warn(LOG_PREFIX, 'Extension context invalidated – please refresh the page.');
+      return;
+    }
+
     console.log(LOG_PREFIX, 'Button clicked for attendee:', attendee);
 
     // Set loading state.
@@ -158,44 +176,51 @@
       company: attendee.company,
     };
 
-    // Send fetch request to background service worker.
-    chrome.runtime.sendMessage(
-      { type: 'FETCH_PERSON_BACKGROUND', payload },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            LOG_PREFIX,
-            'Error sending FETCH_PERSON_BACKGROUND:',
-            chrome.runtime.lastError.message
-          );
-        } else {
-          console.log(LOG_PREFIX, 'FETCH_PERSON_BACKGROUND acknowledged:', response);
+    try {
+      // Send fetch request to background service worker.
+      chrome.runtime.sendMessage(
+        { type: 'FETCH_PERSON_BACKGROUND', payload },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(
+              LOG_PREFIX,
+              'Error sending FETCH_PERSON_BACKGROUND:',
+              chrome.runtime.lastError.message
+            );
+          } else {
+            console.log(LOG_PREFIX, 'FETCH_PERSON_BACKGROUND acknowledged:', response);
+          }
         }
-      }
-    );
+      );
 
-    // Request side panel to open.
-    chrome.runtime.sendMessage(
-      { type: 'OPEN_SIDE_PANEL' },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            LOG_PREFIX,
-            'Error sending OPEN_SIDE_PANEL:',
-            chrome.runtime.lastError.message
-          );
-        } else {
-          console.log(LOG_PREFIX, 'OPEN_SIDE_PANEL acknowledged:', response);
+      // Request side panel to open.
+      chrome.runtime.sendMessage(
+        { type: 'OPEN_SIDE_PANEL' },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(
+              LOG_PREFIX,
+              'Error sending OPEN_SIDE_PANEL:',
+              chrome.runtime.lastError.message
+            );
+          } else {
+            console.log(LOG_PREFIX, 'OPEN_SIDE_PANEL acknowledged:', response);
+          }
+
+          // Re-enable button after a short delay so user sees the loading state.
+          setTimeout(() => {
+            btn.classList.remove('loading');
+            btn.removeAttribute('aria-busy');
+            btn.disabled = false;
+          }, 1500);
         }
-
-        // Re-enable button after a short delay so user sees the loading state.
-        setTimeout(() => {
-          btn.classList.remove('loading');
-          btn.removeAttribute('aria-busy');
-          btn.disabled = false;
-        }, 1500);
-      }
-    );
+      );
+    } catch (err) {
+      console.warn(LOG_PREFIX, 'Failed to send message (context may be invalidated):', err.message);
+      btn.classList.remove('loading');
+      btn.removeAttribute('aria-busy');
+      btn.disabled = false;
+    }
   }
 
   // ─── Class Definition ─────────────────────────────────────────────────────
