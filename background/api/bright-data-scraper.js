@@ -126,13 +126,15 @@ export async function scrapeByLinkedInUrl(linkedInUrl, apiToken) {
   }
 
   // HTTP 200 — data available immediately.
-  const profiles = await response.json();
-  if (!Array.isArray(profiles)) {
-    throw new Error('Expected array from scrape endpoint, got: ' + typeof profiles);
-  }
+  // The API may return a single object or an array depending on input count.
+  const raw = await response.json();
+  const profiles = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? [raw] : []);
 
-  console.log(LOG_PREFIX, `Scrape returned ${profiles.length} profile(s) directly`);
-  return { mode: 'direct', profiles };
+  // Filter out error entries (e.g. dead_page, private profiles).
+  const valid = profiles.filter(p => !p.error && !p.error_code);
+
+  console.log(LOG_PREFIX, `Scrape returned ${profiles.length} profile(s) directly, ${valid.length} valid`);
+  return { mode: 'direct', profiles: valid };
 }
 
 /**
@@ -188,9 +190,30 @@ export async function downloadSnapshot(snapshotId, apiToken) {
     headers: authHeaders(apiToken),
   });
 
-  const data = await response.json();
+  // Handle JSON, NDJSON, or non-JSON text responses gracefully.
+  const rawText = await response.text();
+  const trimmed = rawText.trim();
+
+  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) {
+    throw new Error(`Snapshot download returned non-JSON: "${trimmed.slice(0, 100)}"`);
+  }
+
+  let data;
+  try {
+    data = JSON.parse(trimmed);
+  } catch (_) {
+    // NDJSON: one JSON object per line.
+    const lines = trimmed.split('\n').filter(l => l.trim());
+    data = [];
+    for (const line of lines) {
+      try { data.push(JSON.parse(line)); } catch (_e) { /* skip */ }
+    }
+    if (data.length === 0) throw new Error('Could not parse snapshot response as JSON or NDJSON');
+    console.log(LOG_PREFIX, `Parsed ${data.length} record(s) from NDJSON`);
+  }
+
   if (!Array.isArray(data)) {
-    throw new Error('Expected array from snapshot download, got: ' + typeof data);
+    data = [data];
   }
 
   console.log(LOG_PREFIX, `Downloaded ${data.length} record(s) from snapshot ${snapshotId}`);

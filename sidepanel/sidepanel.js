@@ -44,6 +44,10 @@ const El = {
 // -- State --
 
 let lastPayload = null;
+/** @type {Element|null} The currently active card element (for in-place updates). */
+let activeCardEl = null;
+/** @type {string|null} Identifier for the active lookup (to match interim→final). */
+let activeCardId = null;
 
 // -- View Management --
 
@@ -51,6 +55,17 @@ function showView(viewName) {
   Object.entries(Views).forEach(([key, el]) => {
     if (!el) return;
     el.classList.toggle('bpi-hidden', key !== viewName);
+  });
+}
+
+/**
+ * Show multiple views simultaneously (e.g. card stack + loading stepper
+ * during interim result display).
+ */
+function showViews(...viewNames) {
+  Object.entries(Views).forEach(([key, el]) => {
+    if (!el) return;
+    el.classList.toggle('bpi-hidden', !viewNames.includes(key));
   });
 }
 
@@ -106,6 +121,18 @@ function getCardRefs(cardEl) {
     confidenceScore:     r('confidence-score'),
     confidenceBar:       r('confidence-bar'),
     confidenceCitations: r('confidence-citations'),
+    icpSection:          r('icp-section'),
+    icpBadges:           r('icp-badges'),
+    companySection:      r('company-section'),
+    companyCard:         r('company-card'),
+    companyLogo:         r('company-logo'),
+    companyName:         r('company-name'),
+    companyIndustry:     r('company-industry'),
+    companyMeta:         r('company-meta'),
+    companyDesc:         r('company-desc'),
+    companyProducts:     r('company-products'),
+    companyTechnologies: r('company-technologies'),
+    companyNews:         r('company-news'),
     bioSection:          r('bio-section'),
     bio:                 r('bio'),
     experienceSection:   r('experience-section'),
@@ -173,7 +200,7 @@ function renderStats(refs, data) {
     refs.confidence.className = 'bpi-stat__value bpi-confidence-dot ' + conf.cls;
   }
 
-  const hasStats = data.connections || data.followers;
+  const hasStats = data.connections !== null || data.followers !== null;
   if (refs.statsRow) refs.statsRow.hidden = !hasStats;
 }
 
@@ -190,9 +217,9 @@ function renderConfidence(refs, data) {
     const pct = Math.round((score / maxScore) * 100);
     refs.confidenceBar.style.width = `${pct}%`;
     refs.confidenceBar.className = 'bpi-confidence-panel__bar';
-    if (data._confidence === 'high') refs.confidenceBar.classList.add('bpi-confidence-panel__bar--high');
-    else if (data._confidence === 'medium') refs.confidenceBar.classList.add('bpi-confidence-panel__bar--medium');
-    else refs.confidenceBar.classList.add('bpi-confidence-panel__bar--low');
+    if (data._confidence === 'high') refs.confidenceBar.classList.add('bpi-confidence--high');
+    else if (data._confidence === 'medium') refs.confidenceBar.classList.add('bpi-confidence--medium');
+    else refs.confidenceBar.classList.add('bpi-confidence--low');
   }
 
   if (refs.confidenceCitations) {
@@ -342,11 +369,146 @@ function renderPosts(refs, data) {
 
 function renderLinkedIn(refs, data) {
   if (!refs.linkedInSection || !refs.linkedIn) return;
-  if (data.linkedinUrl && /^https?:\/\/(www\.)?linkedin\.com\//i.test(data.linkedinUrl)) {
+  if (data.linkedinUrl && /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com\//i.test(data.linkedinUrl)) {
     refs.linkedIn.href = data.linkedinUrl;
     refs.linkedInSection.hidden = false;
   } else {
     refs.linkedInSection.hidden = true;
+  }
+}
+
+function renderIcp(refs, data) {
+  if (!refs.icpSection || !refs.icpBadges) return;
+
+  const icp = data.icp;
+  if (!icp || !icp.icpSignals || icp.icpSignals.length === 0) {
+    refs.icpSection.hidden = true;
+    return;
+  }
+
+  refs.icpSection.hidden = false;
+  refs.icpBadges.innerHTML = '';
+
+  // Decision maker badge
+  if (icp.isDecisionMaker) {
+    const badge = document.createElement('span');
+    badge.className = 'bpi-icp-badge bpi-icp-badge--decision-maker';
+    badge.textContent = 'Key Decision Maker';
+    refs.icpBadges.appendChild(badge);
+  }
+
+  // Seniority badge
+  if (icp.seniorityLevel && icp.seniorityLevel !== 'individual') {
+    const badge = document.createElement('span');
+    badge.className = 'bpi-icp-badge bpi-icp-badge--seniority';
+    const labels = { 'c-level': 'C-Level', 'founder': 'Founder', 'vp': 'VP', 'director': 'Director', 'manager': 'Manager' };
+    badge.textContent = labels[icp.seniorityLevel] || icp.seniorityLevel;
+    refs.icpBadges.appendChild(badge);
+  }
+
+  // Department badge
+  if (icp.department) {
+    const badge = document.createElement('span');
+    badge.className = 'bpi-icp-badge bpi-icp-badge--department';
+    badge.textContent = icp.department.charAt(0).toUpperCase() + icp.department.slice(1);
+    refs.icpBadges.appendChild(badge);
+  }
+
+  // Extra signals
+  icp.icpSignals.forEach((signal) => {
+    if (signal === 'Key Decision Maker' || signal.includes('Leader')) return; // already shown
+    const badge = document.createElement('span');
+    badge.className = 'bpi-icp-badge';
+    badge.textContent = signal;
+    refs.icpBadges.appendChild(badge);
+  });
+}
+
+function renderCompany(refs, data) {
+  if (!refs.companySection) return;
+
+  const hasCompanyData = data.currentCompany || data.companyIndustry || data.companyDescription || data.companyProducts;
+  if (!hasCompanyData) {
+    refs.companySection.hidden = true;
+    return;
+  }
+
+  refs.companySection.hidden = false;
+
+  if (refs.companyLogo) {
+    if (data.companyLogoUrl) {
+      refs.companyLogo.src = data.companyLogoUrl;
+      refs.companyLogo.style.display = '';
+      refs.companyLogo.onerror = () => { refs.companyLogo.style.display = 'none'; };
+    } else {
+      refs.companyLogo.style.display = 'none';
+    }
+  }
+
+  if (refs.companyName) {
+    refs.companyName.textContent = data.currentCompany || '';
+    if (data.companyLinkedinUrl) {
+      refs.companyName.style.cursor = 'pointer';
+      refs.companyName.onclick = () => window.open(data.companyLinkedinUrl, '_blank');
+    }
+  }
+
+  if (refs.companyIndustry) {
+    refs.companyIndustry.textContent = data.companyIndustry || '';
+    refs.companyIndustry.hidden = !data.companyIndustry;
+  }
+
+  // Meta pills: size, revenue, founded, HQ, funding
+  if (refs.companyMeta) {
+    refs.companyMeta.innerHTML = '';
+    const pills = [];
+    if (data.companySize) pills.push({ label: 'Size', value: data.companySize });
+    if (data.companyRevenue) pills.push({ label: 'Revenue', value: data.companyRevenue });
+    if (data.companyFounded) pills.push({ label: 'Founded', value: data.companyFounded });
+    if (data.companyHeadquarters) pills.push({ label: 'HQ', value: data.companyHeadquarters });
+    if (data.companyFunding) pills.push({ label: 'Funding', value: data.companyFunding });
+    pills.forEach(({ label, value }) => {
+      const pill = document.createElement('span');
+      pill.className = 'bpi-company-pill';
+      pill.innerHTML = `<span class="bpi-company-pill__label">${escapeHtml(label)}</span> ${escapeHtml(value)}`;
+      refs.companyMeta.appendChild(pill);
+    });
+    refs.companyMeta.hidden = pills.length === 0;
+  }
+
+  if (refs.companyDesc) {
+    refs.companyDesc.textContent = data.companyDescription || '';
+    refs.companyDesc.hidden = !data.companyDescription;
+  }
+
+  // Products/services from public web
+  if (refs.companyProducts && data.companyProducts) {
+    refs.companyProducts.hidden = false;
+    refs.companyProducts.innerHTML =
+      `<span class="bpi-company-card__sub-label">Products & Services</span>` +
+      `<span class="bpi-company-card__sub-text">${escapeHtml(data.companyProducts)}</span>`;
+  } else if (refs.companyProducts) {
+    refs.companyProducts.hidden = true;
+  }
+
+  // Technologies
+  if (refs.companyTechnologies && data.companyTechnologies) {
+    refs.companyTechnologies.hidden = false;
+    refs.companyTechnologies.innerHTML =
+      `<span class="bpi-company-card__sub-label">Technologies</span>` +
+      `<span class="bpi-company-card__sub-text">${escapeHtml(data.companyTechnologies)}</span>`;
+  } else if (refs.companyTechnologies) {
+    refs.companyTechnologies.hidden = true;
+  }
+
+  // Recent news
+  if (refs.companyNews && data.recentNews) {
+    refs.companyNews.hidden = false;
+    refs.companyNews.innerHTML =
+      `<span class="bpi-company-card__sub-label">Recent News</span> ` +
+      escapeHtml(data.recentNews);
+  } else if (refs.companyNews) {
+    refs.companyNews.hidden = true;
   }
 }
 
@@ -356,6 +518,8 @@ function renderFooter(refs, data) {
       'brightdata-url': 'LinkedIn',
       'brightdata-name': 'Search',
       'brightdata-deep': 'Deep Lookup',
+      'brightdata-scraper': 'Scraper',
+      'brightdata-filter': 'Enriched',
       'brightdata-serp-enriched': 'SERP + LinkedIn',
       'cache': 'Cached',
       'mock': 'Demo',
@@ -369,6 +533,45 @@ function renderFooter(refs, data) {
     refs.fetchedAt.textContent = `Fetched ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     refs.fetchedAt.dateTime = d.toISOString();
   }
+}
+
+/**
+ * Apply skeleton placeholders on sections that may get enriched later.
+ * Reveals hidden sections and fills them with animated shimmer blocks.
+ */
+function applySkeletons(cardEl) {
+  const targets = [
+    'experience-list',
+    'education-list',
+    'posts-list',
+    'company-card',
+  ];
+
+  targets.forEach(ref => {
+    const el = cardEl.querySelector(`[data-ref="${ref}"]`);
+    if (!el) return;
+    const section = el.closest('.bpi-section');
+    if (!section) return;
+
+    // Only add skeletons to sections that are hidden (no data yet)
+    if (section.hidden) {
+      section.hidden = false;
+      el.innerHTML =
+        '<div class="bpi-skeleton-block"></div>' +
+        '<div class="bpi-skeleton-block bpi-skeleton-block--short"></div>';
+      section.classList.add('bpi-skeleton-section');
+    }
+  });
+}
+
+/**
+ * Remove skeleton placeholders from a card.
+ */
+function removeSkeletons(cardEl) {
+  cardEl.querySelectorAll('.bpi-skeleton-section').forEach(el => {
+    el.classList.remove('bpi-skeleton-section');
+  });
+  cardEl.querySelectorAll('.bpi-skeleton-block').forEach(el => el.remove());
 }
 
 // -- Progress Render --
@@ -434,20 +637,29 @@ function renderPersonCard(data) {
   const cardEl = template.content.firstElementChild.cloneNode(true);
   const refs = getCardRefs(cardEl);
 
+  populateCard(cardEl, refs, data);
+
+  // Prepend newest card to stack
+  Views.cardStack.prepend(cardEl);
+  showView('cardStack');
+}
+
+/**
+ * Populate a card element with all person data sections.
+ */
+function populateCard(cardEl, refs, data) {
   renderAvatar(refs, data);
   renderIdentity(refs, data);
   renderStats(refs, data);
   renderConfidence(refs, data);
+  renderIcp(refs, data);
+  renderCompany(refs, data);
   renderBio(refs, data);
   renderExperience(refs, data);
   renderEducation(refs, data);
   renderPosts(refs, data);
   renderLinkedIn(refs, data);
   renderFooter(refs, data);
-
-  // Prepend newest card to stack
-  Views.cardStack.prepend(cardEl);
-  showView('cardStack');
 }
 
 function showError(message) {
@@ -490,6 +702,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case 'FETCH_PERSON_BACKGROUND': {
       lastPayload = message.payload || null;
+      // Reset active card tracking for new lookup
+      activeCardEl = null;
+      activeCardId = null;
+
       if (El.loadingLabel && lastPayload?.name) {
         El.loadingLabel.textContent = `Looking up ${lastPayload.name}...`;
       }
@@ -523,6 +739,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     }
 
+    case 'INTERIM_PERSON_DATA': {
+      const data = message.payload;
+      if (!data) { sendResponse({ ok: false }); break; }
+
+      console.log(LOG_PREFIX, 'Interim result for:', data.name);
+      try {
+        const template = document.getElementById('bpi-person-card-template');
+        if (!template) throw new Error('Card template missing');
+
+        const cardEl = template.content.firstElementChild.cloneNode(true);
+        const refs = getCardRefs(cardEl);
+        populateCard(cardEl, refs, data);
+
+        // Apply skeleton placeholders for sections that may get enriched
+        applySkeletons(cardEl);
+
+        // Track for in-place update when final result arrives
+        activeCardEl = cardEl;
+        activeCardId = data.name + '-' + Date.now();
+
+        Views.cardStack.prepend(cardEl);
+
+        // Show both card and loading stepper so user sees partial data
+        // while the pipeline continues (e.g. filter enrichment)
+        showViews('cardStack', 'loading');
+
+        sendResponse({ ok: true });
+      } catch (err) {
+        console.error(LOG_PREFIX, 'Error rendering interim card:', err);
+        sendResponse({ ok: false, error: err.message });
+      }
+      break;
+    }
+
     case 'PERSON_BACKGROUND_RESULT': {
       const data = message.payload;
       if (!data) {
@@ -532,7 +782,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       try {
-        renderPersonCard(data);
+        if (activeCardEl && activeCardEl.parentNode) {
+          // Update existing interim card in-place with enriched data
+          console.log(LOG_PREFIX, 'Updating interim card in-place for:', data.name);
+          removeSkeletons(activeCardEl);
+          const refs = getCardRefs(activeCardEl);
+          populateCard(activeCardEl, refs, data);
+          activeCardEl = null;
+          activeCardId = null;
+          showView('cardStack');
+        } else {
+          // No interim card — render fresh
+          renderPersonCard(data);
+        }
         sendResponse({ ok: true });
       } catch (err) {
         console.error(LOG_PREFIX, 'Error rendering person card:', err);

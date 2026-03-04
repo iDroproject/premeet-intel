@@ -613,9 +613,10 @@ a:hover {
   font-size: var(--bpi-fs-sm);
   color: var(--bpi-text-secondary);
   line-height: 1.4;
+  position: relative;
 }
 
-/* Check icon before each citation */
+/* Check icon before each citation — pure CSS (no data URI to avoid CSP) */
 .bpi-confidence-panel__citations li::before {
   content: '';
   display: inline-block;
@@ -625,8 +626,195 @@ a:hover {
   margin-top: 1px;
   background: var(--bpi-success);
   border-radius: 50%;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6l2.5 2.5 4.5-5' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-size: cover;
+  position: relative;
+}
+.bpi-confidence-panel__citations li::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  margin-top: 3px;
+  width: 4px;
+  height: 7px;
+  border: solid white;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+/* ============================================================
+   ICP (Ideal Customer Profile) Badges
+   ============================================================ */
+
+.bpi-icp-section {
+  padding: var(--bpi-sp-md) 0;
+}
+
+.bpi-icp-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bpi-sp-xs);
+}
+
+.bpi-icp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--bpi-r-full);
+  font-size: var(--bpi-fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--bpi-surface-secondary);
+  color: var(--bpi-text-secondary);
+  border: 1px solid var(--bpi-divider);
+}
+
+.bpi-icp-badge--decision-maker {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--bpi-success);
+  border-color: rgba(16, 185, 129, 0.24);
+}
+
+.bpi-icp-badge--seniority {
+  background: rgba(51, 122, 183, 0.10);
+  color: var(--bpi-accent);
+  border-color: rgba(51, 122, 183, 0.20);
+}
+
+.bpi-icp-badge--department {
+  background: rgba(245, 158, 11, 0.10);
+  color: var(--bpi-warning);
+  border-color: rgba(245, 158, 11, 0.20);
+}
+
+/* ============================================================
+   Company Card
+   ============================================================ */
+
+.bpi-company-card {
+  background: var(--bpi-surface-secondary);
+  border-radius: var(--bpi-r-md);
+  padding: var(--bpi-sp-md);
+  border: 1px solid var(--bpi-divider);
+}
+
+.bpi-company-card__header {
+  display: flex;
+  gap: var(--bpi-sp-sm);
+  align-items: center;
+  margin-bottom: var(--bpi-sp-sm);
+}
+
+.bpi-company-card__logo {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--bpi-r-sm);
+  object-fit: contain;
+  flex-shrink: 0;
+  background: var(--bpi-surface);
+  border: 1px solid var(--bpi-divider);
+  padding: 3px;
+}
+
+.bpi-company-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bpi-company-card__name {
+  font-size: var(--bpi-fs-md);
+  font-weight: 600;
+  color: var(--bpi-text-primary);
+  line-height: 1.3;
+}
+
+.bpi-company-card__industry {
+  font-size: var(--bpi-fs-sm);
+  color: var(--bpi-text-secondary);
+}
+
+.bpi-company-card__meta {
+  display: flex;
+  gap: var(--bpi-sp-xs);
+  flex-wrap: wrap;
+  margin-bottom: var(--bpi-sp-sm);
+}
+
+.bpi-company-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--bpi-r-full);
+  font-size: var(--bpi-fs-2xs);
+  background: var(--bpi-surface);
+  border: 1px solid var(--bpi-divider);
+  color: var(--bpi-text-secondary);
+}
+
+.bpi-company-pill__label {
+  font-weight: 600;
+  color: var(--bpi-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bpi-company-card__desc {
+  font-size: var(--bpi-fs-sm);
+  color: var(--bpi-text-secondary);
+  line-height: 1.55;
+}
+
+.bpi-company-card__products,
+.bpi-company-card__technologies,
+.bpi-company-card__news {
+  margin-top: var(--bpi-sp-sm);
+  font-size: var(--bpi-fs-sm);
+  color: var(--bpi-text-secondary);
+  line-height: 1.55;
+}
+
+.bpi-company-card__sub-label {
+  display: block;
+  font-size: var(--bpi-fs-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--bpi-text-tertiary);
+  margin-bottom: 2px;
+}
+
+.bpi-company-card__sub-text {
+  display: block;
+  font-size: var(--bpi-fs-sm);
+  color: var(--bpi-text-primary);
+  line-height: 1.5;
+}
+
+/* ============================================================
+   Skeleton Loading Blocks
+   ============================================================ */
+
+.bpi-skeleton-block {
+  height: 14px;
+  border-radius: var(--bpi-r-xs);
+  background: linear-gradient(
+    90deg,
+    var(--bpi-divider-strong) 25%,
+    var(--bpi-divider) 50%,
+    var(--bpi-divider-strong) 75%
+  );
+  background-size: 200% 100%;
+  animation: bpi-shimmer 1.5s ease-in-out infinite;
+  margin-bottom: var(--bpi-sp-sm);
+}
+
+.bpi-skeleton-block--short {
+  width: 60%;
+}
+
+.bpi-skeleton-section {
+  opacity: 0.6;
 }
 
 /* ============================================================
@@ -1352,5 +1540,40 @@ a:hover {
   .bpi-edu__logo {
     background: var(--bpi-surface-secondary);
     border-color: var(--bpi-divider);
+  }
+
+  .bpi-company-card {
+    background: var(--bpi-surface-secondary);
+    border-color: var(--bpi-divider);
+  }
+
+  .bpi-company-card__logo {
+    background: var(--bpi-surface);
+    border-color: var(--bpi-divider);
+  }
+
+  .bpi-company-pill {
+    background: var(--bpi-surface);
+    border-color: var(--bpi-divider);
+  }
+
+  .bpi-icp-badge {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--bpi-divider);
+  }
+
+  .bpi-icp-badge--decision-maker {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.28);
+  }
+
+  .bpi-icp-badge--seniority {
+    background: rgba(91, 163, 217, 0.12);
+    border-color: rgba(91, 163, 217, 0.24);
+  }
+
+  .bpi-icp-badge--department {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.24);
   }
 }

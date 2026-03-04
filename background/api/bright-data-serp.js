@@ -20,7 +20,7 @@ const LOG_PREFIX = '[BPI][SERP]';
 
 const SERP_SEND_ENDPOINT   = 'https://api.brightdata.com/unblocker/req';
 const SERP_RESULT_ENDPOINT = 'https://api.brightdata.com/unblocker/get_result';
-const CUSTOMER_ID          = 'hl_cf5c4907';
+const DEFAULT_CUSTOMER_ID  = 'hl_cf5c4907';
 const ZONE                 = 'serp';
 
 const SERP_POLL_INTERVAL_MS = 2000;
@@ -54,7 +54,7 @@ function extractLinkedInUrl(data) {
       data.organic || data.results || data.organic_results || [];
     for (const result of organic) {
       const url = result?.link || result?.url || result?.href || '';
-      if (/linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i.test(url)) {
+      if (/(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i.test(url)) {
         console.log(LOG_PREFIX, 'Found LinkedIn URL in organic results:', url);
         return url.split('?')[0];
       }
@@ -63,7 +63,7 @@ function extractLinkedInUrl(data) {
     // Knowledge graph fallback.
     if (data.knowledge_graph?.website) {
       const kgUrl = data.knowledge_graph.website;
-      if (/linkedin\.com\/in\//i.test(kgUrl)) return kgUrl.split('?')[0];
+      if (/(?:[a-z]{2,3}\.)?linkedin\.com\/in\//i.test(kgUrl)) return kgUrl.split('?')[0];
     }
   }
 
@@ -71,18 +71,20 @@ function extractLinkedInUrl(data) {
   if (Array.isArray(data)) {
     for (const result of data) {
       const url = result?.link || result?.url || result?.href || '';
-      if (/linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i.test(url)) {
+      if (/(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i.test(url)) {
         return url.split('?')[0];
       }
     }
   }
 
   // 3. Fallback: regex scan the stringified response (handles HTML or text).
+  //    LinkedIn URLs can use country subdomains (il.linkedin.com, ca.linkedin.com, etc.)
   const text = typeof data === 'string' ? data : JSON.stringify(data);
-  const match = text.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i);
+  const match = text.match(/https?:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i);
   if (match) {
     console.log(LOG_PREFIX, 'Found LinkedIn URL via regex:', match[0]);
-    return match[0].split('?')[0];
+    // Normalize to www.linkedin.com
+    return match[0].split('?')[0].replace(/\/\/[a-z]{2,3}\.linkedin/, '//www.linkedin');
   }
 
   return null;
@@ -93,13 +95,15 @@ function extractLinkedInUrl(data) {
 /**
  * Search Google via Bright Data async SERP API to find a LinkedIn profile URL.
  *
- * @param {string} query    Search query (email, "name company", etc.)
- * @param {string} apiToken Bright Data API bearer token.
+ * @param {string} query      Search query (email, "name company", etc.)
+ * @param {string} apiToken   Bright Data API bearer token.
+ * @param {string} [customerId]  Bright Data customer ID (defaults to internal).
  * @returns {Promise<string|null>} LinkedIn URL or null if not found.
  */
-export async function serpFindLinkedInUrl(query, apiToken) {
+export async function serpFindLinkedInUrl(query, apiToken, customerId) {
   if (!query || !query.trim()) return null;
 
+  const cid = customerId || DEFAULT_CUSTOMER_ID;
   const searchUrl =
     `https://www.google.com/search?q=${encodeURIComponent('site:linkedin.com/in ' + query)}&hl=en&gl=us&num=5`;
 
@@ -107,7 +111,7 @@ export async function serpFindLinkedInUrl(query, apiToken) {
 
   // ── Step 1: Send request ────────────────────────────────────────────────
   const sendUrl =
-    `${SERP_SEND_ENDPOINT}?customer=${CUSTOMER_ID}&zone=${ZONE}`;
+    `${SERP_SEND_ENDPOINT}?customer=${cid}&zone=${ZONE}`;
 
   const controller = new AbortController();
   const timerId = setTimeout(() => controller.abort(), SERP_SEND_TIMEOUT_MS);
@@ -151,7 +155,7 @@ export async function serpFindLinkedInUrl(query, apiToken) {
 
   // ── Step 2: Poll for result ─────────────────────────────────────────────
   const resultUrl =
-    `${SERP_RESULT_ENDPOINT}?customer=${CUSTOMER_ID}&zone=${ZONE}&response_id=${responseId}`;
+    `${SERP_RESULT_ENDPOINT}?customer=${cid}&zone=${ZONE}&response_id=${responseId}`;
 
   for (let attempt = 1; attempt <= SERP_MAX_POLL_ATTEMPTS; attempt++) {
     console.log(LOG_PREFIX, `Polling SERP result (attempt ${attempt}/${SERP_MAX_POLL_ATTEMPTS})`);

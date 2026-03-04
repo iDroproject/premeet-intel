@@ -6,10 +6,11 @@
  * Executes a deterministic multi-layer lookup cascade for a given person:
  *
  *   Layer 1 – Cache check (instant)
- *   Layer 2 – SERP Discovery: Google Search → find LinkedIn URL
- *   Layer 3 – Deep Lookup fallback: natural-language query → find LinkedIn URL
- *   Layer 4 – LinkedIn Scraper (WSA): scrape profile → get LinkedIn ID
- *   Layer 5 – Filter API: query dataset by LinkedIn ID → enriched data
+ *   Layer 2+3 – SERP Discovery and Deep Lookup run in parallel;
+ *               whichever finds a LinkedIn URL first wins.
+ *   Layer 4 – LinkedIn Scraper (WSA): scrape profile → get LinkedIn ID.
+ *             Emits interim result immediately after scraper succeeds.
+ *   Layer 5 – Filter API: query dataset by LinkedIn ID → enriched data.
  *   Layer 6 – Error
  *
  * @module waterfall-orchestrator
@@ -24,7 +25,7 @@ import {
   extractLinkedInId,
 } from './bright-data-scraper.js';
 
-import { deepLookupFindLinkedIn } from './bright-data-deep-lookup.js';
+import { deepLookupFindLinkedIn, deepLookupCompanyIntel } from './bright-data-deep-lookup.js';
 
 import { serpFindLinkedInUrl } from './bright-data-serp.js';
 
@@ -50,7 +51,7 @@ const LAYER_TIMEOUTS = {
   serpDiscovery:   35_000,
   deepLookup:      90_000,
   linkedInScraper: 60_000,
-  filterEnrich:    75_000,
+  filterEnrich:    130_000,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -87,6 +88,9 @@ export class WaterfallOrchestrator {
     this._personName = '';
     this._stepsState = PIPELINE_STEPS.map(s => ({ ...s, status: 'pending' }));
     this.onProgress = null;
+    // Callback fired immediately after the LinkedIn scraper returns data,
+    // before the Filter API completes. Receives a PersonData object.
+    this.onInterimResult = null;
   }
 
   _notifyProgress(stepId, status) {
@@ -253,6 +257,134 @@ export class WaterfallOrchestrator {
     };
   }
 
+  // ── Parallel discovery ────────────────────────────────────────────────────
+
+  /**
+   * Run SERP (Layer 2) and Deep Lookup (Layer 3) concurrently.
+   * Both step indicators are set to 'active' immediately.
+   * As soon as one finds a LinkedIn URL it is returned; the other continues
+   * in the background but its result is no longer awaited.
+   *
+   * The returned object always has shape:
+   *   { linkedInUrl: string|null, serpVerified: boolean, errors: string[] }
+   *
+   * @param {string|null} email    Person's email address.
+   * @param {string|null} name     Person's full name.
+   * @param {string|null} company  Company name.
+   * @returns {Promise<{linkedInUrl: string|null, serpVerified: boolean, errors: string[]}>}
+   */
+  async _runParallelDiscovery(email, name, company) {
+    // Mark both discovery steps active simultaneously so the UI shows both
+    // running at once rather than one waiting behind the other.
+    this._notifyProgress('serp-discovery', 'active');
+    this._notifyProgress('deep-lookup', 'active');
+
+    const serpStart = Date.now();
+    const deepStart = Date.now();
+
+    /**
+     * Wrap each layer so that:
+     * - A missing LinkedIn URL is treated as rejection (needed for Promise.any).
+     * - Progress notifications are emitted for the winning and losing steps.
+     * - Errors from the layer are caught and re-thrown so Promise.any sees them.
+     *
+     * @param {'serp'|'deep-lookup'} kind
+     * @param {Promise<{success:boolean,linkedInUrl?:string,error?:string}>} layerPromise
+     * @param {number} timeoutMs
+     * @returns {Promise<{linkedInUrl:string, source:string, kind:string}>}
+     */
+    const makeRace = (kind, layerPromise, timeoutMs, startedAt) => {
+      return withTimeout(layerPromise, timeoutMs, kind)
+        .then((result) => {
+          const elapsedMs = Date.now() - startedAt;
+          if (result.success && result.linkedInUrl) {
+            // This layer won — mark completed.
+            const stepId = kind === 'serp' ? 'serp-discovery' : 'deep-lookup';
+            this._notifyProgress(stepId, 'completed');
+            if (this._logBuffer) {
+              this._logBuffer.info('Waterfall', `${kind} completed in ${elapsedMs}ms`);
+            }
+            console.log(LOG_PREFIX, `Layer ${kind} completed in ${elapsedMs}ms`);
+            return { linkedInUrl: result.linkedInUrl, source: result.source, kind };
+          }
+          // Layer returned but found nothing — treat as a rejection so
+          // Promise.any can try the other branch.
+          const errMsg = result.error || `${kind} found no LinkedIn URL`;
+          const stepId = kind === 'serp' ? 'serp-discovery' : 'deep-lookup';
+          this._notifyProgress(stepId, 'failed');
+          if (this._logBuffer) {
+            this._logBuffer.error('Waterfall', `${kind} failed in ${elapsedMs}ms: ${errMsg}`);
+          }
+          console.warn(LOG_PREFIX, `Layer ${kind} failed in ${elapsedMs}ms: ${errMsg}`);
+          throw new Error(errMsg);
+        })
+        .catch((err) => {
+          // Re-emit failed status if not already set by the .then() branch above
+          // (e.g. timeout path). Guard with a double-mark — _notifyProgress is
+          // idempotent for same status, so this is safe.
+          const stepId = kind === 'serp' ? 'serp-discovery' : 'deep-lookup';
+          const currentStatus = this._stepsState.find(s => s.id === stepId)?.status;
+          if (currentStatus !== 'failed') {
+            const elapsedMs = Date.now() - startedAt;
+            this._notifyProgress(stepId, 'failed');
+            if (this._logBuffer) {
+              this._logBuffer.error('Waterfall', `${kind} failed in ${elapsedMs}ms: ${err.message}`);
+            }
+            console.warn(LOG_PREFIX, `Layer ${kind} failed in ${elapsedMs}ms: ${err.message}`);
+          }
+          throw err;
+        });
+    };
+
+    const serpPromise = makeRace(
+      'serp',
+      this._layerSerpDiscovery(email, name, company),
+      LAYER_TIMEOUTS.serpDiscovery,
+      serpStart
+    );
+
+    const deepPromise = makeRace(
+      'deep-lookup',
+      this._layerDeepLookup(email, name, company),
+      LAYER_TIMEOUTS.deepLookup,
+      deepStart
+    );
+
+    // Promise.any resolves with the first fulfilled value.
+    // If both reject the AggregateError carries both error messages.
+    try {
+      const winner = await Promise.any([serpPromise, deepPromise]);
+
+      // The loser is still running in background — mark it skipped once it
+      // settles so the UI doesn't stay 'active' indefinitely.
+      const loserKind   = winner.kind === 'serp' ? 'deep-lookup' : 'serp';
+      const loserStepId = loserKind === 'serp' ? 'serp-discovery' : 'deep-lookup';
+      const loserPromise = winner.kind === 'serp' ? deepPromise : serpPromise;
+
+      loserPromise.catch(() => {
+        // Already marked failed inside makeRace — nothing more to do.
+      }).finally(() => {
+        const loserStatus = this._stepsState.find(s => s.id === loserStepId)?.status;
+        if (loserStatus === 'active') {
+          this._notifyProgress(loserStepId, 'skipped');
+        }
+      });
+
+      return {
+        linkedInUrl: winner.linkedInUrl,
+        serpVerified: winner.kind === 'serp',
+        errors: [],
+      };
+    } catch (aggregateErr) {
+      // Both discovery layers failed. Collect error messages.
+      const errors = aggregateErr.errors
+        ? aggregateErr.errors.map(e => e?.message || String(e))
+        : [aggregateErr.message];
+
+      return { linkedInUrl: null, serpVerified: false, errors };
+    }
+  }
+
   // ── Public API ────────────────────────────────────────────────────────────
 
   async fetch(payload) {
@@ -278,57 +410,30 @@ export class WaterfallOrchestrator {
       return cacheResult._cachedData;
     }
 
-    // ── Layer 2: SERP Discovery ───────────────────────────────────────────
-    let linkedInUrl = null;
+    // ── Layers 2+3: Parallel SERP + Deep Lookup discovery ─────────────────
+    // Both run concurrently; the first to find a LinkedIn URL wins.
+    // Progress notifications for both steps are managed inside
+    // _runParallelDiscovery so the UI reflects real-time status accurately.
+    const discoveryResult = await this._runParallelDiscovery(email, name, company);
+    const { linkedInUrl, serpVerified, errors: discoveryErrors } = discoveryResult;
 
-    const serpResult = await this._runLayer(
-      'serp-discovery', 'serp-discovery',
-      () => this._layerSerpDiscovery(email, name, company),
-      LAYER_TIMEOUTS.serpDiscovery
-    );
-
-    if (serpResult.success && serpResult.linkedInUrl) {
-      linkedInUrl = serpResult.linkedInUrl;
-      // Deep lookup not needed — mark skipped.
-      this._notifyProgress('deep-lookup', 'skipped');
-    }
-
-    // ── Layer 3: Deep Lookup (fallback if SERP failed) ────────────────────
-    if (!linkedInUrl) {
-      const deepResult = await this._runLayer(
-        'deep-lookup', 'deep-lookup',
-        () => this._layerDeepLookup(email, name, company),
-        LAYER_TIMEOUTS.deepLookup
-      );
-
-      if (deepResult.success && deepResult.linkedInUrl) {
-        linkedInUrl = deepResult.linkedInUrl;
-      }
-    }
-
-    // If we still have no LinkedIn URL, all discovery failed.
     if (!linkedInUrl) {
       this._notifyProgress('linkedin-scraper', 'skipped');
       this._notifyProgress('filter-enrich', 'skipped');
 
-      const errors = [serpResult.error, 'Deep Lookup found no LinkedIn URL']
-        .filter(Boolean)
-        .join('; ');
       throw new Error(
-        `All discovery layers failed for "${identifier}". Errors: ${errors}`
+        `All discovery layers failed for "${identifier}". Errors: ${discoveryErrors.join('; ')}`
       );
     }
 
     // ── Layer 4: LinkedIn Scraper → LinkedIn ID ───────────────────────────
 
-    // Always run the scraper to get linkedin_id (needed for Filter API)
-    // and base profile data. The URL slug alone isn't sufficient because
-    // the Filter API requires the shorter `linkedin_id` field.
+    // Must scrape to get the LinkedIn ID needed for the Filter API.
+    // Also provides base profile data used as scraper fallback.
     let linkedInId = null;
     let scraperProfiles = null;
 
     {
-      // Must scrape to get the LinkedIn ID.
       const scraperResult = await this._runLayer(
         'linkedin-scraper', 'linkedin-scraper',
         () => this._layerLinkedInScraper(linkedInUrl),
@@ -338,6 +443,20 @@ export class WaterfallOrchestrator {
       if (scraperResult.success && scraperResult.linkedInId) {
         linkedInId = scraperResult.linkedInId;
         scraperProfiles = scraperResult.profiles;
+
+        // Emit interim result immediately — the side panel can render a card
+        // now without waiting for the slower Filter API (Layer 5).
+        if (scraperResult.profiles?.length) {
+          const interimData = pickBestProfile(
+            scraperResult.profiles,
+            name,
+            'brightdata-scraper',
+            { email, serpVerified }
+          );
+          if (interimData && typeof this.onInterimResult === 'function') {
+            try { this.onInterimResult(interimData); } catch (_) { /* swallow */ }
+          }
+        }
       } else {
         // Can't get LinkedIn ID — skip filter, try to use scraper data.
         this._notifyProgress('filter-enrich', 'skipped');
@@ -346,7 +465,7 @@ export class WaterfallOrchestrator {
           const data = await this._finalise(
             { profiles: scraperResult.profiles, source: 'brightdata-scraper' },
             name, email, cacheKey, identifier,
-            { serpVerified: serpResult.success }
+            { serpVerified }
           );
           if (data) return data;
         }
@@ -357,12 +476,39 @@ export class WaterfallOrchestrator {
       }
     }
 
-    // ── Layer 5: Filter API → Enriched Data ───────────────────────────────
-    const filterResult = await this._runLayer(
-      'filter-enrich', 'filter-enrich',
-      () => this._layerFilterEnrich(linkedInId),
-      LAYER_TIMEOUTS.filterEnrich
-    );
+    // ── Layer 5: Filter API + Deep Lookup Company Intel (parallel) ────────
+    //
+    // Run both enrichment sources concurrently:
+    //   a) Filter API — query enriched LinkedIn data by LinkedIn ID.
+    //   b) Deep Lookup Company Intel — search the public web for company
+    //      details (products, funding, news, tech stack).
+    //
+    // The Filter result is the primary data source. Company intel
+    // supplements it with fields that LinkedIn doesn't carry.
+
+    // Extract company/title from interim scraper data for the company intel spec.
+    const interimCompany = scraperProfiles?.[0]?.current_company?.name
+      || scraperProfiles?.[0]?.current_company_name || company;
+    const interimTitle = scraperProfiles?.[0]?.current_company?.title
+      || scraperProfiles?.[0]?.position || null;
+
+    const [filterResult, companyIntel] = await Promise.all([
+      this._runLayer(
+        'filter-enrich', 'filter-enrich',
+        () => this._layerFilterEnrich(linkedInId),
+        LAYER_TIMEOUTS.filterEnrich
+      ),
+      // Company intel via Deep Lookup — fire and forget (non-fatal).
+      deepLookupCompanyIntel(
+        interimCompany, name, interimTitle, linkedInUrl, this._apiToken
+      ).catch((err) => {
+        console.warn(LOG_PREFIX, 'Company intel failed (non-fatal):', err.message);
+        if (this._logBuffer) {
+          this._logBuffer.warn('Waterfall', 'Company intel failed: ' + err.message);
+        }
+        return null;
+      }),
+    ]);
 
     if (filterResult.success && filterResult.profiles?.length) {
       // Use filter data as primary, merge with scraper data if available.
@@ -370,10 +516,11 @@ export class WaterfallOrchestrator {
         {
           profiles: filterResult.profiles,
           scraperProfiles,
+          companyIntel,
           source: 'brightdata-filter',
         },
         name, email, cacheKey, identifier,
-        { serpVerified: serpResult.success }
+        { serpVerified }
       );
       if (data) return data;
     }
@@ -382,9 +529,9 @@ export class WaterfallOrchestrator {
     if (scraperProfiles && scraperProfiles.length) {
       console.log(LOG_PREFIX, 'Filter failed, falling back to scraper data');
       const data = await this._finalise(
-        { profiles: scraperProfiles, source: 'brightdata-scraper' },
+        { profiles: scraperProfiles, companyIntel, source: 'brightdata-scraper' },
         name, email, cacheKey, identifier,
-        { serpVerified: serpResult.success }
+        { serpVerified }
       );
       if (data) return data;
     }
@@ -399,7 +546,7 @@ export class WaterfallOrchestrator {
    * Normalise, quality-gate, cache, and return PersonData.
    */
   async _finalise(layerResult, name, email, cacheKey, identifier, context = {}) {
-    const { profiles, scraperProfiles, source } = layerResult;
+    const { profiles, scraperProfiles, companyIntel, source } = layerResult;
 
     const personData = pickBestProfile(profiles, name, source, {
       email,
@@ -423,6 +570,11 @@ export class WaterfallOrchestrator {
       Object.assign(personData, merged);
     }
 
+    // Merge Deep Lookup company intelligence from the public web.
+    if (companyIntel && typeof companyIntel === 'object') {
+      this._mergeCompanyIntel(personData, companyIntel);
+    }
+
     // Carry over calendar email.
     if (email && !personData.email) {
       personData.email = email;
@@ -441,5 +593,49 @@ export class WaterfallOrchestrator {
     );
 
     return personData;
+  }
+
+  /**
+   * Merge Deep Lookup company intelligence into PersonData.
+   * Only fills gaps — never overwrites populated fields.
+   *
+   * @param {Object} personData   Normalized PersonData (mutated in place).
+   * @param {Object} companyIntel Raw company intel from Deep Lookup.
+   */
+  _mergeCompanyIntel(personData, companyIntel) {
+    const str = (v) => (typeof v === 'string' && v.trim()) ? v.trim() : null;
+
+    if (!personData.companyDescription) {
+      personData.companyDescription = str(companyIntel.company_description) || null;
+    }
+    if (!personData.companyIndustry) {
+      personData.companyIndustry = str(companyIntel.company_industry) || null;
+    }
+
+    // New fields from public web — always set if available (not in LinkedIn data).
+    if (!personData.companyWebsite) {
+      personData.companyWebsite = str(companyIntel.company_website) || null;
+    }
+    if (!personData.companyFounded) {
+      personData.companyFounded = str(companyIntel.company_founded_year) || null;
+    }
+    if (!personData.companyHeadquarters) {
+      personData.companyHeadquarters = str(companyIntel.company_headquarters) || null;
+    }
+    if (!personData.companyFunding) {
+      personData.companyFunding = str(companyIntel.company_funding) || null;
+    }
+    if (!personData.companyProducts) {
+      personData.companyProducts = str(companyIntel.products_services) || null;
+    }
+    if (!personData.companyTechnologies) {
+      personData.companyTechnologies = str(companyIntel.technologies) || null;
+    }
+    if (!personData.recentNews) {
+      personData.recentNews = str(companyIntel.recent_news) || null;
+    }
+
+    console.log(LOG_PREFIX, 'Merged company intel for:', personData.currentCompany,
+      '— fields:', Object.keys(companyIntel).filter(k => str(companyIntel[k])).join(', '));
   }
 }

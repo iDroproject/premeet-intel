@@ -4,7 +4,8 @@
  * Bright People Intel – Bright Data Response Normalizer
  *
  * Converts raw Bright Data LinkedIn API responses into the unified
- * PersonData model. Includes confidence scoring with citations.
+ * PersonData model. Includes confidence scoring with citations,
+ * company intelligence fields, and ICP (Ideal Customer Profile) analysis.
  *
  * @module response-normalizer
  */
@@ -155,6 +156,87 @@ function assessConfidence(data, context = {}) {
   return { level, score, citations };
 }
 
+// ─── ICP Analysis ────────────────────────────────────────────────────────────
+
+/**
+ * Derive ICP (Ideal Customer Profile) signals from normalized PersonData.
+ *
+ * Analyzes current title and available company/follower/connection data to
+ * classify seniority, department, and buyer signals that sales teams use to
+ * prioritize outreach.
+ *
+ * @param {Object} data  Normalized PersonData object (pre-ICP).
+ * @param {string|null} data.currentTitle
+ * @param {number|null} data.followers
+ * @param {number|null} data.connections
+ * @param {Array}       [data.experience]
+ * @param {string|null} [data.department]
+ * @returns {{
+ *   isDecisionMaker: boolean,
+ *   seniorityLevel: string,
+ *   department: string|null,
+ *   icpSignals: string[],
+ * }}
+ */
+function deriveIcpProfile(data) {
+  const result = {
+    isDecisionMaker: false,
+    seniorityLevel: 'individual', // individual | manager | director | vp | c-level | founder
+    department: null,             // engineering | sales | marketing | product | operations | hr | finance | other
+    icpSignals: [],               // array of string signals
+  };
+
+  const title = (data.currentTitle || '').toLowerCase();
+
+  // Seniority detection — ordered from most to least senior so the first match wins.
+  if (/\b(ceo|cto|cfo|coo|cmo|cpo|ciso|chief)\b/.test(title)) {
+    result.seniorityLevel = 'c-level';
+    result.isDecisionMaker = true;
+  } else if (/\b(founder|co-founder|cofounder|owner|partner)\b/.test(title)) {
+    result.seniorityLevel = 'founder';
+    result.isDecisionMaker = true;
+  } else if (/\b(vp|vice president|svp|evp)\b/.test(title)) {
+    result.seniorityLevel = 'vp';
+    result.isDecisionMaker = true;
+  } else if (/\b(director|head of|principal)\b/.test(title)) {
+    result.seniorityLevel = 'director';
+    result.isDecisionMaker = true;
+  } else if (/\b(manager|lead|team lead|supervisor)\b/.test(title)) {
+    result.seniorityLevel = 'manager';
+  }
+
+  // Department detection — first match wins.
+  if (/\b(engineer|developer|software|devops|sre|architect|tech|data scientist|ml |ai )\b/.test(title)) {
+    result.department = 'engineering';
+  } else if (/\b(sales|business development|account executive|ae |sdr|bdr)\b/.test(title)) {
+    result.department = 'sales';
+  } else if (/\b(marketing|growth|brand|content|seo|sem|demand gen)\b/.test(title)) {
+    result.department = 'marketing';
+  } else if (/\b(product|pm |product manager|product owner)\b/.test(title)) {
+    result.department = 'product';
+  } else if (/\b(operations|ops|supply chain|logistics)\b/.test(title)) {
+    result.department = 'operations';
+  } else if (/\b(hr|human resources|people|talent|recruiting)\b/.test(title)) {
+    result.department = 'hr';
+  } else if (/\b(finance|accounting|controller|treasurer|cpa)\b/.test(title)) {
+    result.department = 'finance';
+  }
+
+  // ICP signals — build an array of human-readable buying signals.
+  if (result.isDecisionMaker) result.icpSignals.push('Key Decision Maker');
+  if (result.seniorityLevel === 'c-level') result.icpSignals.push('C-Level Executive');
+  if (result.seniorityLevel === 'founder') result.icpSignals.push('Founder/Owner');
+  if (data.followers && data.followers > 5000) result.icpSignals.push('Industry Influencer');
+  if (data.connections && data.connections >= 500) result.icpSignals.push('Well-Connected');
+  if (data.experience?.length > 5) result.icpSignals.push('Experienced Professional');
+  if (result.department) {
+    const label = result.department.charAt(0).toUpperCase() + result.department.slice(1);
+    result.icpSignals.push(`${label} Leader`);
+  }
+
+  return result;
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -173,6 +255,15 @@ export function normalizeLinkedInProfile(rawProfile, source, context = {}) {
       currentTitle: null, currentCompany: null, location: null, bio: null,
       experience: [], education: [], recentPosts: [],
       connections: null, followers: null,
+      // Company intelligence
+      companyId: null,
+      companyLogoUrl: null,
+      companyLinkedinUrl: null,
+      companyIndustry: null,
+      companySize: null,
+      companyRevenue: null,
+      companyDescription: null,
+      icp: null,
       _source: source || 'unknown',
       _fetchedAt: new Date().toISOString(),
       _confidence: 'low', _confidenceScore: 0, _confidenceCitations: [],
@@ -198,6 +289,14 @@ export function normalizeLinkedInProfile(rawProfile, source, context = {}) {
     recentPosts: Array.isArray(raw.activity) ? raw.activity.map(normalizePostEntry) : [],
     connections: toIntOrNull(raw.connections),
     followers: toIntOrNull(raw.followers),
+    // Company intelligence
+    companyId: toStringOrNull(raw.current_company?.company_id) || null,
+    companyLogoUrl: toStringOrNull(raw.current_company?.logo) || null,
+    companyLinkedinUrl: toStringOrNull(raw.current_company?.link) || null,
+    companyIndustry: toStringOrNull(raw.company_industry || raw.current_company?.industry) || null,
+    companySize: toStringOrNull(raw.company_size || raw.employee_count) || null,
+    companyRevenue: toStringOrNull(raw.company_revenue || raw.revenue) || null,
+    companyDescription: toStringOrNull(raw.current_company?.description) || null,
     _source: source || 'unknown',
     _fetchedAt: new Date().toISOString(),
     _confidence: 'low',
@@ -210,9 +309,14 @@ export function normalizeLinkedInProfile(rawProfile, source, context = {}) {
   normalized._confidenceScore = conf.score;
   normalized._confidenceCitations = conf.citations;
 
+  const icp = deriveIcpProfile(normalized);
+  normalized.icp = icp;
+
   console.log(
     LOG_PREFIX,
-    `Normalized "${name}" — confidence: ${conf.level} (${conf.score}/12), citations: ${conf.citations.length}`
+    `Normalized "${name}" — confidence: ${conf.level} (${conf.score}/12), citations: ${conf.citations.length},`,
+    `seniority: ${icp.seniorityLevel}, department: ${icp.department ?? 'unknown'},`,
+    `signals: [${icp.icpSignals.join(', ')}]`
   );
 
   return normalized;
@@ -257,16 +361,22 @@ export function pickBestProfile(rawProfiles, targetName, source, context = {}) {
 /**
  * Merge business-enriched data into an existing PersonData object.
  *
- * @param {Object} personData
- * @param {Object} enrichedProfile
- * @returns {Object}
+ * Enriched profiles from secondary lookups (e.g. deep-lookup) may carry
+ * company intelligence that was absent in the primary SERP/scrape result.
+ * This function fills those gaps without overwriting already-populated fields,
+ * then re-derives the ICP profile so signals stay consistent with the final
+ * merged state.
+ *
+ * @param {Object} personData      Primary normalized PersonData.
+ * @param {Object} enrichedProfile Raw enriched profile object from Bright Data.
+ * @returns {Object} Merged PersonData with updated company intel and ICP.
  */
 export function mergeBusinessEnrichedData(personData, enrichedProfile) {
   if (!enrichedProfile || typeof enrichedProfile !== 'object') return personData;
 
   const merged = { ...personData };
 
-  // Supplement missing fields from business enrichment.
+  // Supplement missing core fields from business enrichment.
   if (!merged.currentTitle && enrichedProfile.position) {
     merged.currentTitle = toStringOrNull(enrichedProfile.position);
   }
@@ -274,13 +384,43 @@ export function mergeBusinessEnrichedData(personData, enrichedProfile) {
     merged.currentCompany = toStringOrNull(enrichedProfile.current_company_name);
   }
 
-  // Add business-specific fields.
-  merged.companyRevenue = toStringOrNull(enrichedProfile.company_revenue || enrichedProfile.revenue);
-  merged.companySize = toStringOrNull(enrichedProfile.company_size || enrichedProfile.employee_count);
-  merged.companyIndustry = toStringOrNull(enrichedProfile.company_industry || enrichedProfile.industry);
+  // Supplement missing company intelligence fields — never overwrite populated values.
+  if (!merged.companyId) {
+    merged.companyId = toStringOrNull(enrichedProfile.current_company?.company_id) || null;
+  }
+  if (!merged.companyLogoUrl) {
+    merged.companyLogoUrl = toStringOrNull(enrichedProfile.current_company?.logo) || null;
+  }
+  if (!merged.companyLinkedinUrl) {
+    merged.companyLinkedinUrl = toStringOrNull(enrichedProfile.current_company?.link) || null;
+  }
+  if (!merged.companyIndustry) {
+    merged.companyIndustry = toStringOrNull(
+      enrichedProfile.company_industry || enrichedProfile.current_company?.industry
+    ) || null;
+  }
+  if (!merged.companySize) {
+    merged.companySize = toStringOrNull(
+      enrichedProfile.company_size || enrichedProfile.employee_count
+    ) || null;
+  }
+  if (!merged.companyRevenue) {
+    merged.companyRevenue = toStringOrNull(
+      enrichedProfile.company_revenue || enrichedProfile.revenue
+    ) || null;
+  }
+  if (!merged.companyDescription) {
+    merged.companyDescription = toStringOrNull(enrichedProfile.current_company?.description) || null;
+  }
+
+  // Skills — always take the enriched list if present; fall back to whatever exists.
   merged.skills = Array.isArray(enrichedProfile.skills)
     ? enrichedProfile.skills.map((s) => typeof s === 'string' ? s : toStringOrNull(s?.name)).filter(Boolean)
     : merged.skills || [];
+
+  // Re-derive ICP so signals reflect the fully merged state (e.g. title may
+  // have been filled in above, unlocking seniority/department detection).
+  merged.icp = deriveIcpProfile(merged);
 
   console.log(LOG_PREFIX, 'Merged business enriched data for:', merged.name);
   return merged;

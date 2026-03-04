@@ -25,8 +25,8 @@ const SNAPSHOT_BASE   = 'https://api.brightdata.com/datasets/snapshots';
 const DEFAULT_DATASET_ID = 'gd_l1viktl72bvl7bjuj0';
 
 const POLL_INTERVAL_MS    = 2000;
-const MAX_POLL_ATTEMPTS   = 30;   // ~60 s
-const FILTER_TIMEOUT_MS   = 75_000;
+const MAX_POLL_ATTEMPTS   = 50;   // ~100 s (snapshots can take 60-90s)
+const FILTER_TIMEOUT_MS   = 120_000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -155,6 +155,9 @@ export async function filterByLinkedInId(linkedInId, apiToken, datasetId) {
   }
 
   // ── Step 3: Download snapshot data ──────────────────────────────────────
+  // Brief delay — the download endpoint can lag behind the status endpoint.
+  await sleep(1000);
+
   const downloadUrl = `${SNAPSHOT_BASE}/${snapshotId}/download?format=json`;
 
   console.log(LOG_PREFIX, 'Downloading snapshot:', snapshotId);
@@ -171,12 +174,45 @@ export async function filterByLinkedInId(linkedInId, apiToken, datasetId) {
     );
   }
 
-  const data = await downloadRes.json();
+  // The download endpoint may return:
+  //   - A JSON array: [{ ... }, { ... }]
+  //   - NDJSON (newline-delimited JSON): { ... }\n{ ... }\n
+  //   - A plain text error: "Snapshot is not ready" / "Snapshot is expired"
+  const rawText = await downloadRes.text();
+
+  // Guard against non-JSON text responses (e.g. "Snapshot is not ready").
+  const trimmed = rawText.trim();
+  if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) {
+    throw new Error(
+      `Snapshot download returned non-JSON response: "${trimmed.slice(0, 100)}"`
+    );
+  }
+
+  let data;
+  try {
+    data = JSON.parse(trimmed);
+  } catch (_jsonErr) {
+    // Likely NDJSON — parse each line as a separate JSON object.
+    const lines = trimmed.split('\n').filter(l => l.trim());
+    data = [];
+    for (const line of lines) {
+      try {
+        data.push(JSON.parse(line));
+      } catch (_lineErr) {
+        console.warn(LOG_PREFIX, 'Skipping unparseable NDJSON line:', line.slice(0, 100));
+      }
+    }
+    if (data.length === 0) {
+      throw new Error(
+        'Snapshot download: could not parse response as JSON or NDJSON'
+      );
+    }
+    console.log(LOG_PREFIX, `Parsed ${data.length} record(s) from NDJSON response`);
+  }
 
   if (!Array.isArray(data)) {
-    throw new Error(
-      'Expected array from snapshot download, got: ' + typeof data
-    );
+    // Single object response — wrap in array.
+    data = [data];
   }
 
   console.log(

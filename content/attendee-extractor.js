@@ -18,6 +18,33 @@
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   /**
+   * Google Calendar status/role suffixes that appear in aria-labels and
+   * text content of attendee elements. These must be stripped to get a
+   * clean person name.
+   *
+   * Matches patterns like:
+   *   "Daniel Oren, Attending, Organizer" → "Daniel Oren"
+   *   "Jane Smith, Maybe"                 → "Jane Smith"
+   *   "Bob Jones, Awaiting"               → "Bob Jones"
+   */
+  const GCAL_STATUS_SUFFIXES = /,?\s*\b(Attending|Organizer|Maybe|Tentative|Declined|Awaiting|Not responded|Accepted|No|Yes|Optional|Required|Creator|organizer|accepted|declined|tentative|needsAction)\b/gi;
+
+  /**
+   * Strip Google Calendar attendance-status and role suffixes from a name.
+   *
+   * @param {string} raw
+   * @returns {string}
+   */
+  function cleanAttendeeName(raw) {
+    if (!raw) return '';
+    return raw
+      .replace(GCAL_STATUS_SUFFIXES, '')
+      .replace(/,\s*$/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
    * Derive a best-effort display name from an email local-part.
    * "john.doe@example.com" → "John Doe"
    *
@@ -116,10 +143,12 @@
       // Prefer aria-label (often the full name), then textContent.
       // If the resolved text looks like an email address, derive a
       // human-readable name from the local part instead.
-      let name =
+      // GCal often appends status: "Name, Attending, Organizer" — strip it.
+      let name = cleanAttendeeName(
         el.getAttribute('aria-label') ||
         el.textContent.trim() ||
-        '';
+        ''
+      );
 
       if (!name || name.includes('@')) {
         name = nameFromEmail(email);
@@ -238,11 +267,12 @@
           el.getAttribute('data-tooltip') ||
           '';
 
-        const name =
+        const name = cleanAttendeeName(
           el.querySelector('.T2tEie, .d7RUue, [jsname="r4nke"]')?.textContent.trim() ||
           el.getAttribute('aria-label') ||
           el.textContent.trim() ||
-          '';
+          ''
+        );
 
         if (!email.includes('@') && !name) return;
 
@@ -310,4 +340,5 @@
   window.BrightPeopleIntel = window.BrightPeopleIntel || {};
   window.BrightPeopleIntel.nameFromEmail = nameFromEmail;
   window.BrightPeopleIntel.deriveCompanyFromEmail = deriveCompanyFromEmail;
+  window.BrightPeopleIntel.cleanAttendeeName = cleanAttendeeName;
 })();

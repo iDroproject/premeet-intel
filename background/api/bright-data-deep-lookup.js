@@ -127,6 +127,88 @@ const LINKEDIN_ENRICHMENT_SPEC = {
   },
 };
 
+/**
+ * Inline spec for company intelligence and public web enrichment.
+ * Searches the public web for company details, products, and news
+ * to complement LinkedIn profile data.
+ */
+const COMPANY_INTELLIGENCE_SPEC = {
+  input_schema: {
+    type: 'object',
+    properties: {
+      full_name: {
+        type: 'string',
+        description: 'Full name of the person',
+      },
+      company_name: {
+        type: 'string',
+        description: 'Name of the company the person works at',
+      },
+      job_title: {
+        type: 'string',
+        description: 'Current job title of the person',
+      },
+      linkedin_url: {
+        type: 'string',
+        description: 'LinkedIn profile URL of the person',
+      },
+    },
+  },
+  output_schema: {
+    type: 'object',
+    properties: {
+      company_description: {
+        type: 'string',
+        description:
+          'A 2-3 sentence description of what the company does, its main products or services, ' +
+          "and its value proposition. If unavailable, return ''.",
+      },
+      company_industry: {
+        type: 'string',
+        description:
+          "The company's primary industry or sector (e.g. 'SaaS', 'FinTech', 'Healthcare'). " +
+          "If unavailable, return ''.",
+      },
+      company_website: {
+        type: 'string',
+        description: "The company's main website URL. If unavailable, return ''.",
+      },
+      company_founded_year: {
+        type: 'string',
+        description: "Year the company was founded (e.g. '2015'). If unavailable, return ''.",
+      },
+      company_headquarters: {
+        type: 'string',
+        description: "City and country of company HQ (e.g. 'San Francisco, US'). If unavailable, return ''.",
+      },
+      company_funding: {
+        type: 'string',
+        description:
+          "Total funding raised or last funding round details (e.g. 'Series B, $50M'). " +
+          "If unavailable, return ''.",
+      },
+      products_services: {
+        type: 'string',
+        description:
+          'Comma-separated list of the main products or services the company offers. ' +
+          "If unavailable, return ''.",
+      },
+      technologies: {
+        type: 'string',
+        description:
+          'Comma-separated list of key technologies, platforms, or tools the company uses or builds. ' +
+          "If unavailable, return ''.",
+      },
+      recent_news: {
+        type: 'string',
+        description:
+          'One or two recent news headlines or notable achievements about the company or this person. ' +
+          "If unavailable, return ''.",
+      },
+    },
+  },
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function authHeaders(apiToken) {
@@ -165,7 +247,7 @@ function extractLinkedInUrl(responseData) {
       const url =
         value.linkedin_profile_url || value.linkedin_url || value.profile_url;
 
-      if (url && /linkedin\.com\/in\//i.test(url)) {
+      if (url && /(?:[a-z]{2,3}\.)?linkedin\.com\/in\//i.test(url)) {
         console.log(LOG_PREFIX, 'Found LinkedIn URL:', url,
           'confidence:', entity.confidence, 'entity:', entityId);
         return url.split('?')[0];
@@ -189,7 +271,7 @@ function extractLinkedInUrl(responseData) {
   if (Array.isArray(responseData)) {
     for (const row of responseData) {
       const url = row?.linkedin_profile_url || row?.linkedin_url;
-      if (url && /linkedin\.com\/in\//i.test(url)) return url.split('?')[0];
+      if (url && /(?:[a-z]{2,3}\.)?linkedin\.com\/in\//i.test(url)) return url.split('?')[0];
     }
   }
 
@@ -322,14 +404,18 @@ async function triggerAndPoll(spec, inputRows, apiToken) {
  * @returns {Promise<{linkedInUrl: string|null, data: Array|null}>}
  */
 export async function deepLookupFindLinkedIn(email, name, company, apiToken) {
-  const input = {};
-  if (email) input.email = email;
-  if (name)  input.full_name = name;
-  if (company) input.company = company;
-
-  if (!input.email && !input.full_name) {
-    throw new Error('deepLookupFindLinkedIn: email or name is required');
+  // The trigger_enrichment API requires email in the input — without it
+  // the request returns 400: "[0].email" is required.
+  if (!email || !email.includes('@')) {
+    console.warn(LOG_PREFIX, 'Skipping Deep Lookup: email is required but missing');
+    return { linkedInUrl: null, responseData: null };
   }
+
+  const input = {
+    email,
+    full_name: name || '',
+    company:   company || 'Unknown',
+  };
 
   const { requestId, responseData } = await triggerAndPoll(
     LINKEDIN_DISCOVERY_SPEC,
@@ -374,6 +460,64 @@ export async function deepLookupEnrich(linkedInUrl, linkedInId, name, apiToken) 
     return null;
   } catch (err) {
     console.warn(LOG_PREFIX, 'Deep Lookup enrich failed:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Use Deep Lookup trigger_enrichment to gather company intelligence
+ * and public web data about a person and their company.
+ *
+ * Runs after the LinkedIn profile is known — searches the public web
+ * for company details, products/services, funding, and news.
+ *
+ * @param {string}      companyName  Company name.
+ * @param {string|null} personName   Person's full name.
+ * @param {string|null} jobTitle     Current job title.
+ * @param {string|null} linkedInUrl  LinkedIn profile URL.
+ * @param {string}      apiToken     Bright Data API bearer token.
+ * @returns {Promise<Object|null>}   Company intelligence data or null.
+ */
+export async function deepLookupCompanyIntel(companyName, personName, jobTitle, linkedInUrl, apiToken) {
+  if (!companyName) {
+    console.warn(LOG_PREFIX, 'Skipping company intel: no company name');
+    return null;
+  }
+
+  const input = {
+    company_name: companyName,
+    full_name:    personName || '',
+    job_title:    jobTitle || '',
+    linkedin_url: linkedInUrl || '',
+  };
+
+  try {
+    console.log(LOG_PREFIX, 'Company intel lookup for:', companyName);
+    const { responseData } = await triggerAndPoll(
+      COMPANY_INTELLIGENCE_SPEC,
+      [input],
+      apiToken
+    );
+
+    // Extract first entity value from the nested data block.
+    const dataBlock = responseData?.data;
+    if (dataBlock && typeof dataBlock === 'object') {
+      const firstKey = Object.keys(dataBlock)[0];
+      const value = dataBlock[firstKey]?.value;
+      if (value) {
+        console.log(LOG_PREFIX, 'Company intel result:', Object.keys(value).join(', '));
+        return value;
+      }
+    }
+
+    // Fallback: flat array response.
+    if (Array.isArray(responseData) && responseData.length > 0) {
+      return responseData[0];
+    }
+
+    return null;
+  } catch (err) {
+    console.warn(LOG_PREFIX, 'Company intel lookup failed:', err.message);
     return null;
   }
 }

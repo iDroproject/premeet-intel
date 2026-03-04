@@ -59,6 +59,7 @@ const ALARM_REFRESH_CACHE = 'refresh-cache';
 const MessageType = /** @type {const} */ ({
   FETCH_PERSON_BACKGROUND:  'FETCH_PERSON_BACKGROUND',
   FETCH_PROGRESS:           'FETCH_PROGRESS',
+  INTERIM_PERSON_DATA:      'INTERIM_PERSON_DATA',
   OPEN_SIDE_PANEL:          'OPEN_SIDE_PANEL',
   PERSON_BACKGROUND_RESULT: 'PERSON_BACKGROUND_RESULT',
   GET_CACHE_STATS:          'GET_CACHE_STATS',
@@ -154,17 +155,30 @@ async function registerAlarms() {
 // ─── Core Fetch Pipeline ─────────────────────────────────────────────────────
 
 /**
- * Resolve the Bright Data API token.
- * Reads from chrome.storage.sync first; falls back to the hardcoded default.
+ * Resolve Bright Data credentials (API token and customer ID).
+ * Reads from chrome.storage.sync first; falls back to hardcoded defaults.
+ *
+ * @returns {Promise<{apiToken: string, customerId: string|undefined}>}
  */
-async function resolveApiToken() {
+async function resolveBrightDataCredentials() {
+  let apiToken = API_TOKEN;
+  let customerId;
+
   try {
-    const result = await chrome.storage.sync.get('brightdata_api_token');
-    if (result.brightdata_api_token) return result.brightdata_api_token;
+    const result = await chrome.storage.sync.get(['brightdata_api_token', 'brightdata_customer_id']);
+    if (result.brightdata_api_token) apiToken = result.brightdata_api_token;
+    if (result.brightdata_customer_id) customerId = result.brightdata_customer_id;
   } catch (err) {
-    console.warn(LOG_PREFIX, 'Failed to read token from storage:', err.message);
+    console.warn(LOG_PREFIX, 'Failed to read credentials from storage:', err.message);
   }
-  return API_TOKEN;
+
+  return { apiToken, customerId };
+}
+
+/** @deprecated Use resolveBrightDataCredentials() instead */
+async function resolveApiToken() {
+  const { apiToken } = await resolveBrightDataCredentials();
+  return apiToken;
 }
 
 /**
@@ -194,6 +208,16 @@ async function fetchPersonBackground(payload) {
     await notifySidePanel({
       type:    MessageType.FETCH_PROGRESS,
       payload: progressPayload,
+    });
+  };
+
+  // Wire interim result — fires after scraper returns data, before filter.
+  // The side panel renders the card immediately with partial data.
+  orchestrator.onInterimResult = async (interimData) => {
+    console.log(LOG_PREFIX, 'Interim result for:', interimData.name);
+    await notifySidePanel({
+      type:    MessageType.INTERIM_PERSON_DATA,
+      payload: interimData,
     });
   };
 
