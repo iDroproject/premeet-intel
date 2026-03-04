@@ -3,12 +3,13 @@
  *
  * Bright People Intel – Waterfall Fetch Orchestrator
  *
- * Executes a multi-layer lookup cascade for a given person:
+ * Executes a deterministic multi-layer lookup cascade for a given person:
  *
  *   Layer 1 – Cache check (instant)
- *   Layer 2 – SERP Discovery: Google Search for LinkedIn URL via email/name
- *   Layer 3+4 – LinkedIn Scrape + Business Enriched (parallel, using URL from Layer 2)
- *   Layer 5 – Deep Lookup fallback (name + company, when SERP fails)
+ *   Layer 2 – SERP Discovery: Google Search → find LinkedIn URL
+ *   Layer 3 – Deep Lookup fallback: natural-language query → find LinkedIn URL
+ *   Layer 4 – LinkedIn Scraper (WSA): scrape profile → get LinkedIn ID
+ *   Layer 5 – Filter API: query dataset by LinkedIn ID → enriched data
  *   Layer 6 – Error
  *
  * @module waterfall-orchestrator
@@ -20,14 +21,14 @@ import {
   scrapeByLinkedInUrl,
   pollSnapshotUntilReady,
   downloadSnapshot,
+  extractLinkedInId,
 } from './bright-data-scraper.js';
 
-import { deepLookupByName } from './bright-data-deep-lookup.js';
+import { deepLookupFindLinkedIn } from './bright-data-deep-lookup.js';
 
-import {
-  serpFindLinkedInUrl,
-  scrapeBusinessEnriched,
-} from './bright-data-serp.js';
+import { serpFindLinkedInUrl } from './bright-data-serp.js';
+
+import { filterByLinkedInId } from './bright-data-filter.js';
 
 import { pickBestProfile, mergeBusinessEnrichedData } from './response-normalizer.js';
 
@@ -38,16 +39,18 @@ const LOG_PREFIX = '[BPI][Waterfall]';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const PIPELINE_STEPS = [
-  { id: 'cache',             label: 'Checking cache...',                          icon: 'cache',     percent: 5  },
-  { id: 'serp-discovery',    label: 'Searching SERP by email...',                 icon: 'search',    percent: 30 },
-  { id: 'linkedin-enriched', label: 'Enriching from LinkedIn & business data...', icon: 'linkedin',  percent: 70 },
-  { id: 'deep-lookup',       label: 'Deep lookup...',                             icon: 'magnifier', percent: 90 },
+  { id: 'cache',            label: 'Checking cache...',                icon: 'cache',     percent: 5  },
+  { id: 'serp-discovery',   label: 'Searching Google for LinkedIn...', icon: 'search',    percent: 20 },
+  { id: 'deep-lookup',      label: 'Deep lookup by email...',          icon: 'magnifier', percent: 40 },
+  { id: 'linkedin-scraper', label: 'Scraping LinkedIn profile...',     icon: 'linkedin',  percent: 60 },
+  { id: 'filter-enrich',    label: 'Fetching enriched data...',        icon: 'filter',    percent: 90 },
 ];
 
 const LAYER_TIMEOUTS = {
-  serpDiscovery:       20_000,
-  linkedInAndEnrich:   55_000,
-  deepLookup:          45_000,
+  serpDiscovery:   35_000,
+  deepLookup:      90_000,
+  linkedInScraper: 60_000,
+  filterEnrich:    75_000,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -143,19 +146,19 @@ export class WaterfallOrchestrator {
   }
 
   /**
-   * Layer 2: SERP Discovery – find LinkedIn URL via Google Search.
-   * Tries email first (most specific), then "name company" as fallback.
+   * Layer 2: SERP Discovery – find LinkedIn URL via async Google Search.
+   * Tries email first, then "name company" as fallback.
    */
   async _layerSerpDiscovery(email, name, company) {
     let linkedInUrl = null;
 
-    // Primary: search by email
+    // Primary: search by email.
     if (email && email.includes('@')) {
       console.log(LOG_PREFIX, 'SERP: searching by email:', email);
       linkedInUrl = await serpFindLinkedInUrl(email, this._apiToken);
     }
 
-    // Fallback: search by "name company"
+    // Fallback: search by "name company".
     if (!linkedInUrl && name) {
       const query = company ? `${name} ${company}` : name;
       console.log(LOG_PREFIX, 'SERP: searching by name:', query);
@@ -170,75 +173,84 @@ export class WaterfallOrchestrator {
   }
 
   /**
-   * Layer 3+4: LinkedIn Scrape + Business Enriched (parallel).
-   * Both use the LinkedIn URL discovered by SERP.
+   * Layer 3: Deep Lookup – find LinkedIn URL via natural language query.
+   * Fallback when SERP fails.
    */
-  async _layerLinkedInAndEnrich(linkedInUrl) {
-    const [scrapeResult, enrichResult] = await Promise.allSettled([
-      scrapeByLinkedInUrl(linkedInUrl, this._apiToken),
-      scrapeBusinessEnriched(linkedInUrl, this._apiToken),
-    ]);
+  async _layerDeepLookup(email, name, company) {
+    const result = await deepLookupFindLinkedIn(email, name, company, this._apiToken);
+
+    if (!result.linkedInUrl) {
+      return { success: false, error: 'Deep Lookup found no LinkedIn URL' };
+    }
+
+    return {
+      success: true,
+      linkedInUrl: result.linkedInUrl,
+      source: 'deep-lookup',
+    };
+  }
+
+  /**
+   * Layer 4: LinkedIn Scraper (WSA) – scrape profile to get LinkedIn ID.
+   * Also returns profile data that we can use as a base.
+   */
+  async _layerLinkedInScraper(linkedInUrl) {
+    const scrapeResult = await scrapeByLinkedInUrl(linkedInUrl, this._apiToken);
 
     let profiles = [];
-    let enrichedData = null;
 
-    // Process LinkedIn People scrape
-    if (scrapeResult.status === 'fulfilled') {
-      const result = scrapeResult.value;
-      if (result.mode === 'direct') {
-        profiles = result.profiles || [];
-      } else if (result.mode === 'snapshot' && result.snapshotId) {
-        try {
-          await pollSnapshotUntilReady(result.snapshotId, this._apiToken);
-          profiles = await downloadSnapshot(result.snapshotId, this._apiToken);
-        } catch (err) {
-          console.warn(LOG_PREFIX, 'LinkedIn snapshot poll failed:', err.message);
-        }
-      }
-    } else {
-      console.warn(LOG_PREFIX, 'LinkedIn scrape failed:', scrapeResult.reason?.message);
+    if (scrapeResult.mode === 'direct') {
+      profiles = scrapeResult.profiles || [];
+    } else if (scrapeResult.mode === 'snapshot' && scrapeResult.snapshotId) {
+      await pollSnapshotUntilReady(scrapeResult.snapshotId, this._apiToken);
+      profiles = await downloadSnapshot(scrapeResult.snapshotId, this._apiToken);
     }
 
-    // Process Business Enriched
-    if (enrichResult.status === 'fulfilled') {
-      const result = enrichResult.value;
-      if (result.mode === 'direct') {
-        enrichedData = result.profiles;
-      } else if (result.mode === 'snapshot' && result.snapshotId) {
-        try {
-          await pollSnapshotUntilReady(result.snapshotId, this._apiToken);
-          enrichedData = await downloadSnapshot(result.snapshotId, this._apiToken);
-        } catch (err) {
-          console.warn(LOG_PREFIX, 'Business Enriched snapshot poll failed:', err.message);
-        }
-      }
-    } else {
-      console.warn(LOG_PREFIX, 'Business Enriched failed:', enrichResult.reason?.message);
+    if (!profiles.length) {
+      return { success: false, error: 'LinkedIn Scraper returned no profiles' };
     }
 
-    if (!profiles.length && (!enrichedData || !enrichedData.length)) {
-      return { success: false, error: 'Both scrape and enrichment returned empty' };
+    // Extract LinkedIn ID from profile data (prefer linkedin_id over id/URL slug).
+    const profile = profiles[0];
+    const linkedInId = extractLinkedInId(profile, linkedInUrl);
+
+    console.log(LOG_PREFIX, 'LinkedIn Scraper profile fields:', {
+      id: profile?.id,
+      linkedin_id: profile?.linkedin_id,
+      linkedin_num_id: profile?.linkedin_num_id,
+      name: profile?.name,
+      url: profile?.url,
+    });
+
+    return {
+      success: true,
+      profiles,
+      linkedInId,
+      linkedInUrl,
+      source: 'brightdata-scraper',
+    };
+  }
+
+  /**
+   * Layer 5: Filter API – query enriched data by LinkedIn ID.
+   * Returns comprehensive profile data from the dataset.
+   */
+  async _layerFilterEnrich(linkedInId) {
+    if (!linkedInId) {
+      return { success: false, error: 'No LinkedIn ID for Filter API' };
+    }
+
+    const profiles = await filterByLinkedInId(linkedInId, this._apiToken);
+
+    if (!profiles || profiles.length === 0) {
+      return { success: false, error: 'Filter API returned no results' };
     }
 
     return {
       success: true,
       profiles,
-      enrichedData,
-      source: 'brightdata-serp-enriched',
+      source: 'brightdata-filter',
     };
-  }
-
-  /**
-   * Layer 5: Deep Lookup by name + company (fallback when SERP fails).
-   */
-  async _layerDeepLookup(name, company) {
-    if (!name) return { success: false, error: 'No name for deep lookup' };
-
-    const profiles = await deepLookupByName(name, company, this._apiToken);
-    if (!profiles || profiles.length === 0) {
-      return { success: false, error: 'Deep lookup returned no profiles' };
-    }
-    return { success: true, profiles, source: 'brightdata-deep' };
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -248,28 +260,27 @@ export class WaterfallOrchestrator {
     const identifier = name || email || 'unknown';
     const cacheKey = `person_${normaliseCacheKey(email || name || identifier)}`;
 
-    // Initialise per-fetch state so the orchestrator is reusable.
+    // Initialise per-fetch state.
     this._personName = name || email || 'unknown';
     this._stepsState = PIPELINE_STEPS.map(s => ({ ...s, status: 'pending' }));
 
     console.log(LOG_PREFIX, `Waterfall started for: "${identifier}"`);
 
-    // ── Layer 1: Cache ──────────────────────────────────────────────────────
+    // ── Layer 1: Cache ────────────────────────────────────────────────────
     const cacheResult = await this._runLayer(
       'cache', 'cache', () => this._layerCache(cacheKey), 500
     );
     if (cacheResult.success && cacheResult._cachedData) {
       console.log(LOG_PREFIX, `Cache hit for "${identifier}"`);
-      // Mark remaining steps as skipped so the UI reflects the short-circuit.
       for (const step of this._stepsState) {
-        if (step.status === 'pending') {
-          this._notifyProgress(step.id, 'skipped');
-        }
+        if (step.status === 'pending') this._notifyProgress(step.id, 'skipped');
       }
       return cacheResult._cachedData;
     }
 
-    // ── Layer 2: SERP Discovery ─────────────────────────────────────────────
+    // ── Layer 2: SERP Discovery ───────────────────────────────────────────
+    let linkedInUrl = null;
+
     const serpResult = await this._runLayer(
       'serp-discovery', 'serp-discovery',
       () => this._layerSerpDiscovery(email, name, company),
@@ -277,68 +288,118 @@ export class WaterfallOrchestrator {
     );
 
     if (serpResult.success && serpResult.linkedInUrl) {
-      // ── Layer 3+4: LinkedIn Scrape + Business Enriched (parallel) ───────
-      const enrichedResult = await this._runLayer(
-        'linkedin-enriched', 'linkedin-enriched',
-        () => this._layerLinkedInAndEnrich(serpResult.linkedInUrl),
-        LAYER_TIMEOUTS.linkedInAndEnrich
-      );
-
-      if (enrichedResult.success) {
-        // Deep lookup is no longer needed — mark it skipped.
-        this._notifyProgress('deep-lookup', 'skipped');
-
-        const data = await this._finalise(
-          enrichedResult, name, email, cacheKey, identifier,
-          { serpVerified: true }
-        );
-        if (data) {
-          // Emit 100% completion.
-          this._notifyProgress('linkedin-enriched', 'completed');
-          return data;
-        }
-      }
-    } else {
-      // SERP failed — LinkedIn+Enriched step is not reachable; mark skipped.
-      this._notifyProgress('linkedin-enriched', 'skipped');
+      linkedInUrl = serpResult.linkedInUrl;
+      // Deep lookup not needed — mark skipped.
+      this._notifyProgress('deep-lookup', 'skipped');
     }
 
-    // ── Layer 5: Deep Lookup (fallback) ─────────────────────────────────────
-    const deepResult = await this._runLayer(
-      'deep-lookup', 'deep-lookup',
-      () => this._layerDeepLookup(name, company),
-      LAYER_TIMEOUTS.deepLookup
+    // ── Layer 3: Deep Lookup (fallback if SERP failed) ────────────────────
+    if (!linkedInUrl) {
+      const deepResult = await this._runLayer(
+        'deep-lookup', 'deep-lookup',
+        () => this._layerDeepLookup(email, name, company),
+        LAYER_TIMEOUTS.deepLookup
+      );
+
+      if (deepResult.success && deepResult.linkedInUrl) {
+        linkedInUrl = deepResult.linkedInUrl;
+      }
+    }
+
+    // If we still have no LinkedIn URL, all discovery failed.
+    if (!linkedInUrl) {
+      this._notifyProgress('linkedin-scraper', 'skipped');
+      this._notifyProgress('filter-enrich', 'skipped');
+
+      const errors = [serpResult.error, 'Deep Lookup found no LinkedIn URL']
+        .filter(Boolean)
+        .join('; ');
+      throw new Error(
+        `All discovery layers failed for "${identifier}". Errors: ${errors}`
+      );
+    }
+
+    // ── Layer 4: LinkedIn Scraper → LinkedIn ID ───────────────────────────
+
+    // Always run the scraper to get linkedin_id (needed for Filter API)
+    // and base profile data. The URL slug alone isn't sufficient because
+    // the Filter API requires the shorter `linkedin_id` field.
+    let linkedInId = null;
+    let scraperProfiles = null;
+
+    {
+      // Must scrape to get the LinkedIn ID.
+      const scraperResult = await this._runLayer(
+        'linkedin-scraper', 'linkedin-scraper',
+        () => this._layerLinkedInScraper(linkedInUrl),
+        LAYER_TIMEOUTS.linkedInScraper
+      );
+
+      if (scraperResult.success && scraperResult.linkedInId) {
+        linkedInId = scraperResult.linkedInId;
+        scraperProfiles = scraperResult.profiles;
+      } else {
+        // Can't get LinkedIn ID — skip filter, try to use scraper data.
+        this._notifyProgress('filter-enrich', 'skipped');
+
+        if (scraperResult.success && scraperResult.profiles?.length) {
+          const data = await this._finalise(
+            { profiles: scraperResult.profiles, source: 'brightdata-scraper' },
+            name, email, cacheKey, identifier,
+            { serpVerified: serpResult.success }
+          );
+          if (data) return data;
+        }
+
+        throw new Error(
+          `Could not determine LinkedIn ID for "${identifier}"`
+        );
+      }
+    }
+
+    // ── Layer 5: Filter API → Enriched Data ───────────────────────────────
+    const filterResult = await this._runLayer(
+      'filter-enrich', 'filter-enrich',
+      () => this._layerFilterEnrich(linkedInId),
+      LAYER_TIMEOUTS.filterEnrich
     );
 
-    if (deepResult.success) {
+    if (filterResult.success && filterResult.profiles?.length) {
+      // Use filter data as primary, merge with scraper data if available.
       const data = await this._finalise(
-        deepResult, name, email, cacheKey, identifier,
-        { serpVerified: false }
+        {
+          profiles: filterResult.profiles,
+          scraperProfiles,
+          source: 'brightdata-filter',
+        },
+        name, email, cacheKey, identifier,
+        { serpVerified: serpResult.success }
       );
-      if (data) {
-        // Emit 100% completion.
-        this._notifyProgress('deep-lookup', 'completed');
-        return data;
-      }
+      if (data) return data;
     }
 
-    // ── Layer 6: All failed ─────────────────────────────────────────────────
-    const errors = [serpResult, deepResult]
-      .filter((r) => r.error)
-      .map((r) => r.error)
-      .join('; ');
+    // Filter failed or returned thin data — fall back to scraper profiles.
+    if (scraperProfiles && scraperProfiles.length) {
+      console.log(LOG_PREFIX, 'Filter failed, falling back to scraper data');
+      const data = await this._finalise(
+        { profiles: scraperProfiles, source: 'brightdata-scraper' },
+        name, email, cacheKey, identifier,
+        { serpVerified: serpResult.success }
+      );
+      if (data) return data;
+    }
 
+    // ── Layer 6: All enrichment failed ────────────────────────────────────
     throw new Error(
-      `All lookup layers failed for "${identifier}". Errors: ${errors || 'unknown'}`
+      `All enrichment layers failed for "${identifier}" (LinkedIn URL: ${linkedInUrl})`
     );
   }
 
   /**
-   * Normalise, merge enriched data, quality-gate, cache, and return PersonData.
-   * Returns null if result is too thin (name=Unknown + low confidence).
+   * Normalise, quality-gate, cache, and return PersonData.
    */
   async _finalise(layerResult, name, email, cacheKey, identifier, context = {}) {
-    const { profiles, enrichedData, source } = layerResult;
+    const { profiles, scraperProfiles, source } = layerResult;
 
     const personData = pickBestProfile(profiles, name, source, {
       email,
@@ -352,13 +413,13 @@ export class WaterfallOrchestrator {
 
     // Quality gate: skip low-quality Unknown results.
     if (personData.name === 'Unknown' && personData._confidence === 'low') {
-      console.log(LOG_PREFIX, `Low-quality result for "${identifier}" from "${source}" — skipping`);
+      console.log(LOG_PREFIX, `Low-quality result for "${identifier}" — skipping`);
       return null;
     }
 
-    // Merge business enriched data if available.
-    if (enrichedData && Array.isArray(enrichedData) && enrichedData.length > 0) {
-      const merged = mergeBusinessEnrichedData(personData, enrichedData[0]);
+    // Merge scraper data if we used filter as primary.
+    if (scraperProfiles?.length && source === 'brightdata-filter') {
+      const merged = mergeBusinessEnrichedData(personData, scraperProfiles[0]);
       Object.assign(personData, merged);
     }
 

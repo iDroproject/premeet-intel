@@ -1,37 +1,31 @@
 /**
  * background/api/bright-data-serp.js
  *
- * Bright People Intel – Bright Data SERP & Business Enriched API Client
+ * Bright People Intel – Bright Data SERP API Client (Async Unblocker)
  *
- * Provides:
- *   1. serpFindLinkedInUrl() – Google Search via SERP API to discover
- *      a person's LinkedIn profile URL from their email or name.
- *   2. scrapeBusinessEnriched() – Scrape the Employees Business Enriched
- *      dataset for additional company/role context.
+ * Uses the async unblocker pattern:
+ *   1. POST /unblocker/req  → sends search request, returns x-response-id
+ *   2. GET  /unblocker/get_result → polls for parsed SERP results
+ *
+ * Extracts LinkedIn profile URLs from Google Search results.
  *
  * @module bright-data-serp
  */
 
 'use strict';
 
-import {
-  pollSnapshotUntilReady,
-  downloadSnapshot,
-} from './bright-data-scraper.js';
-
 const LOG_PREFIX = '[BPI][SERP]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const SERP_ENDPOINT = 'https://api.brightdata.com/request';
-const SERP_ZONE     = 'serp';
-const SERP_TIMEOUT_MS = 15_000;
+const SERP_SEND_ENDPOINT   = 'https://api.brightdata.com/unblocker/req';
+const SERP_RESULT_ENDPOINT = 'https://api.brightdata.com/unblocker/get_result';
+const CUSTOMER_ID          = 'hl_cf5c4907';
+const ZONE                 = 'serp';
 
-const BASE_URL = 'https://api.brightdata.com';
-const BUSINESS_ENRICHED_DATASET_ID = 'gd_m18zt6ec11wfqohyrs';
-const BUSINESS_ENRICHED_ENDPOINT =
-  `${BASE_URL}/datasets/v3/scrape?dataset_id=${BUSINESS_ENRICHED_DATASET_ID}&format=json`;
-const BUSINESS_ENRICHED_TIMEOUT_MS = 25_000;
+const SERP_POLL_INTERVAL_MS = 2000;
+const SERP_MAX_POLL_ATTEMPTS = 15;   // ~30 s total
+const SERP_SEND_TIMEOUT_MS  = 15_000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -42,36 +36,53 @@ function authHeaders(apiToken) {
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
- * Extract the first LinkedIn profile URL from SERP organic results.
- * Looks for URLs matching linkedin.com/in/ (personal profiles).
+ * Extract the first LinkedIn profile URL from SERP results.
+ * Handles multiple response shapes: structured JSON, raw HTML, or plain text.
  *
- * @param {Object} serpData  Raw SERP JSON response.
- * @returns {string|null}    LinkedIn profile URL or null.
+ * @param {*} data  Parsed response body (object, array, or string).
+ * @returns {string|null}
  */
-function extractLinkedInUrlFromSerp(serpData) {
-  // The SERP API may return results in different structures.
-  const organic =
-    serpData?.organic ||
-    serpData?.results ||
-    serpData?.organic_results ||
-    [];
+function extractLinkedInUrl(data) {
+  // 1. Structured JSON with organic results.
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const organic =
+      data.organic || data.results || data.organic_results || [];
+    for (const result of organic) {
+      const url = result?.link || result?.url || result?.href || '';
+      if (/linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i.test(url)) {
+        console.log(LOG_PREFIX, 'Found LinkedIn URL in organic results:', url);
+        return url.split('?')[0];
+      }
+    }
 
-  // Also check if the response is a raw array.
-  const results = Array.isArray(serpData) ? serpData : organic;
-
-  for (const result of results) {
-    const url = result?.link || result?.url || result?.href || '';
-    if (/linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i.test(url)) {
-      console.log(LOG_PREFIX, 'Found LinkedIn URL in SERP results:', url);
-      return url.split('?')[0]; // strip query params
+    // Knowledge graph fallback.
+    if (data.knowledge_graph?.website) {
+      const kgUrl = data.knowledge_graph.website;
+      if (/linkedin\.com\/in\//i.test(kgUrl)) return kgUrl.split('?')[0];
     }
   }
 
-  // Fallback: search in nested structures.
-  if (serpData?.knowledge_graph?.website) {
-    const kgUrl = serpData.knowledge_graph.website;
-    if (/linkedin\.com\/in\//i.test(kgUrl)) return kgUrl.split('?')[0];
+  // 2. Response is a raw array of results.
+  if (Array.isArray(data)) {
+    for (const result of data) {
+      const url = result?.link || result?.url || result?.href || '';
+      if (/linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i.test(url)) {
+        return url.split('?')[0];
+      }
+    }
+  }
+
+  // 3. Fallback: regex scan the stringified response (handles HTML or text).
+  const text = typeof data === 'string' ? data : JSON.stringify(data);
+  const match = text.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9\-_%]+/i);
+  if (match) {
+    console.log(LOG_PREFIX, 'Found LinkedIn URL via regex:', match[0]);
+    return match[0].split('?')[0];
   }
 
   return null;
@@ -80,7 +91,7 @@ function extractLinkedInUrlFromSerp(serpData) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Search Google via Bright Data SERP API to find a LinkedIn profile URL.
+ * Search Google via Bright Data async SERP API to find a LinkedIn profile URL.
  *
  * @param {string} query    Search query (email, "name company", etc.)
  * @param {string} apiToken Bright Data API bearer token.
@@ -94,87 +105,101 @@ export async function serpFindLinkedInUrl(query, apiToken) {
 
   console.log(LOG_PREFIX, 'SERP search:', query);
 
+  // ── Step 1: Send request ────────────────────────────────────────────────
+  const sendUrl =
+    `${SERP_SEND_ENDPOINT}?customer=${CUSTOMER_ID}&zone=${ZONE}`;
+
   const controller = new AbortController();
-  const timerId = setTimeout(() => controller.abort(), SERP_TIMEOUT_MS);
+  const timerId = setTimeout(() => controller.abort(), SERP_SEND_TIMEOUT_MS);
 
+  let responseId;
   try {
-    const response = await fetch(SERP_ENDPOINT, {
-      method: 'POST',
+    const sendResponse = await fetch(sendUrl, {
+      method:  'POST',
       headers: authHeaders(apiToken),
-      body: JSON.stringify({
-        zone: SERP_ZONE,
-        url: searchUrl,
-        format: 'json',
-      }),
-      signal: controller.signal,
+      body:    JSON.stringify({ url: searchUrl }),
+      signal:  controller.signal,
     });
-
     clearTimeout(timerId);
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`SERP API returned HTTP ${response.status}: ${body.slice(0, 200)}`);
+    responseId = sendResponse.headers.get('x-response-id');
+
+    if (!responseId) {
+      // Some API versions return the response_id in the body.
+      try {
+        const body = await sendResponse.json();
+        responseId = body?.response_id || body?.id;
+      } catch (_) { /* ignore parse errors */ }
     }
 
-    const data = await response.json();
-    return extractLinkedInUrlFromSerp(data);
+    if (!responseId) {
+      const errBody = await sendResponse.text().catch(() => '');
+      console.error(LOG_PREFIX, `SERP send HTTP ${sendResponse.status}, no x-response-id. Body:`, errBody.slice(0, 300));
+      throw new Error(
+        `SERP send returned HTTP ${sendResponse.status} but no x-response-id header`
+      );
+    }
 
+    console.log(LOG_PREFIX, 'SERP request sent, response_id:', responseId);
   } catch (err) {
     clearTimeout(timerId);
     if (err.name === 'AbortError') {
-      throw new Error(`SERP search timed out after ${SERP_TIMEOUT_MS / 1000}s`);
+      throw new Error(`SERP send timed out after ${SERP_SEND_TIMEOUT_MS / 1000}s`);
     }
     throw err;
   }
-}
 
-/**
- * Scrape the Employees Business Enriched dataset for a LinkedIn URL.
- *
- * @param {string} linkedInUrl  LinkedIn profile URL.
- * @param {string} apiToken     Bright Data API bearer token.
- * @returns {Promise<{mode: 'direct'|'snapshot', profiles?: Array, snapshotId?: string}>}
- */
-export async function scrapeBusinessEnriched(linkedInUrl, apiToken) {
-  console.log(LOG_PREFIX, 'Business Enriched scrape:', linkedInUrl);
+  // ── Step 2: Poll for result ─────────────────────────────────────────────
+  const resultUrl =
+    `${SERP_RESULT_ENDPOINT}?customer=${CUSTOMER_ID}&zone=${ZONE}&response_id=${responseId}`;
 
-  const controller = new AbortController();
-  const timerId = setTimeout(() => controller.abort(), BUSINESS_ENRICHED_TIMEOUT_MS);
+  for (let attempt = 1; attempt <= SERP_MAX_POLL_ATTEMPTS; attempt++) {
+    console.log(LOG_PREFIX, `Polling SERP result (attempt ${attempt}/${SERP_MAX_POLL_ATTEMPTS})`);
 
-  try {
-    const response = await fetch(BUSINESS_ENRICHED_ENDPOINT, {
-      method: 'POST',
-      headers: authHeaders(apiToken),
-      body: JSON.stringify([{ url: linkedInUrl }]),
-      signal: controller.signal,
-    });
+    try {
+      const res = await fetch(resultUrl, {
+        method:  'GET',
+        headers: { 'Authorization': `Bearer ${apiToken}` },
+      });
 
-    clearTimeout(timerId);
+      if (res.status === 200) {
+        const contentType = res.headers.get('content-type') || '';
+        let data;
 
-    if (response.status === 202) {
-      const body = await response.json();
-      const snapshotId = body?.snapshot_id;
-      if (!snapshotId) {
-        throw new Error('Business Enriched 202 response missing snapshot_id');
+        if (contentType.includes('application/json')) {
+          data = await res.json();
+        } else {
+          data = await res.text();
+        }
+
+        // Empty or pending response — keep polling.
+        if (!data || (typeof data === 'string' && data.trim().length === 0)) {
+          await sleep(SERP_POLL_INTERVAL_MS);
+          continue;
+        }
+
+        return extractLinkedInUrl(data);
       }
-      console.log(LOG_PREFIX, 'Business Enriched async, snapshot:', snapshotId);
-      return { mode: 'snapshot', snapshotId };
-    }
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`Business Enriched API HTTP ${response.status}: ${body.slice(0, 200)}`);
-    }
+      // 202 or other non-200 → still processing.
+      if (res.status === 202) {
+        await sleep(SERP_POLL_INTERVAL_MS);
+        continue;
+      }
 
-    const profiles = await response.json();
-    console.log(LOG_PREFIX, `Business Enriched returned ${Array.isArray(profiles) ? profiles.length : 0} result(s)`);
-    return { mode: 'direct', profiles: Array.isArray(profiles) ? profiles : [] };
-
-  } catch (err) {
-    clearTimeout(timerId);
-    if (err.name === 'AbortError') {
-      throw new Error(`Business Enriched timed out after ${BUSINESS_ENRICHED_TIMEOUT_MS / 1000}s`);
+      // Unexpected error.
+      const errBody = await res.text().catch(() => '');
+      throw new Error(
+        `SERP get_result returned HTTP ${res.status}: ${errBody.slice(0, 200)}`
+      );
+    } catch (err) {
+      if (attempt === SERP_MAX_POLL_ATTEMPTS) throw err;
+      console.warn(LOG_PREFIX, `SERP poll attempt ${attempt} failed:`, err.message);
+      await sleep(SERP_POLL_INTERVAL_MS);
     }
-    throw err;
   }
+
+  throw new Error(
+    `SERP result not ready after ${SERP_MAX_POLL_ATTEMPTS} attempts`
+  );
 }

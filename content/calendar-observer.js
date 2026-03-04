@@ -189,9 +189,19 @@
 
       if (candidatePopups.size === 0) return;
 
+      // Deduplicate: remove any candidate that is a descendant of another
+      // candidate. This prevents injecting buttons twice when both a dialog
+      // wrapper and its inner guest-section are detected as separate popups.
+      const deduped = [...candidatePopups].filter((el) => {
+        for (const other of candidatePopups) {
+          if (other !== el && other.contains(el)) return false;
+        }
+        return true;
+      });
+
       // Let the DOM settle before reading attendee data.
       requestAnimationFrame(() => {
-        candidatePopups.forEach((popup) => this._processPopup(popup));
+        deduped.forEach((popup) => this._processPopup(popup));
       });
     }
 
