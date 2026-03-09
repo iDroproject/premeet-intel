@@ -25,9 +25,9 @@ import {
   extractLinkedInId,
 } from './bright-data-scraper.js';
 
-import { deepLookupFindLinkedIn, deepLookupCompanyIntel } from './bright-data-deep-lookup.js';
+import { deepLookupFindLinkedIn, deepLookupEnrich, deepLookupCompanyIntel } from './bright-data-deep-lookup.js';
 
-import { serpFindLinkedInUrl } from './bright-data-serp.js';
+import { serpFindLinkedInUrl, serpSearchCompanyInfo } from './bright-data-serp.js';
 
 import { filterByLinkedInId } from './bright-data-filter.js';
 
@@ -492,7 +492,7 @@ export class WaterfallOrchestrator {
     const interimTitle = scraperProfiles?.[0]?.current_company?.title
       || scraperProfiles?.[0]?.position || null;
 
-    const [filterResult, companyIntel] = await Promise.all([
+    const [filterResult, companyIntel, serpCompanyInfo] = await Promise.all([
       this._runLayer(
         'filter-enrich', 'filter-enrich',
         () => this._layerFilterEnrich(linkedInId),
@@ -508,6 +508,13 @@ export class WaterfallOrchestrator {
         }
         return null;
       }),
+      // SERP company info — searches Google for company context (non-fatal).
+      serpSearchCompanyInfo(
+        interimCompany, this._apiToken, this._customerId
+      ).catch((err) => {
+        console.warn(LOG_PREFIX, 'SERP company search failed (non-fatal):', err.message);
+        return null;
+      }),
     ]);
 
     if (filterResult.success && filterResult.profiles?.length) {
@@ -517,6 +524,7 @@ export class WaterfallOrchestrator {
           profiles: filterResult.profiles,
           scraperProfiles,
           companyIntel,
+          serpCompanyInfo,
           source: 'brightdata-filter',
         },
         name, email, cacheKey, identifier,
@@ -529,7 +537,7 @@ export class WaterfallOrchestrator {
     if (scraperProfiles && scraperProfiles.length) {
       console.log(LOG_PREFIX, 'Filter failed, falling back to scraper data');
       const data = await this._finalise(
-        { profiles: scraperProfiles, companyIntel, source: 'brightdata-scraper' },
+        { profiles: scraperProfiles, companyIntel, serpCompanyInfo, source: 'brightdata-scraper' },
         name, email, cacheKey, identifier,
         { serpVerified }
       );
@@ -546,7 +554,7 @@ export class WaterfallOrchestrator {
    * Normalise, quality-gate, cache, and return PersonData.
    */
   async _finalise(layerResult, name, email, cacheKey, identifier, context = {}) {
-    const { profiles, scraperProfiles, companyIntel, source } = layerResult;
+    const { profiles, scraperProfiles, companyIntel, serpCompanyInfo, source } = layerResult;
 
     const personData = pickBestProfile(profiles, name, source, {
       email,
@@ -574,6 +582,33 @@ export class WaterfallOrchestrator {
     if (companyIntel && typeof companyIntel === 'object') {
       this._mergeCompanyIntel(personData, companyIntel);
     }
+
+    // Merge SERP company info (lower priority — fills what Deep Lookup missed).
+    if (serpCompanyInfo && typeof serpCompanyInfo === 'object') {
+      this._mergeCompanyIntel(personData, serpCompanyInfo);
+    }
+
+    // Fallback: if experience is empty but we have a LinkedIn URL, try deepLookupEnrich.
+    if ((!personData.experience || personData.experience.length === 0) && personData.linkedinUrl) {
+      try {
+        console.log(LOG_PREFIX, 'Experience missing — trying Deep Lookup enrich for:', personData.name);
+        const enrichData = await deepLookupEnrich(
+          personData.linkedinUrl,
+          personData.linkedInId || null,
+          personData.name,
+          this._apiToken
+        );
+        if (enrichData) {
+          this._mergeEnrichData(personData, enrichData);
+        }
+      } catch (err) {
+        console.warn(LOG_PREFIX, 'Deep Lookup enrich fallback failed:', err.message);
+      }
+    }
+
+    // Re-derive ICP after all merges so badges reflect final data.
+    const { deriveIcpProfile } = await import('./response-normalizer.js');
+    personData.icp = deriveIcpProfile(personData);
 
     // Carry over calendar email.
     if (email && !personData.email) {
@@ -637,5 +672,94 @@ export class WaterfallOrchestrator {
 
     console.log(LOG_PREFIX, 'Merged company intel for:', personData.currentCompany,
       '— fields:', Object.keys(companyIntel).filter(k => str(companyIntel[k])).join(', '));
+  }
+
+  /**
+   * Merge Deep Lookup enrichment data (work experience, education, skills)
+   * into PersonData. Only fills gaps — never overwrites populated fields.
+   */
+  _mergeEnrichData(personData, enrichData) {
+    const str = (v) => (typeof v === 'string' && v.trim()) ? v.trim() : null;
+
+    // Current position fallback.
+    if (!personData.currentTitle && enrichData.current_position) {
+      personData.currentTitle = str(enrichData.current_position);
+    }
+
+    // Parse work experience text into structured entries.
+    if ((!personData.experience || personData.experience.length === 0) && enrichData.work_experience) {
+      personData.experience = this._parseWorkExperienceText(enrichData.work_experience);
+    }
+
+    // Parse education text into structured entries.
+    if ((!personData.education || personData.education.length === 0) && enrichData.education) {
+      personData.education = this._parseEducationText(enrichData.education);
+    }
+
+    // Skills — merge if we got them.
+    if (enrichData.skills && !personData.skills?.length) {
+      personData.skills = enrichData.skills.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    console.log(LOG_PREFIX, 'Merged enrich data — experience:', personData.experience?.length,
+      'education:', personData.education?.length, 'skills:', personData.skills?.length);
+  }
+
+  /**
+   * Best-effort parse of work experience prose into structured array.
+   * Deep Lookup returns free text like "Company A - Title (2020-2023)\nCompany B - Title..."
+   */
+  _parseWorkExperienceText(text) {
+    if (!text || typeof text !== 'string') return [];
+    const entries = [];
+    // Split on newlines or semicolons.
+    const lines = text.split(/[\n;]+/).map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      // Try to extract: "Company - Title (dates)" or "Title at Company (dates)"
+      const atMatch = line.match(/^(.+?)\s+at\s+(.+?)(?:\s*[\(,]\s*(.+?)[\)]?)?$/i);
+      const dashMatch = line.match(/^(.+?)\s*[-–—]\s*(.+?)(?:\s*[\(,]\s*(.+?)[\)]?)?$/i);
+      if (atMatch) {
+        entries.push({
+          title: atMatch[1].trim(), company: atMatch[2].trim(),
+          companyLogoUrl: null, startDate: atMatch[3]?.trim() || null,
+          endDate: null, location: null, description: null,
+        });
+      } else if (dashMatch) {
+        entries.push({
+          title: dashMatch[2].trim(), company: dashMatch[1].trim(),
+          companyLogoUrl: null, startDate: dashMatch[3]?.trim() || null,
+          endDate: null, location: null, description: null,
+        });
+      } else if (line.length > 5) {
+        entries.push({
+          title: line, company: null, companyLogoUrl: null,
+          startDate: null, endDate: null, location: null, description: null,
+        });
+      }
+    }
+    return entries;
+  }
+
+  /**
+   * Best-effort parse of education prose into structured array.
+   */
+  _parseEducationText(text) {
+    if (!text || typeof text !== 'string') return [];
+    const entries = [];
+    const lines = text.split(/[\n;]+/).map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      const match = line.match(/^(.+?)(?:\s*[-–—,]\s*(.+?))?(?:\s*[\(]\s*(.+?)[\)])?$/);
+      if (match) {
+        entries.push({
+          institution: match[1].trim(),
+          degree: match[2]?.trim() || null,
+          field: null,
+          startYear: null,
+          endYear: match[3]?.trim() || null,
+          logoUrl: null,
+        });
+      }
+    }
+    return entries;
   }
 }

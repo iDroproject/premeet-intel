@@ -43,7 +43,12 @@ function deriveLocation(raw) {
 }
 
 function deriveCurrentTitle(raw) {
-  return toStringOrNull(raw.current_company?.title) || toStringOrNull(raw.position) || null;
+  return toStringOrNull(raw.current_company?.title)
+    || toStringOrNull(raw.current_company_position)
+    || toStringOrNull(raw.position)
+    || toStringOrNull(raw.job_title)
+    || toStringOrNull(raw.headline)
+    || null;
 }
 
 function deriveCurrentCompany(raw) {
@@ -52,24 +57,24 @@ function deriveCurrentCompany(raw) {
 
 function normalizeExperienceEntry(entry) {
   return {
-    title: toStringOrNull(entry.title),
-    company: toStringOrNull(entry.company),
-    companyLogoUrl: toStringOrNull(entry.company_logo_url),
+    title: toStringOrNull(entry.title) || toStringOrNull(entry.position) || toStringOrNull(entry.role),
+    company: toStringOrNull(entry.company) || toStringOrNull(entry.company_name) || toStringOrNull(entry.organization),
+    companyLogoUrl: toStringOrNull(entry.company_logo_url) || toStringOrNull(entry.logo) || toStringOrNull(entry.company_logo),
     startDate: toStringOrNull(entry.start_date),
     endDate: toStringOrNull(entry.end_date),
     location: toStringOrNull(entry.location),
-    description: toStringOrNull(entry.description),
+    description: toStringOrNull(entry.description) || toStringOrNull(entry.summary),
   };
 }
 
 function normalizeEducationEntry(entry) {
   return {
-    institution: toStringOrNull(entry.title),
+    institution: toStringOrNull(entry.title) || toStringOrNull(entry.school) || toStringOrNull(entry.school_name) || toStringOrNull(entry.institution),
     degree: toStringOrNull(entry.degree),
-    field: toStringOrNull(entry.field),
+    field: toStringOrNull(entry.field) || toStringOrNull(entry.field_of_study),
     startYear: toStringOrNull(entry.start_year),
     endYear: toStringOrNull(entry.end_year),
-    logoUrl: toStringOrNull(entry.institute_logo_url),
+    logoUrl: toStringOrNull(entry.institute_logo_url) || toStringOrNull(entry.school_logo_url) || toStringOrNull(entry.logo),
   };
 }
 
@@ -178,7 +183,7 @@ function assessConfidence(data, context = {}) {
  *   icpSignals: string[],
  * }}
  */
-function deriveIcpProfile(data) {
+export function deriveIcpProfile(data) {
   const result = {
     isDecisionMaker: false,
     seniorityLevel: 'individual', // individual | manager | director | vp | c-level | founder
@@ -286,7 +291,8 @@ export function normalizeLinkedInProfile(rawProfile, source, context = {}) {
     bio: toStringOrNull(raw.about),
     experience: Array.isArray(raw.experience) ? raw.experience.map(normalizeExperienceEntry) : [],
     education: Array.isArray(raw.education) ? raw.education.map(normalizeEducationEntry) : [],
-    recentPosts: Array.isArray(raw.activity) ? raw.activity.map(normalizePostEntry) : [],
+    recentPosts: Array.isArray(raw.activity) ? raw.activity.map(normalizePostEntry)
+      : Array.isArray(raw.posts) ? raw.posts.map(normalizePostEntry) : [],
     connections: toIntOrNull(raw.connections),
     followers: toIntOrNull(raw.followers),
     // Company intelligence

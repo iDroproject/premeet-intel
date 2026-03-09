@@ -411,9 +411,15 @@ export async function deepLookupFindLinkedIn(email, name, company, apiToken) {
     return { linkedInUrl: null, responseData: null };
   }
 
+  // API rejects empty strings for full_name — derive from email if needed
+  let fullName = name;
+  if (!fullName && email) {
+    fullName = email.split('@')[0].replace(/[._\-+]/g, ' ').trim();
+  }
+
   const input = {
     email,
-    full_name: name || '',
+    full_name: fullName || 'Unknown',
     company:   company || 'Unknown',
   };
 
@@ -464,6 +470,138 @@ export async function deepLookupEnrich(linkedInUrl, linkedInId, name, apiToken) 
   }
 }
 
+// ─── Custom Enrichment Specs (per enrichType) ────────────────────────────────
+
+const CUSTOM_ENRICH_SPECS = {
+  experience: {
+    input_schema: {
+      type: 'object',
+      properties: {
+        linkedin_url: { type: 'string', description: 'LinkedIn profile URL' },
+        linkedin_id:  { type: 'string', description: 'LinkedIn profile slug/ID' },
+        full_name:    { type: 'string', description: 'Full name of the person' },
+      },
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        positions: {
+          type: 'string',
+          description:
+            'Complete work history as a JSON array of objects, each with: ' +
+            '"title" (job title), "company" (company name), "start_date" (e.g. "Jan 2020"), ' +
+            '"end_date" (e.g. "Present" or "Dec 2023"), "description" (1-2 sentence summary of role). ' +
+            'Include ALL positions, not just recent ones. Return valid JSON array string.',
+        },
+      },
+    },
+  },
+  education: {
+    input_schema: {
+      type: 'object',
+      properties: {
+        linkedin_url: { type: 'string', description: 'LinkedIn profile URL' },
+        linkedin_id:  { type: 'string', description: 'LinkedIn profile slug/ID' },
+        full_name:    { type: 'string', description: 'Full name of the person' },
+      },
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        education_entries: {
+          type: 'string',
+          description:
+            'Complete education history as a JSON array of objects, each with: ' +
+            '"school" (institution name), "degree" (e.g. "B.Sc.", "MBA"), ' +
+            '"field" (field of study), "start_year" (e.g. "2010"), "end_year" (e.g. "2014"). ' +
+            'Return valid JSON array string.',
+        },
+      },
+    },
+  },
+  skills: {
+    input_schema: {
+      type: 'object',
+      properties: {
+        linkedin_url: { type: 'string', description: 'LinkedIn profile URL' },
+        linkedin_id:  { type: 'string', description: 'LinkedIn profile slug/ID' },
+        full_name:    { type: 'string', description: 'Full name of the person' },
+      },
+    },
+    output_schema: {
+      type: 'object',
+      properties: {
+        skills_list: {
+          type: 'string',
+          description:
+            'All professional skills as a JSON array of objects, each with: ' +
+            '"name" (skill name), "category" (e.g. "Technical", "Management", "Industry Knowledge"). ' +
+            'Return valid JSON array string.',
+        },
+      },
+    },
+  },
+  company: COMPANY_INTELLIGENCE_SPEC,
+};
+
+/**
+ * Use Deep Lookup trigger_enrichment with a custom schema
+ * for user-initiated enrichment requests.
+ *
+ * @param {string}      linkedinUrl  LinkedIn profile URL.
+ * @param {string|null} linkedinId   LinkedIn profile ID/slug.
+ * @param {string|null} name         Person's name.
+ * @param {string|null} company      Company name (used for company enrichType).
+ * @param {string}      enrichType   One of: 'experience', 'education', 'skills', 'company'.
+ * @param {string}      apiToken     Bright Data API bearer token.
+ * @returns {Promise<Object|null>}   Enriched data or null.
+ */
+export async function deepLookupCustomEnrich(linkedinUrl, linkedinId, name, company, enrichType, apiToken) {
+  const spec = CUSTOM_ENRICH_SPECS[enrichType];
+  if (!spec) {
+    console.warn(LOG_PREFIX, 'Unknown enrich type:', enrichType);
+    return null;
+  }
+
+  const input = {};
+  if (enrichType === 'company') {
+    // Company intel uses different input fields
+    input.full_name = name || 'Unknown';
+    input.company_name = company || 'Unknown';
+    input.job_title = 'Unknown';
+    if (linkedinUrl) input.linkedin_url = linkedinUrl;
+  } else {
+    if (linkedinUrl) input.linkedin_url = linkedinUrl;
+    if (linkedinId) input.linkedin_id = linkedinId;
+    if (name) input.full_name = name;
+  }
+
+  console.log(LOG_PREFIX, `Custom enrich [${enrichType}] for:`, name || linkedinUrl);
+
+  try {
+    const { responseData } = await triggerAndPoll(spec, [input], apiToken);
+
+    const dataBlock = responseData?.data;
+    if (dataBlock && typeof dataBlock === 'object') {
+      const firstKey = Object.keys(dataBlock)[0];
+      const value = dataBlock[firstKey]?.value;
+      if (value) {
+        console.log(LOG_PREFIX, `Custom enrich [${enrichType}] result:`, Object.keys(value).join(', '));
+        return { enrichType, ...value };
+      }
+    }
+
+    if (Array.isArray(responseData) && responseData.length > 0) {
+      return { enrichType, ...responseData[0] };
+    }
+
+    return null;
+  } catch (err) {
+    console.warn(LOG_PREFIX, `Custom enrich [${enrichType}] failed:`, err.message);
+    return null;
+  }
+}
+
 /**
  * Use Deep Lookup trigger_enrichment to gather company intelligence
  * and public web data about a person and their company.
@@ -484,11 +622,12 @@ export async function deepLookupCompanyIntel(companyName, personName, jobTitle, 
     return null;
   }
 
+  // API rejects empty strings — use 'Unknown' as placeholder
   const input = {
     company_name: companyName,
-    full_name:    personName || '',
-    job_title:    jobTitle || '',
-    linkedin_url: linkedInUrl || '',
+    full_name:    personName || 'Unknown',
+    job_title:    jobTitle || 'Unknown',
+    linkedin_url: linkedInUrl || 'Unknown',
   };
 
   try {

@@ -143,6 +143,9 @@ function getCardRefs(cardEl) {
     postsList:           r('posts-list'),
     linkedInSection:     r('linkedin-section'),
     linkedIn:            r('linkedin'),
+    enrichSection:       r('enrich-section'),
+    enrichActions:       r('enrich-actions'),
+    enrichStatus:        r('enrich-status'),
     sourceBadge:         r('source-badge'),
     fetchedAt:           r('fetched-at'),
   };
@@ -659,7 +662,82 @@ function populateCard(cardEl, refs, data) {
   renderEducation(refs, data);
   renderPosts(refs, data);
   renderLinkedIn(refs, data);
+  wireEnrichButtons(cardEl, refs, data);
   renderFooter(refs, data);
+}
+
+/**
+ * Wire enrichment button click handlers on a person card.
+ * Each button triggers a Deep Lookup custom enrichment request.
+ */
+function wireEnrichButtons(cardEl, refs, data) {
+  const enrichActions = refs.enrichActions;
+  if (!enrichActions) return;
+
+  // Extract linkedinId from URL
+  let linkedinId = null;
+  if (data.linkedinUrl) {
+    const match = data.linkedinUrl.match(/\/in\/([a-zA-Z0-9\-_%]+)/i);
+    if (match) linkedinId = match[1];
+  }
+
+  // Hide enrichment section if no LinkedIn URL
+  if (!data.linkedinUrl && refs.enrichSection) {
+    refs.enrichSection.hidden = true;
+    return;
+  }
+
+  // Store data on the card element for later re-rendering
+  cardEl._bpiData = data;
+
+  // Prevent duplicate listeners on re-populate (interim → final)
+  if (cardEl._bpiEnrichWired) return;
+  cardEl._bpiEnrichWired = true;
+
+  enrichActions.querySelectorAll('.bpi-enrich-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const enrichType = btn.dataset.enrich;
+      if (!enrichType || btn.classList.contains('bpi-enrich-btn--loading')) return;
+
+      // Show loading state
+      btn.classList.add('bpi-enrich-btn--loading');
+      if (refs.enrichStatus) {
+        refs.enrichStatus.textContent = `Enriching ${enrichType}...`;
+        refs.enrichStatus.classList.remove('bpi-hidden');
+      }
+
+      // Store reference for result handler
+      cardEl._bpiEnrichBtn = btn;
+      cardEl._bpiEnrichType = enrichType;
+
+      chrome.runtime.sendMessage(
+        {
+          type: 'ENRICH_PROFILE',
+          payload: {
+            enrichType,
+            linkedinUrl: data.linkedinUrl,
+            linkedinId,
+            name: data.name,
+            company: data.currentCompany,
+          },
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error(LOG_PREFIX, 'Enrich message failed:', chrome.runtime.lastError.message);
+            btn.classList.remove('bpi-enrich-btn--loading');
+            if (refs.enrichStatus) {
+              refs.enrichStatus.textContent = 'Enrichment failed. Try again.';
+            }
+          } else if (response && !response.ok) {
+            btn.classList.remove('bpi-enrich-btn--loading');
+            if (refs.enrichStatus) {
+              refs.enrichStatus.textContent = response.error || 'Enrichment failed.';
+            }
+          }
+        }
+      );
+    });
+  });
 }
 
 function showError(message) {
@@ -804,12 +882,162 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
     }
 
+    case 'ENRICH_PROFILE_RESULT': {
+      const { enrichType, data: enrichData, name: enrichName } = message.payload || {};
+      console.log(LOG_PREFIX, `Enrich result [${enrichType}] for:`, enrichName);
+
+      try {
+        // Find the card that requested this enrichment
+        const cards = Views.cardStack?.querySelectorAll('.bpi-person-card') || [];
+        let targetCard = null;
+        for (const card of cards) {
+          if (card._bpiEnrichType === enrichType && card._bpiData?.name === enrichName) {
+            targetCard = card;
+            break;
+          }
+        }
+
+        if (!targetCard) {
+          // Fallback: use the first card that has matching name
+          for (const card of cards) {
+            if (card._bpiData?.name === enrichName) {
+              targetCard = card;
+              break;
+            }
+          }
+        }
+
+        if (targetCard && enrichData) {
+          const refs = getCardRefs(targetCard);
+          applyEnrichResult(targetCard, refs, enrichType, enrichData);
+
+          // Clear loading state
+          if (targetCard._bpiEnrichBtn) {
+            targetCard._bpiEnrichBtn.classList.remove('bpi-enrich-btn--loading');
+            targetCard._bpiEnrichBtn = null;
+          }
+          if (refs.enrichStatus) {
+            refs.enrichStatus.textContent = `${enrichType} enriched successfully.`;
+            setTimeout(() => { refs.enrichStatus.classList.add('bpi-hidden'); }, 3000);
+          }
+        }
+
+        sendResponse({ ok: true });
+      } catch (err) {
+        console.error(LOG_PREFIX, 'Error applying enrich result:', err);
+        sendResponse({ ok: false, error: err.message });
+      }
+      break;
+    }
+
     default:
       return false;
   }
 
   return true;
 });
+
+/**
+ * Apply enrichment result to a card — overrides (not gap-fills) the section.
+ */
+function applyEnrichResult(cardEl, refs, enrichType, enrichData) {
+  const data = cardEl._bpiData || {};
+
+  switch (enrichType) {
+    case 'experience': {
+      let positions = [];
+      try {
+        positions = typeof enrichData.positions === 'string'
+          ? JSON.parse(enrichData.positions)
+          : enrichData.positions;
+      } catch (_) {
+        console.warn(LOG_PREFIX, 'Could not parse enriched positions');
+      }
+
+      if (Array.isArray(positions) && positions.length > 0) {
+        data.experience = positions.map((p) => ({
+          title: p.title || '',
+          company: p.company || '',
+          startDate: p.start_date || '',
+          endDate: p.end_date || '',
+          description: p.description || '',
+          location: p.location || '',
+          companyLogoUrl: p.company_logo_url || '',
+        }));
+        renderExperience(refs, data);
+      }
+      break;
+    }
+
+    case 'education': {
+      let entries = [];
+      try {
+        entries = typeof enrichData.education_entries === 'string'
+          ? JSON.parse(enrichData.education_entries)
+          : enrichData.education_entries;
+      } catch (_) {
+        console.warn(LOG_PREFIX, 'Could not parse enriched education');
+      }
+
+      if (Array.isArray(entries) && entries.length > 0) {
+        data.education = entries.map((e) => ({
+          institution: e.school || e.institution || '',
+          degree: e.degree || '',
+          field: e.field || e.field_of_study || '',
+          startYear: e.start_year || '',
+          endYear: e.end_year || '',
+          logoUrl: e.logo_url || '',
+        }));
+        renderEducation(refs, data);
+      }
+      break;
+    }
+
+    case 'skills': {
+      let skills = [];
+      try {
+        skills = typeof enrichData.skills_list === 'string'
+          ? JSON.parse(enrichData.skills_list)
+          : enrichData.skills_list;
+      } catch (_) {
+        console.warn(LOG_PREFIX, 'Could not parse enriched skills');
+      }
+
+      if (Array.isArray(skills) && skills.length > 0) {
+        // Render skills as a new section or add to bio
+        const skillNames = skills.map((s) => typeof s === 'string' ? s : s.name).filter(Boolean);
+        if (skillNames.length > 0 && refs.bioSection && refs.bio) {
+          const skillsText = skillNames.join(', ');
+          const existingBio = data.bio || '';
+          data.bio = existingBio
+            ? `${existingBio}\n\nSkills: ${skillsText}`
+            : `Skills: ${skillsText}`;
+          refs.bio.textContent = data.bio;
+          refs.bioSection.hidden = false;
+        }
+      }
+      break;
+    }
+
+    case 'company': {
+      // Override company data entirely
+      if (enrichData.company_description) data.companyDescription = enrichData.company_description;
+      if (enrichData.company_industry)    data.companyIndustry = enrichData.company_industry;
+      if (enrichData.company_website)     data.companyWebsite = enrichData.company_website;
+      if (enrichData.company_founded_year) data.companyFoundedYear = enrichData.company_founded_year;
+      if (enrichData.company_headquarters) data.companyHeadquarters = enrichData.company_headquarters;
+      if (enrichData.company_funding)     data.companyFunding = enrichData.company_funding;
+      if (enrichData.products_services)   data.companyProducts = enrichData.products_services;
+      if (enrichData.technologies)        data.companyTechnologies = enrichData.technologies;
+      if (enrichData.recent_news)         data.recentNews = enrichData.recent_news;
+      renderCompany(refs, data);
+      break;
+    }
+  }
+
+  // Update stored data
+  cardEl._bpiData = data;
+}
 
 // -- Manual Search --
 

@@ -25,6 +25,7 @@
 'use strict';
 
 import { WaterfallOrchestrator } from './api/waterfall-orchestrator.js';
+import { deepLookupCustomEnrich } from './api/bright-data-deep-lookup.js';
 
 import { CacheManager } from './cache/cache-manager.js';
 import { LogBuffer } from './log-buffer.js';
@@ -67,6 +68,8 @@ const MessageType = /** @type {const} */ ({
   GET_LOGS:                 'GET_LOGS',
   GET_HISTORY:              'GET_HISTORY',
   PING:                     'PING',
+  ENRICH_PROFILE:           'ENRICH_PROFILE',
+  ENRICH_PROFILE_RESULT:    'ENRICH_PROFILE_RESULT',
 });
 
 // ─── Module-level singletons ─────────────────────────────────────────────────
@@ -453,6 +456,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case MessageType.PING: {
       sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
       return false;
+    }
+
+    // ── ENRICH_PROFILE ───────────────────────────────────────────────────────
+    case MessageType.ENRICH_PROFILE: {
+      const { enrichType, linkedinUrl, linkedinId, name, company } = message.payload || {};
+      console.log(LOG_PREFIX, `Enrich profile [${enrichType}] for:`, name || linkedinUrl);
+
+      (async () => {
+        try {
+          const apiToken = await resolveBrightDataCredentials();
+          const result = await deepLookupCustomEnrich(
+            linkedinUrl, linkedinId, name, company, enrichType, apiToken
+          );
+
+          if (result) {
+            // Send result back to sidepanel
+            notifySidePanel(MessageType.ENRICH_PROFILE_RESULT, {
+              enrichType,
+              data: result,
+              name,
+            });
+            sendResponse({ ok: true });
+          } else {
+            sendResponse({ ok: false, error: 'No enrichment data returned' });
+          }
+        } catch (err) {
+          console.error(LOG_PREFIX, `Enrich profile [${enrichType}] failed:`, err.message);
+          sendResponse({ ok: false, error: err.message });
+        }
+      })();
+      return true; // async sendResponse
     }
 
     default:

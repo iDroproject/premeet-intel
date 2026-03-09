@@ -117,28 +117,28 @@
     --bpi-accent-gradient:  linear-gradient(135deg, #5ba3d9 0%, #8cc0e6 100%);
     --bpi-accent-gradient-h: linear-gradient(90deg, #5ba3d9 0%, #8cc0e6 100%);
 
-    --bpi-surface:          #1A1A2E;
-    --bpi-surface-secondary: #16213E;
-    --bpi-surface-elevated:  #1E1E38;
-    --bpi-surface-glass:    rgba(26, 26, 46, 0.80);
+    --bpi-surface:          #121220;
+    --bpi-surface-secondary: #1E1E32;
+    --bpi-surface-elevated:  #262642;
+    --bpi-surface-glass:    rgba(18, 18, 32, 0.85);
 
     --bpi-text-primary:     #F1F1F6;
-    --bpi-text-secondary:   #9CA3AF;
-    --bpi-text-tertiary:    #6B7280;
-    --bpi-text-inverse:     #1A1A2E;
+    --bpi-text-secondary:   #A0A3B0;
+    --bpi-text-tertiary:    #7E818E;
+    --bpi-text-inverse:     #121220;
 
-    --bpi-divider:          rgba(255, 255, 255, 0.06);
-    --bpi-divider-strong:   rgba(255, 255, 255, 0.10);
+    --bpi-divider:          rgba(255, 255, 255, 0.10);
+    --bpi-divider-strong:   rgba(255, 255, 255, 0.18);
 
     --bpi-success-bg:       rgba(16, 185, 129, 0.15);
     --bpi-warning-bg:       rgba(245, 158, 11, 0.15);
     --bpi-error-bg:         rgba(239, 68, 68, 0.15);
 
-    --bpi-shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.20);
-    --bpi-shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.20), 0 1px 3px rgba(0, 0, 0, 0.30);
-    --bpi-shadow-md:  0 2px 4px rgba(0, 0, 0, 0.20), 0 4px 12px rgba(0, 0, 0, 0.30);
-    --bpi-shadow-lg:  0 4px 8px rgba(0, 0, 0, 0.20), 0 8px 24px rgba(0, 0, 0, 0.40);
-    --bpi-shadow-accent: 0 4px 16px rgba(51, 122, 183, 0.30);
+    --bpi-shadow-xs:  0 1px 2px rgba(0, 0, 0, 0.30);
+    --bpi-shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.30), 0 1px 3px rgba(0, 0, 0, 0.40);
+    --bpi-shadow-md:  0 2px 4px rgba(0, 0, 0, 0.30), 0 4px 12px rgba(0, 0, 0, 0.40);
+    --bpi-shadow-lg:  0 4px 8px rgba(0, 0, 0, 0.30), 0 8px 24px rgba(0, 0, 0, 0.50);
+    --bpi-shadow-accent: 0 4px 16px rgba(91, 163, 217, 0.35);
   }
 }
 
@@ -262,9 +262,12 @@ a:hover {
 }
 
 .bpi-header__logo {
-  font-size: 18px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  width: 28px;
+  height: 28px;
 }
 
 .bpi-header__title {
@@ -1324,6 +1327,79 @@ a:hover {
   outline-offset: 3px;
 }
 
+/* ── Enrich Section ──────────────────────────────────────────────────────── */
+
+.bpi-enrich-section {
+  padding-top: var(--bpi-sp-sm, 8px);
+}
+
+.bpi-enrich-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bpi-sp-xs, 6px);
+}
+
+.bpi-enrich-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: var(--bpi-fs-sm, 11px);
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--bpi-text-secondary, #6B7280);
+  background: var(--bpi-surface-secondary, #F3F4F6);
+  border: 1px solid var(--bpi-divider, rgba(0,0,0,0.06));
+  border-radius: var(--bpi-radius-full, 999px);
+  cursor: pointer;
+  transition: all 200ms var(--bpi-ease, cubic-bezier(0.22, 1, 0.36, 1));
+  white-space: nowrap;
+}
+
+.bpi-enrich-btn:hover {
+  color: var(--bpi-accent, #337ab7);
+  background: var(--bpi-surface-elevated, #fff);
+  border-color: var(--bpi-accent, #337ab7);
+  box-shadow: var(--bpi-shadow-sm);
+  transform: translateY(-1px);
+}
+
+.bpi-enrich-btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+.bpi-enrich-btn:focus-visible {
+  outline: 2px solid var(--bpi-accent);
+  outline-offset: 2px;
+}
+
+.bpi-enrich-btn--loading {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.bpi-enrich-btn--loading .bpi-enrich-btn__icon {
+  display: inline-block;
+  animation: bpi-spin 800ms linear infinite;
+}
+
+@keyframes bpi-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.bpi-enrich-btn__icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.bpi-enrich-status {
+  margin-top: var(--bpi-sp-xs, 6px);
+  font-size: var(--bpi-fs-sm, 11px);
+  color: var(--bpi-text-tertiary, #9CA3AF);
+}
+
 /* ── Progress Bar ─────────────────────────────────────────────────────────── */
 
 .bpi-progress {
@@ -1490,18 +1566,23 @@ a:hover {
    ============================================================ */
 
 @media (prefers-color-scheme: dark) {
-  /* Surface adjustments */
+  /* Surface adjustments — stronger contrast */
   .bpi-stat {
     background: var(--bpi-surface-secondary);
+    border: 1px solid var(--bpi-divider);
   }
 
   .bpi-stat--clickable:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--bpi-surface-elevated);
+  }
+
+  .bpi-section__heading {
+    color: var(--bpi-text-secondary);
   }
 
   .bpi-post__item {
     background: var(--bpi-surface-secondary);
-    border-color: var(--bpi-divider);
+    border: 1px solid var(--bpi-divider-strong);
   }
 
   .bpi-post__item:hover {
@@ -1510,12 +1591,12 @@ a:hover {
 
   .bpi-confidence-panel {
     background: var(--bpi-surface-secondary);
-    border-color: var(--bpi-divider);
+    border-color: var(--bpi-divider-strong);
   }
 
   .bpi-badge {
     background: var(--bpi-surface-secondary);
-    border-color: var(--bpi-divider);
+    border-color: var(--bpi-divider-strong);
   }
 
   .bpi-search-input {
@@ -1525,11 +1606,15 @@ a:hover {
 
   .bpi-search-input:focus {
     border-color: var(--bpi-accent);
-    box-shadow: 0 0 0 3px rgba(51, 122, 183, 0.18);
+    box-shadow: 0 0 0 3px rgba(91, 163, 217, 0.20);
   }
 
   .bpi-retry-btn:hover {
     background: var(--bpi-surface-secondary);
+  }
+
+  .bpi-timeline {
+    border-left-color: var(--bpi-divider-strong);
   }
 
   .bpi-timeline__item::before {
@@ -1538,28 +1623,36 @@ a:hover {
 
   .bpi-timeline__logo,
   .bpi-edu__logo {
-    background: var(--bpi-surface-secondary);
-    border-color: var(--bpi-divider);
+    background: var(--bpi-surface-elevated);
+    border-color: var(--bpi-divider-strong);
   }
 
   .bpi-company-card {
     background: var(--bpi-surface-secondary);
-    border-color: var(--bpi-divider);
+    border: 1px solid var(--bpi-divider-strong);
   }
 
   .bpi-company-card__logo {
-    background: var(--bpi-surface);
-    border-color: var(--bpi-divider);
+    background: var(--bpi-surface-elevated);
+    border-color: var(--bpi-divider-strong);
   }
 
   .bpi-company-pill {
-    background: var(--bpi-surface);
+    background: var(--bpi-surface-elevated);
     border-color: var(--bpi-divider);
+  }
+
+  .bpi-pipeline {
+    border-left-color: var(--bpi-divider-strong);
+  }
+
+  .bpi-person-card {
+    background: var(--bpi-surface);
   }
 
   .bpi-icp-badge {
     background: rgba(255, 255, 255, 0.06);
-    border-color: var(--bpi-divider);
+    border-color: var(--bpi-divider-strong);
   }
 
   .bpi-icp-badge--decision-maker {
@@ -1575,5 +1668,17 @@ a:hover {
   .bpi-icp-badge--department {
     background: rgba(245, 158, 11, 0.12);
     border-color: rgba(245, 158, 11, 0.24);
+  }
+
+  .bpi-enrich-btn {
+    background: var(--bpi-surface-secondary);
+    border-color: var(--bpi-divider-strong);
+    color: var(--bpi-text-secondary);
+  }
+
+  .bpi-enrich-btn:hover {
+    background: var(--bpi-surface-elevated);
+    border-color: var(--bpi-accent);
+    color: var(--bpi-accent-light);
   }
 }
