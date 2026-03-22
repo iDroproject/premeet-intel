@@ -23,13 +23,13 @@ import {
   pollSnapshotUntilReady,
   downloadSnapshot,
   extractLinkedInId,
-} from './bright-data-scraper.js';
+} from './data-scraper.js';
 
-import { deepLookupFindLinkedIn, deepLookupEnrich, deepLookupCompanyIntel } from './bright-data-deep-lookup.js';
+import { deepLookupFindLinkedIn, deepLookupEnrich, deepLookupCompanyIntel } from './deep-lookup.js';
 
-import { serpFindLinkedInUrl, serpSearchCompanyInfo } from './bright-data-serp.js';
+import { serpFindLinkedInUrl, serpSearchCompanyInfo } from './serp-api.js';
 
-import { filterByLinkedInId } from './bright-data-filter.js';
+import { filterByLinkedInId } from './data-filter.js';
 
 import { pickBestProfile, mergeBusinessEnrichedData } from './response-normalizer.js';
 

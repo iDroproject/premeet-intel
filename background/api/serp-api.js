@@ -1,5 +1,5 @@
 /**
- * background/api/bright-data-serp.js
+ * background/api/serp-api.js
  *
  * PreMeet – SERP API Client (Async Unblocker)
  *
@@ -9,7 +9,7 @@
  *
  * Extracts LinkedIn profile URLs from Google Search results.
  *
- * @module bright-data-serp
+ * @module serp-api
  */
 
 'use strict';

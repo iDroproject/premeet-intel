@@ -1,5 +1,5 @@
 /**
- * background/api/bright-data-scraper.js
+ * background/api/data-scraper.js
  *
  * PreMeet – Web Scraper API Client (WSA)
  *
@@ -13,12 +13,12 @@
  *   - downloadSnapshot()
  *   - extractLinkedInId()
  *
- * @module bright-data-scraper
+ * @module data-scraper
  */
 
 'use strict';
 
-const LOG_PREFIX = '[PreMeet][BrightData]';
+const LOG_PREFIX = '[PreMeet][Scraper]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

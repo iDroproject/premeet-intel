@@ -214,7 +214,7 @@ IntegrationTests.test('SERP API: serpFindLinkedInUrl for known person (Satya Nad
   assert(response.ok, `SERP request failed: HTTP ${response.status}`);
   const data = await response.json();
 
-  // Extract LinkedIn URL using the same logic as bright-data-serp.js
+  // Extract LinkedIn URL using the same logic as serp-api.js
   const organic =
     data?.organic ||
     data?.results ||

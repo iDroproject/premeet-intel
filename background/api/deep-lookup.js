@@ -1,5 +1,5 @@
 /**
- * background/api/bright-data-deep-lookup.js
+ * background/api/deep-lookup.js
  *
  * PreMeet – Deep Lookup v1 (trigger_enrichment)
  *
@@ -10,9 +10,7 @@
  *   2. GET  /request/{id}/status → poll until completed
  *   3. GET  /request/{id}        → download enriched results
  *
- * Base URL: https://api.brightdata.com (data provider)/datasets/deep_lookup/v1
- *
- * @module bright-data-deep-lookup
+ * @module deep-lookup
  */
 
 'use strict';

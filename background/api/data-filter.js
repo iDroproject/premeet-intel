@@ -1,5 +1,5 @@
 /**
- * background/api/bright-data-filter.js
+ * background/api/data-filter.js
  *
  * PreMeet – Filter API Client
  *
@@ -9,7 +9,7 @@
  *   2. GET  /datasets/snapshots/{id} → polls until status is "ready"
  *   3. GET  /datasets/snapshots/{id}/download?format=json → downloads results
  *
- * @module bright-data-filter
+ * @module data-filter
  */
 
 'use strict';

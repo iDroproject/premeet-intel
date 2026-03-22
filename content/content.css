@@ -1,144 +1,87 @@
 /**
  * content.css
  *
- * Bright People Intel injected UI — Apple-quality glass-morphism design.
- * All tokens scoped under --bpi-* to avoid GCal collisions.
+ * PreMeet injected UI — compact inline buttons per attendee.
+ * All tokens scoped under --pm-* to avoid GCal collisions.
  * All class names scoped under .bpi-* for the same reason.
  */
 
 /* ── Design Tokens ──────────────────────────────────────────────────────────── */
 
 :root {
-  --bpi-accent:       #337ab7;
-  --bpi-accent-end:   #5ba3d9;
-  --bpi-accent-bg:    rgba(51, 122, 183, 0.08);
-  --bpi-text:         #1A1A2E;
-  --bpi-text-sec:     #6B7280;
-  --bpi-glass-bg:     rgba(255, 255, 255, 0.72);
-  --bpi-glass-blur:   blur(20px) saturate(180%);
-  --bpi-glass-border: 1px solid rgba(255, 255, 255, 0.2);
-  --bpi-sep:          rgba(51, 122, 183, 0.12);
-  --bpi-shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
-  --bpi-shadow-md:    0 4px 6px rgba(0, 0, 0, 0.04), 0 2px 4px rgba(0, 0, 0, 0.06);
-  --bpi-shadow-lift:  0 6px 16px rgba(51, 122, 183, 0.18), 0 2px 6px rgba(0, 0, 0, 0.08);
-  --bpi-font:         -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
-  --bpi-radius:       12px;
-  --bpi-ease:         cubic-bezier(0.22, 1, 0.36, 1);
+  --pm-accent:       #337ab7;
+  --pm-accent-end:   #5ba3d9;
+  --pm-accent-bg:    rgba(51, 122, 183, 0.08);
+  --pm-text:         #1A1A2E;
+  --pm-text-sec:     #6B7280;
+  --pm-font:         -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
 }
 
-/* ── Entrance Animation ─────────────────────────────────────────────────────── */
-
-@keyframes bpi-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+/* ── Spinner Animation ─────────────────────────────────────────────────────── */
 
 @keyframes bpi-spin {
   to { transform: rotate(360deg); }
 }
 
-/* ── Container ──────────────────────────────────────────────────────────────── */
+/* ── Inline Button ─────────────────────────────────────────────────────────── */
 
-.bpi-container {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-  gap: 6px;
-  padding: 10px 12px;
-  margin: 4px 0;
-  border-top: 1px solid var(--bpi-sep);
-  background: var(--bpi-glass-bg);
-  -webkit-backdrop-filter: var(--bpi-glass-blur);
-  backdrop-filter: var(--bpi-glass-blur);
-  box-shadow: var(--bpi-shadow-sm);
-  animation: bpi-fade-in 320ms var(--bpi-ease) both;
-}
-
-.bpi-container::-webkit-scrollbar {
-  display: none;
-}
-
-/* ── Base Button ────────────────────────────────────────────────────────────── */
-
-.bpi-btn {
+.bpi-inline-btn {
   /* Reset */
   appearance: none;
   -webkit-appearance: none;
-  border: none;
-  background: none;
-  cursor: pointer;
 
   /* Layout */
   display: inline-flex;
   align-items: center;
-  flex-shrink: 0;
-  gap: 5px;
-  padding: 6px 13px 6px 10px;
+  gap: 3px;
+  padding: 1px 7px;
+  margin-left: 4px;
+  vertical-align: middle;
 
   /* Typography */
-  font-family: var(--bpi-font);
-  font-size: 12.5px;
+  font-family: var(--pm-font);
+  font-size: 11px;
   font-weight: 500;
-  line-height: 1;
-  letter-spacing: 0.01em;
+  line-height: 1.4;
   white-space: nowrap;
-  color: var(--bpi-accent);
+  color: var(--pm-accent);
 
-  /* Glass surface */
-  background: var(--bpi-glass-bg);
-  -webkit-backdrop-filter: var(--bpi-glass-blur);
-  backdrop-filter: var(--bpi-glass-blur);
-  border: var(--bpi-glass-border);
-  border-radius: var(--bpi-radius);
-  box-shadow: var(--bpi-shadow-sm);
-
-  /* Behaviour */
-  position: relative;
-  z-index: 1;
+  /* Appearance */
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
   user-select: none;
-  transition:
-    transform      200ms var(--bpi-ease),
-    box-shadow     200ms var(--bpi-ease),
-    background     200ms var(--bpi-ease),
-    border-color   200ms var(--bpi-ease);
+  transition: all 150ms ease;
 }
 
 /* ── Hover & Focus ──────────────────────────────────────────────────────────── */
 
-.bpi-btn:hover {
-  transform: translateY(-1px);
-  background: var(--bpi-accent-bg);
-  border-color: rgba(51, 122, 183, 0.25);
-  box-shadow: var(--bpi-shadow-lift);
+.bpi-inline-btn:hover {
+  background: var(--pm-accent-bg);
+  border-color: rgba(51, 122, 183, 0.2);
 }
 
-.bpi-btn:focus-visible {
-  outline: 2px solid var(--bpi-accent);
-  outline-offset: 2px;
-  box-shadow: var(--bpi-shadow-md);
+.bpi-inline-btn:focus-visible {
+  outline: 2px solid var(--pm-accent);
+  outline-offset: 1px;
 }
 
-.bpi-btn:active {
-  transform: translateY(0.5px);
-  box-shadow: var(--bpi-shadow-sm);
+.bpi-inline-btn:active {
   background: rgba(51, 122, 183, 0.12);
 }
 
 /* ── Disabled ───────────────────────────────────────────────────────────────── */
 
-.bpi-btn:disabled {
+.bpi-inline-btn:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-  transform: none;
 }
 
 /* ── Icon ───────────────────────────────────────────────────────────────────── */
 
-.bpi-btn .bpi-icon {
-  font-size: 14px;
+.bpi-inline-btn .bpi-icon {
+  font-size: 11px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -146,17 +89,17 @@
 
 /* ── Loading State ──────────────────────────────────────────────────────────── */
 
-.bpi-btn.loading {
-  color: var(--bpi-text-sec);
+.bpi-inline-btn.loading {
+  color: var(--pm-text-sec);
   pointer-events: none;
 }
 
-.bpi-btn.loading .bpi-icon {
+.bpi-inline-btn.loading .bpi-icon {
   display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 1.75px solid rgba(51, 122, 183, 0.2);
-  border-top-color: var(--bpi-accent);
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(51, 122, 183, 0.2);
+  border-top-color: var(--pm-accent);
   border-radius: 50%;
   animation: bpi-spin 0.65s linear infinite;
   font-size: 0;
@@ -166,35 +109,31 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bpi-accent:       #5ba3d9;
-    --bpi-accent-end:   #337ab7;
-    --bpi-accent-bg:    rgba(91, 163, 217, 0.12);
-    --bpi-text:         #E8E8F0;
-    --bpi-text-sec:     #9CA3AF;
-    --bpi-glass-bg:     rgba(28, 27, 46, 0.72);
-    --bpi-glass-border: 1px solid rgba(255, 255, 255, 0.08);
-    --bpi-sep:          rgba(91, 163, 217, 0.15);
-    --bpi-shadow-lift:  0 6px 16px rgba(51, 122, 183, 0.30), 0 2px 6px rgba(0, 0, 0, 0.30);
+    --pm-accent:       #5ba3d9;
+    --pm-accent-end:   #337ab7;
+    --pm-accent-bg:    rgba(91, 163, 217, 0.12);
+    --pm-text:         #E8E8F0;
+    --pm-text-sec:     #9CA3AF;
   }
 
-  .bpi-btn.loading .bpi-icon {
+  .bpi-inline-btn:hover {
+    border-color: rgba(91, 163, 217, 0.25);
+  }
+
+  .bpi-inline-btn.loading .bpi-icon {
     border-color: rgba(91, 163, 217, 0.2);
-    border-top-color: var(--bpi-accent);
+    border-top-color: var(--pm-accent);
   }
 }
 
 /* ── Reduced Motion ─────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .bpi-container {
-    animation: none;
-  }
-
-  .bpi-btn {
+  .bpi-inline-btn {
     transition: none;
   }
 
-  .bpi-btn.loading .bpi-icon {
+  .bpi-inline-btn.loading .bpi-icon {
     animation: none;
     opacity: 0.5;
   }
@@ -203,28 +142,18 @@
 /* ── High Contrast ──────────────────────────────────────────────────────────── */
 
 @media (forced-colors: active) {
-  .bpi-container {
-    border-top: 1px solid ButtonText;
-    background: Canvas;
-    backdrop-filter: none;
-  }
-
-  .bpi-btn {
+  .bpi-inline-btn {
     border: 2px solid ButtonText;
     color: ButtonText;
     background: ButtonFace;
-    backdrop-filter: none;
-    box-shadow: none;
   }
 
-  .bpi-btn:hover {
+  .bpi-inline-btn:hover {
     border-color: Highlight;
     color: Highlight;
-    transform: none;
-    box-shadow: none;
   }
 
-  .bpi-btn:focus-visible {
+  .bpi-inline-btn:focus-visible {
     outline: 2px solid Highlight;
   }
 }

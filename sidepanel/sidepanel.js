@@ -518,12 +518,12 @@ function renderCompany(refs, data) {
 function renderFooter(refs, data) {
   if (refs.sourceBadge) {
     const sourceMap = {
-      'brightdata-url': 'LinkedIn',
-      'brightdata-name': 'Search',
-      'brightdata-deep': 'Deep Lookup',
-      'brightdata-scraper': 'Scraper',
-      'brightdata-filter': 'Enriched',
-      'brightdata-serp-enriched': 'SERP + LinkedIn',
+      'linkedin-url': 'LinkedIn',
+      'name-search': 'Search',
+      'deep-lookup': 'Deep Lookup',
+      'scraper': 'Scraper',
+      'filter': 'Enriched',
+      'serp-enriched': 'SERP + LinkedIn',
       'cache': 'Cached',
       'mock': 'Demo',
       'error': 'Error',

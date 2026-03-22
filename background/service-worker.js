@@ -25,7 +25,7 @@
 'use strict';
 
 import { WaterfallOrchestrator } from './api/waterfall-orchestrator.js';
-import { deepLookupCustomEnrich } from './api/bright-data-deep-lookup.js';
+import { deepLookupCustomEnrich } from './api/deep-lookup.js';
 
 import { CacheManager } from './cache/cache-manager.js';
 import { LogBuffer } from './log-buffer.js';

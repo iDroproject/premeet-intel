@@ -469,7 +469,7 @@ TestRunner.suite('normalizeLinkedInProfile', () => {
       followers: '1,200',
     };
 
-    const result = normalizeLinkedInProfile(raw, 'brightdata-serp');
+    const result = normalizeLinkedInProfile(raw, 'serp-enriched');
 
     assertEqual(result.name, 'Jane Doe');
     assertEqual(result.firstName, 'Jane');
@@ -485,7 +485,7 @@ TestRunner.suite('normalizeLinkedInProfile', () => {
     assertArrayLength(result.education, 1);
     assertEqual(result.education[0].institution, 'MIT');
     assertArrayLength(result.recentPosts, 1);
-    assertEqual(result._source, 'brightdata-serp');
+    assertEqual(result._source, 'serp-enriched');
     assert(result._fetchedAt, 'Should have _fetchedAt');
   });
 

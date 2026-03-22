@@ -11,7 +11,7 @@
  *   node tests/api-smoke-test.js --email=person@company.com --name="First Last"
  *
  * Environment:
- *   BPI_API_TOKEN  — API token (falls back to hardcoded demo token)
+ *   PM_API_TOKEN  — API token (falls back to hardcoded demo token)
  *
  * Each layer is tested independently and prints PASS/FAIL with timing.
  */
@@ -20,7 +20,7 @@
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-const API_TOKEN = process.env.BPI_API_TOKEN ||
+const API_TOKEN = process.env.PM_API_TOKEN ||
   '30728b24f3b8fa70b816bb2936d5451c19941d910a6d330a2b7f04b19cf4b1d9';
 
 const CUSTOMER_ID = 'hl_cf5c4907';
