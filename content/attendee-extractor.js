@@ -347,8 +347,8 @@
 
   // Expose to shared content-script scope.
   window.AttendeeExtractor = AttendeeExtractor;
-  window.BrightPeopleIntel = window.BrightPeopleIntel || {};
-  window.BrightPeopleIntel.nameFromEmail = nameFromEmail;
-  window.BrightPeopleIntel.deriveCompanyFromEmail = deriveCompanyFromEmail;
-  window.BrightPeopleIntel.cleanAttendeeName = cleanAttendeeName;
+  window.PreMeet = window.PreMeet || {};
+  window.PreMeet.nameFromEmail = nameFromEmail;
+  window.PreMeet.deriveCompanyFromEmail = deriveCompanyFromEmail;
+  window.PreMeet.cleanAttendeeName = cleanAttendeeName;
 })();
