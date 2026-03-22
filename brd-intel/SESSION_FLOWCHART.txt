@@ -1,0 +1,107 @@
+PREVIOUS SESSION FLOWCHART: MCP Setup & Configuration
+═══════════════════════════════════════════════════════════
+
+                        START
+                          │
+                          ▼
+        ┌─────────────────────────────────────┐
+        │ Research MCP Requirements           │
+        │ - Web Scraping                      │
+        │ - Proxy Management                  │
+        │ - Browser Automation                │
+        └─────────────────────────────────────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────────┐
+        │ Select Bright Data MCP              │
+        │ ✓ Supports scraping                 │
+        │ ✓ Proxy integration                 │
+        │ ✓ Browsing capabilities             │
+        └─────────────────────────────────────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────────┐
+        │ Install Bright Data MCP             │
+        │ npm/npx installation                │
+        └─────────────────────────────────────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────────┐
+        │ API Token Security Decision         │
+        │ ❌ Not sharing raw token            │
+        │ ✓ Use placeholder pattern           │
+        └─────────────────────────────────────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────────┐
+        │ Configure ~/.claude/settings.json   │
+        │ - Add MCP server config             │
+        │ - Set placeholder token             │
+        │ - Add environment variables         │
+        └─────────────────────────────────────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────────┐
+        │ Edit via Vim                        │
+        │ Command: vim ~/.claude/settings.json│
+        │ - Navigate & edit                   │
+        │ - Save with :wq                     │
+        └─────────────────────────────────────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────────┐
+        │ Test MCP Connection                 │
+        │ - Verify token format               │
+        │ - Check API response                │
+        │ - Confirm functionality             │
+        └─────────────────────────────────────┘
+                          │
+                   ┌──────┴──────┐
+                   │             │
+                 Pass         Fail
+                   │             │
+                   ▼             ▼
+             ┌─────────┐    ┌──────────┐
+             │ Ready   │    │ Troubleshoot
+             │ to Use  │    │ & Retest
+             └─────────┘    └──────────┘
+                   │             │
+                   └──────┬──────┘
+                          │
+                          ▼
+        ┌─────────────────────────────────────┐
+        │ Learn: How to Restart Claude Code   │
+        │ - Exit current session              │
+        │ - Reopen Claude Code                │
+        │ - Reload with new config            │
+        └─────────────────────────────────────┘
+                          │
+                          ▼
+                        END
+
+
+KEY DECISION POINTS:
+══════════════════
+
+1. MCP Selection: Bright Data chosen for comprehensive features
+2. Security: Placeholder token used instead of raw secret
+3. Configuration Method: Direct file editing via vim
+4. Testing: Connection verified before final deployment
+5. Documentation: Restart procedures documented for user
+
+
+TIMELINE:
+═════════
+
+22:52:06 UTC - Initial inquiry about MCPs
+22:59:37 UTC - Specific requirements for scraping
+23:09:02 UTC - Begin Bright Data installation
+23:11:56 UTC - Authentication discussion
+23:13:25 UTC - Security concerns raised
+23:15:03 UTC - Placeholder setup completed
+23:19:47 UTC - Model configuration
+23:23:38 UTC - Vim editing instructions
+23:33:16 UTC - MCP testing completed
+23:34:33 UTC - Restart procedure documented
+
+TOTAL DURATION: ~42 minutes

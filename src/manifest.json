@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "PreMeet",
+  "version": "0.1.0",
+  "description": "Turn every calendar invite into a complete business brief.",
+  "permissions": ["storage", "identity"],
+  "host_permissions": ["https://calendar.google.com/*"],
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://calendar.google.com/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_title": "PreMeet"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
