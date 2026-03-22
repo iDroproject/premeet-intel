@@ -1,9 +1,9 @@
 /**
  * background/api/bright-data-filter.js
  *
- * Bright People Intel – Bright Data Filter API Client
+ * PreMeet – Filter API Client
  *
- * Queries the Bright Data datasets Filter API to retrieve enriched person
+ * Queries the datasets Filter API to retrieve enriched person
  * data by LinkedIn ID:
  *   1. POST /datasets/filter  → creates a filter snapshot, returns snapshot_id
  *   2. GET  /datasets/snapshots/{id} → polls until status is "ready"
@@ -14,7 +14,7 @@
 
 'use strict';
 
-const LOG_PREFIX = '[BPI][Filter]';
+const LOG_PREFIX = '[PreMeet][Filter]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -53,7 +53,7 @@ function sleep(ms) {
  * Query the Filter API by LinkedIn ID and return enriched profile data.
  *
  * @param {string} linkedInId   LinkedIn profile ID/slug (e.g. "john-doe-123").
- * @param {string} apiToken     Bright Data API bearer token.
+ * @param {string} apiToken     API bearer token.
  * @param {string} [datasetId]  Dataset ID (defaults to LinkedIn People Profiles).
  * @returns {Promise<Array<Object>>}  Array of enriched profile records.
  */

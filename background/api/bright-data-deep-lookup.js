@@ -1,7 +1,7 @@
 /**
  * background/api/bright-data-deep-lookup.js
  *
- * Bright People Intel – Bright Data Deep Lookup v1 (trigger_enrichment)
+ * PreMeet – Deep Lookup v1 (trigger_enrichment)
  *
  * Uses the Deep Lookup trigger_enrichment endpoint with an inline spec
  * to find a person's LinkedIn profile from email/name/company.
@@ -10,14 +10,14 @@
  *   2. GET  /request/{id}/status → poll until completed
  *   3. GET  /request/{id}        → download enriched results
  *
- * Base URL: https://api.brightdata.com/datasets/deep_lookup/v1
+ * Base URL: https://api.brightdata.com (data provider)/datasets/deep_lookup/v1
  *
  * @module bright-data-deep-lookup
  */
 
 'use strict';
 
-const LOG_PREFIX = '[BPI][DeepLookup]';
+const LOG_PREFIX = '[PreMeet][DeepLookup]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -283,7 +283,7 @@ function extractLinkedInUrl(responseData) {
  *
  * @param {Object} spec       Input/output schema spec.
  * @param {Array}  inputRows  Array of input objects.
- * @param {string} apiToken   Bright Data API bearer token.
+ * @param {string} apiToken   API bearer token.
  * @returns {Promise<{requestId: string, data: Array|null}>}
  */
 async function triggerAndPoll(spec, inputRows, apiToken) {
@@ -400,7 +400,7 @@ async function triggerAndPoll(spec, inputRows, apiToken) {
  * @param {string}      email     Person's email address.
  * @param {string|null} name      Full name (optional context).
  * @param {string|null} company   Company name (optional context).
- * @param {string}      apiToken  Bright Data API bearer token.
+ * @param {string}      apiToken  API bearer token.
  * @returns {Promise<{linkedInUrl: string|null, data: Array|null}>}
  */
 export async function deepLookupFindLinkedIn(email, name, company, apiToken) {
@@ -442,7 +442,7 @@ export async function deepLookupFindLinkedIn(email, name, company, apiToken) {
  * @param {string}      linkedInUrl  LinkedIn profile URL.
  * @param {string|null} linkedInId   LinkedIn profile ID/slug.
  * @param {string|null} name         Person's name.
- * @param {string}      apiToken     Bright Data API bearer token.
+ * @param {string}      apiToken     API bearer token.
  * @returns {Promise<Object|null>}   Enriched data or null.
  */
 export async function deepLookupEnrich(linkedInUrl, linkedInId, name, apiToken) {
@@ -553,7 +553,7 @@ const CUSTOM_ENRICH_SPECS = {
  * @param {string|null} name         Person's name.
  * @param {string|null} company      Company name (used for company enrichType).
  * @param {string}      enrichType   One of: 'experience', 'education', 'skills', 'company'.
- * @param {string}      apiToken     Bright Data API bearer token.
+ * @param {string}      apiToken     API bearer token.
  * @returns {Promise<Object|null>}   Enriched data or null.
  */
 export async function deepLookupCustomEnrich(linkedinUrl, linkedinId, name, company, enrichType, apiToken) {
@@ -613,7 +613,7 @@ export async function deepLookupCustomEnrich(linkedinUrl, linkedinId, name, comp
  * @param {string|null} personName   Person's full name.
  * @param {string|null} jobTitle     Current job title.
  * @param {string|null} linkedInUrl  LinkedIn profile URL.
- * @param {string}      apiToken     Bright Data API bearer token.
+ * @param {string}      apiToken     API bearer token.
  * @returns {Promise<Object|null>}   Company intelligence data or null.
  */
 export async function deepLookupCompanyIntel(companyName, personName, jobTitle, linkedInUrl, apiToken) {

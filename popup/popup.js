@@ -1,7 +1,7 @@
 /**
  * popup.js
  *
- * Bright People Intel – Popup Controller
+ * PreMeet – Popup Controller
  *
  * Handles:
  *   - Tab management (Settings, History, Logs)
@@ -14,7 +14,7 @@
 
 'use strict';
 
-const LOG_PREFIX = '[BPI][Popup]';
+const LOG_PREFIX = '[PreMeet][Popup]';
 
 // ─── DOM Helpers ──────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ function populateStaticInfo() {
   const yearEl = $('bp-year');
   if (yearEl) yearEl.textContent = new Date().getFullYear().toString();
 
-  console.log(LOG_PREFIX, `BPI v${manifest.version} popup opened`);
+  console.log(LOG_PREFIX, `PreMeet v${manifest.version} popup opened`);
 }
 
 // ─── Service Worker Health Check ──────────────────────────────────────────────
@@ -145,7 +145,7 @@ function wireTokenSection() {
       return;
     }
 
-    chrome.storage.sync.set({ brightdata_api_token: token }, () => {
+    chrome.storage.sync.set({ premeet_api_token: token }, () => {
       if (chrome.runtime.lastError) {
         showFeedback(feedbackEl, 'Failed to save token.', 'error');
         return;

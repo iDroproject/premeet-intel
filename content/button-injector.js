@@ -1,10 +1,9 @@
 /**
  * ButtonInjector
  *
- * Bright People Intel — Injects "Know [FirstName]" action buttons into Google
- * Calendar event popups near the attendee list. Buttons are styled to match
- * Google Calendar's design language and communicate with the background service
- * worker on click.
+ * PreMeet — Injects compact inline "Know" buttons next to each
+ * attendee row in Google Calendar event popups and edit pages. Buttons are
+ * subtle and do not interfere with Google Calendar's native guest management UI.
  *
  * Loaded as a plain content script (no ES module imports).
  */
@@ -14,62 +13,9 @@
 (function () {
   'use strict';
 
-  const LOG_PREFIX = '[BPI][ButtonInjector]';
+  const LOG_PREFIX = '[PreMeet][ButtonInjector]';
 
   // ─── DOM Helpers ─────────────────────────────────────────────────────────
-
-  /**
-   * Find the best insertion point inside a popup element.
-   * Priority order:
-   *   1. A sibling just before the guest/attendee list heading.
-   *   2. After the event title / heading.
-   *   3. Fallback – append to the popup root.
-   *
-   * @param {Element} popupEl
-   * @returns {Element} The parent element to append the container to.
-   */
-  function findInsertionParent(popupEl) {
-    // 1. Try to find the guest list section container.
-    const guestSection =
-      popupEl.querySelector(
-        '[data-attendee-section], [aria-label*="guest" i], [aria-label*="attendee" i]'
-      ) ||
-      popupEl.querySelector('[jsname="ESCLMb"], [jsname="haAclf"]');
-
-    if (guestSection && guestSection.parentElement) {
-      return guestSection.parentElement;
-    }
-
-    // 2. After the event title.
-    const title = popupEl.querySelector(
-      'h1, h2, [role="heading"], .YPqjbf, [data-eventid-title]'
-    );
-    if (title && title.parentElement) {
-      return title.parentElement;
-    }
-
-    // 3. Fallback.
-    return popupEl;
-  }
-
-  /**
-   * Determine where in the parent to insert the container node.
-   * Returns a reference node to insertBefore, or null to appendChild.
-   *
-   * @param {Element} parent
-   * @param {Element} popupEl
-   * @returns {Element|null}
-   */
-  function findInsertBefore(parent, popupEl) {
-    // Try to insert before the guest section if it lives directly in parent.
-    const guestSection = popupEl.querySelector(
-      '[aria-label*="guest" i], [aria-label*="attendee" i], [jsname="ESCLMb"]'
-    );
-    if (guestSection && guestSection.parentElement === parent) {
-      return guestSection;
-    }
-    return null;
-  }
 
   /**
    * Check if the extension context is still valid (not invalidated by reload/update).
@@ -107,18 +53,18 @@
   }
 
   /**
-   * Create a single "Know [FullName]" button element.
+   * Create a compact inline "Know" button for a single attendee.
    *
    * @param {{ name: string, email: string, company: string|null }} attendee
    * @returns {HTMLButtonElement}
    */
-  function createAttendeeButton(attendee) {
-    const displayName = displayNameFor(attendee);
-    const label = `Know ${displayName}`;
+  function createInlineButton(attendee) {
+    const fullName = displayNameFor(attendee);
 
     const btn = document.createElement('button');
-    btn.className = 'bpi-btn';
+    btn.className = 'bpi-inline-btn';
     btn.setAttribute('type', 'button');
+    btn.setAttribute('title', `Know ${fullName}`);
     btn.setAttribute('aria-label', `Get professional background on ${attendee.name || attendee.email}`);
     btn.dataset.bpiName = attendee.name || '';
     btn.dataset.bpiEmail = attendee.email || '';
@@ -131,7 +77,7 @@
     icon.textContent = '\u{1F50D}'; // magnifying glass
 
     const text = document.createElement('span');
-    text.textContent = label;
+    text.textContent = 'Know';
 
     btn.appendChild(icon);
     btn.appendChild(text);
@@ -148,8 +94,8 @@
   /**
    * Handle click on a "Know" button.
    * Sends two messages to the service worker:
-   *   1. FETCH_PERSON_BACKGROUND – triggers data lookup.
-   *   2. OPEN_SIDE_PANEL – opens the side panel to display results.
+   *   1. OPEN_SIDE_PANEL – opens the side panel to display results.
+   *   2. FETCH_PERSON_BACKGROUND – triggers data lookup.
    *
    * @param {HTMLButtonElement} btn
    * @param {{ name: string, email: string, company: string|null }} attendee
@@ -227,27 +173,22 @@
 
   /**
    * ButtonInjector
-   * Injects Bright People Intel action buttons into an event popup element.
+   * Injects compact inline PreMeet action buttons next to each
+   * attendee element in an event popup.
    */
   class ButtonInjector {
     /**
-     * Inject "Know [FirstName]" buttons into a popup for a list of attendees.
+     * Inject inline "Know" buttons next to each attendee element.
      * Safe to call multiple times – re-injection is prevented by checking for
-     * an existing `.bpi-container` on the popup.
+     * the [data-bpi-injected] attribute on each attendee element.
      *
      * @param {Element} popupEl - The event popup root element.
-     * @param {Array<{name: string, email: string, company: string|null}>} attendees
-     * @returns {boolean} True if buttons were injected, false if skipped.
+     * @param {Array<{name: string, email: string, company: string|null, element?: Element}>} attendees
+     * @returns {boolean} True if any buttons were injected, false if skipped.
      */
     inject(popupEl, attendees) {
       if (!popupEl || !(popupEl instanceof Element)) {
         console.warn(LOG_PREFIX, 'inject() called with invalid element');
-        return false;
-      }
-
-      // Guard: don't inject twice into the same popup.
-      if (popupEl.querySelector('.bpi-container')) {
-        console.log(LOG_PREFIX, 'Buttons already injected – skipping');
         return false;
       }
 
@@ -256,53 +197,53 @@
         return false;
       }
 
-      // Build container.
-      const container = document.createElement('div');
-      container.className = 'bpi-container';
-      container.setAttribute('role', 'group');
-      container.setAttribute('aria-label', 'Bright People Intel – attendee lookup');
+      let injectedCount = 0;
 
-      // One button per attendee.
       attendees.forEach((attendee) => {
         if (!attendee.email && !attendee.name) return;
-        const btn = createAttendeeButton(attendee);
-        container.appendChild(btn);
+
+        const el = attendee.element;
+        if (!el || !(el instanceof Element) || !el.isConnected) return;
+
+        // Guard: don't inject twice on the same element.
+        if (el.getAttribute('data-bpi-injected') === 'true') return;
+
+        const btn = createInlineButton(attendee);
+
+        try {
+          // Insert the button as a sibling after the attendee element,
+          // or append to its parent if nextSibling insertion fails.
+          if (el.nextSibling) {
+            el.parentElement.insertBefore(btn, el.nextSibling);
+          } else {
+            el.parentElement.appendChild(btn);
+          }
+
+          el.setAttribute('data-bpi-injected', 'true');
+          injectedCount++;
+        } catch (err) {
+          console.warn(LOG_PREFIX, 'Failed to inject inline button:', err);
+        }
       });
 
-      if (container.childElementCount === 0) {
-        console.log(LOG_PREFIX, 'All attendees were empty – nothing to inject');
-        return false;
+      if (injectedCount > 0) {
+        console.log(LOG_PREFIX, `Injected ${injectedCount} inline button(s)`);
       }
 
-      // Find the right place in the DOM.
-      const parent = findInsertionParent(popupEl);
-      const before = findInsertBefore(parent, popupEl);
-
-      try {
-        if (before) {
-          parent.insertBefore(container, before);
-        } else {
-          parent.appendChild(container);
-        }
-        console.log(
-          LOG_PREFIX,
-          `Injected ${container.childElementCount} button(s) into popup`
-        );
-        return true;
-      } catch (err) {
-        console.error(LOG_PREFIX, 'Failed to inject container:', err);
-        return false;
-      }
+      return injectedCount > 0;
     }
 
     /**
-     * Remove all injected Bright People Intel buttons from a popup element.
+     * Remove all injected PreMeet inline buttons from a popup element.
      *
      * @param {Element} popupEl
      */
     remove(popupEl) {
       if (!popupEl) return;
-      popupEl.querySelectorAll('.bpi-container').forEach((el) => el.remove());
+      popupEl.querySelectorAll('.bpi-inline-btn').forEach((el) => el.remove());
+      popupEl.querySelectorAll('[data-bpi-injected]').forEach((el) => {
+        el.removeAttribute('data-bpi-injected');
+      });
     }
   }
 

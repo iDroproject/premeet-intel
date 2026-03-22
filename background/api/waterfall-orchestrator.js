@@ -1,7 +1,7 @@
 /**
  * background/api/waterfall-orchestrator.js
  *
- * Bright People Intel – Waterfall Fetch Orchestrator
+ * PreMeet – Waterfall Fetch Orchestrator
  *
  * Executes a deterministic multi-layer lookup cascade for a given person:
  *
@@ -33,7 +33,7 @@ import { filterByLinkedInId } from './bright-data-filter.js';
 
 import { pickBestProfile, mergeBusinessEnrichedData } from './response-normalizer.js';
 
-const LOG_PREFIX = '[BPI][Waterfall]';
+const LOG_PREFIX = '[PreMeet][Waterfall]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -231,7 +231,7 @@ export class WaterfallOrchestrator {
       profiles,
       linkedInId,
       linkedInUrl,
-      source: 'brightdata-scraper',
+      source: 'scraper',
     };
   }
 
@@ -253,7 +253,7 @@ export class WaterfallOrchestrator {
     return {
       success: true,
       profiles,
-      source: 'brightdata-filter',
+      source: 'filter',
     };
   }
 
@@ -450,7 +450,7 @@ export class WaterfallOrchestrator {
           const interimData = pickBestProfile(
             scraperResult.profiles,
             name,
-            'brightdata-scraper',
+            'scraper',
             { email, serpVerified }
           );
           if (interimData && typeof this.onInterimResult === 'function') {
@@ -463,7 +463,7 @@ export class WaterfallOrchestrator {
 
         if (scraperResult.success && scraperResult.profiles?.length) {
           const data = await this._finalise(
-            { profiles: scraperResult.profiles, source: 'brightdata-scraper' },
+            { profiles: scraperResult.profiles, source: 'scraper' },
             name, email, cacheKey, identifier,
             { serpVerified }
           );
@@ -525,7 +525,7 @@ export class WaterfallOrchestrator {
           scraperProfiles,
           companyIntel,
           serpCompanyInfo,
-          source: 'brightdata-filter',
+          source: 'filter',
         },
         name, email, cacheKey, identifier,
         { serpVerified }
@@ -537,7 +537,7 @@ export class WaterfallOrchestrator {
     if (scraperProfiles && scraperProfiles.length) {
       console.log(LOG_PREFIX, 'Filter failed, falling back to scraper data');
       const data = await this._finalise(
-        { profiles: scraperProfiles, companyIntel, serpCompanyInfo, source: 'brightdata-scraper' },
+        { profiles: scraperProfiles, companyIntel, serpCompanyInfo, source: 'scraper' },
         name, email, cacheKey, identifier,
         { serpVerified }
       );
@@ -573,7 +573,7 @@ export class WaterfallOrchestrator {
     }
 
     // Merge scraper data if we used filter as primary.
-    if (scraperProfiles?.length && source === 'brightdata-filter') {
+    if (scraperProfiles?.length && source === 'filter') {
       const merged = mergeBusinessEnrichedData(personData, scraperProfiles[0]);
       Object.assign(personData, merged);
     }

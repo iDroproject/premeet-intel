@@ -1,7 +1,7 @@
 /**
  * CalendarObserver
  *
- * Bright People Intel — Watches the Google Calendar DOM for event popups and
+ * PreMeet — Watches the Google Calendar DOM for event popups and
  * detail panels using MutationObserver. When a popup is detected it runs the
  * attendee extractor and button injector.
  *
@@ -15,7 +15,7 @@
 (function () {
   'use strict';
 
-  const LOG_PREFIX = '[BPI][CalendarObserver]';
+  const LOG_PREFIX = '[PreMeet][CalendarObserver]';
 
   // ─── Popup Detection Helpers ─────────────────────────────────────────────
 

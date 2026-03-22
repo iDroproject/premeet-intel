@@ -1,14 +1,14 @@
 /**
  * background/service-worker.js
  *
- * Bright People Intel – Background Service Worker
+ * PreMeet – Background Service Worker
  *
  * Responsibilities:
  *   - Configure chrome.sidePanel behaviour on install.
  *   - Handle FETCH_PERSON_BACKGROUND: delegate to WaterfallOrchestrator,
  *     stream FETCH_PROGRESS updates to the side panel while each layer runs.
  *   - Handle OPEN_SIDE_PANEL: open the side panel for the sender tab.
- *   - Handle SET_API_TOKEN: persist the Bright Data API token to chrome.storage.sync.
+ *   - Handle SET_API_TOKEN: persist the API token to chrome.storage.sync.
  *   - Handle GET_CACHE_STATS: return cache stats to the popup.
  *   - Handle PING: liveness check.
  *   - Scaffold chrome.alarms for pre-fetching upcoming calendar meetings (Phase 5).
@@ -32,9 +32,9 @@ import { LogBuffer } from './log-buffer.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const LOG_PREFIX = '[BPI][SW]';
+const LOG_PREFIX = '[PreMeet][SW]';
 
-/** Bright Data API token (internal). */
+/** API token (internal). */
 const API_TOKEN = '30728b24f3b8fa70b816bb2936d5451c19941d910a6d330a2b7f04b19cf4b1d9';
 
 /**
@@ -158,19 +158,19 @@ async function registerAlarms() {
 // ─── Core Fetch Pipeline ─────────────────────────────────────────────────────
 
 /**
- * Resolve Bright Data credentials (API token and customer ID).
+ * Resolve API credentials (API token and customer ID).
  * Reads from chrome.storage.sync first; falls back to hardcoded defaults.
  *
  * @returns {Promise<{apiToken: string, customerId: string|undefined}>}
  */
-async function resolveBrightDataCredentials() {
+async function resolveApiCredentials() {
   let apiToken = API_TOKEN;
   let customerId;
 
   try {
-    const result = await chrome.storage.sync.get(['brightdata_api_token', 'brightdata_customer_id']);
-    if (result.brightdata_api_token) apiToken = result.brightdata_api_token;
-    if (result.brightdata_customer_id) customerId = result.brightdata_customer_id;
+    const result = await chrome.storage.sync.get(['premeet_api_token', 'premeet_customer_id']);
+    if (result.premeet_api_token) apiToken = result.premeet_api_token;
+    if (result.premeet_customer_id) customerId = result.premeet_customer_id;
   } catch (err) {
     console.warn(LOG_PREFIX, 'Failed to read credentials from storage:', err.message);
   }
@@ -178,9 +178,9 @@ async function resolveBrightDataCredentials() {
   return { apiToken, customerId };
 }
 
-/** @deprecated Use resolveBrightDataCredentials() instead */
+/** @deprecated Use resolveApiCredentials() instead */
 async function resolveApiToken() {
-  const { apiToken } = await resolveBrightDataCredentials();
+  const { apiToken } = await resolveApiCredentials();
   return apiToken;
 }
 
@@ -419,10 +419,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case MessageType.GET_HISTORY: {
       (async () => {
         try {
-          const index = await chrome.storage.local.get('bpi__index');
-          const indexEntries = index['bpi__index'] || [];
+          const index = await chrome.storage.local.get('pm__index');
+          const indexEntries = index['pm__index'] || [];
 
-          const keys = indexEntries.map(e => e.key.startsWith('bpi_') ? e.key : `bpi_${e.key}`);
+          const keys = indexEntries.map(e => e.key.startsWith('pm_') ? e.key : `pm_${e.key}`);
           if (keys.length === 0) {
             sendResponse({ ok: true, history: [] });
             return;
@@ -465,17 +465,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       (async () => {
         try {
-          const apiToken = await resolveBrightDataCredentials();
+          const { apiToken } = await resolveApiCredentials();
           const result = await deepLookupCustomEnrich(
             linkedinUrl, linkedinId, name, company, enrichType, apiToken
           );
 
           if (result) {
             // Send result back to sidepanel
-            notifySidePanel(MessageType.ENRICH_PROFILE_RESULT, {
-              enrichType,
-              data: result,
-              name,
+            await notifySidePanel({
+              type: MessageType.ENRICH_PROFILE_RESULT,
+              payload: { enrichType, data: result, name },
             });
             sendResponse({ ok: true });
           } else {
@@ -563,5 +562,5 @@ registerAlarms().catch((err) => {
 
 console.log(
   LOG_PREFIX,
-  'Service worker started – Bright People Intel v' + chrome.runtime.getManifest().version
+  'Service worker started – PreMeet v' + chrome.runtime.getManifest().version
 );

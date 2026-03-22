@@ -2,16 +2,16 @@
 /**
  * tests/api-smoke-test.js
  *
- * Bright People Intel — API Smoke Test Suite
+ * PreMeet — API Smoke Test Suite
  *
- * Tests all 4 Bright Data API layers end-to-end using live API calls.
+ * Tests all 4 API layers end-to-end using live API calls.
  * Run from the terminal:
  *
  *   node tests/api-smoke-test.js
  *   node tests/api-smoke-test.js --email=person@company.com --name="First Last"
  *
  * Environment:
- *   BPI_API_TOKEN  — Bright Data API token (falls back to hardcoded demo token)
+ *   BPI_API_TOKEN  — API token (falls back to hardcoded demo token)
  *
  * Each layer is tested independently and prints PASS/FAIL with timing.
  */
@@ -824,7 +824,7 @@ async function testDeepLookupCompanyIntel(companyName, personName, jobTitle, lin
 
 async function main() {
   console.log(`${BOLD}╔══════════════════════════════════════════════════════════════╗${RESET}`);
-  console.log(`${BOLD}║     Bright People Intel — Full API Smoke Test               ║${RESET}`);
+  console.log(`${BOLD}║     PreMeet — Full API Smoke Test               ║${RESET}`);
   console.log(`${BOLD}╚══════════════════════════════════════════════════════════════╝${RESET}`);
   console.log();
   console.log(`  Test inputs:`);

@@ -1,7 +1,7 @@
 /**
  * AttendeeExtractor
  *
- * Bright People Intel — Extracts attendee names and emails from Google Calendar
+ * PreMeet — Extracts attendee names and emails from Google Calendar
  * event popups and detail panels using multiple fallback selector strategies.
  *
  * Loaded as a plain content script (no ES module imports).
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const LOG_PREFIX = '[BPI][AttendeeExtractor]';
+  const LOG_PREFIX = '[PreMeet][AttendeeExtractor]';
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -110,11 +110,17 @@
    * @returns {Array<{name: string, email: string, company: string|null}>}
    */
   function deduplicateAttendees(attendees) {
-    const seen = new Set();
+    const seen = new Map();
     return attendees.filter((a) => {
       const key = (a.email || a.name || '').toLowerCase();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
+      if (!key) return false;
+      if (seen.has(key)) {
+        // Preserve the first element reference on the kept entry.
+        const first = seen.get(key);
+        if (!first.element && a.element) first.element = a.element;
+        return false;
+      }
+      seen.set(key, a);
       return true;
     });
   }
@@ -158,6 +164,7 @@
         name: name || nameFromEmail(email),
         email,
         company: deriveCompanyFromEmail(email),
+        element: el,
       });
     });
 
@@ -190,6 +197,7 @@
           name: nameFromEmail(email),
           email,
           company: deriveCompanyFromEmail(email),
+          element: section,
         });
       });
 
@@ -232,6 +240,7 @@
         name: name || nameFromEmail(email),
         email,
         company: deriveCompanyFromEmail(email),
+        element: link.closest('[data-hovercard-id], .xYjf6e, [jsname="haAclf"]') || link.parentElement,
       });
     });
 
@@ -281,6 +290,7 @@
           name: name || nameFromEmail(resolvedEmail),
           email: resolvedEmail,
           company: resolvedEmail ? deriveCompanyFromEmail(resolvedEmail) : null,
+          element: el,
         });
       });
     });

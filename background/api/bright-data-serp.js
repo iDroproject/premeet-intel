@@ -1,7 +1,7 @@
 /**
  * background/api/bright-data-serp.js
  *
- * Bright People Intel – Bright Data SERP API Client (Async Unblocker)
+ * PreMeet – SERP API Client (Async Unblocker)
  *
  * Uses the async unblocker pattern:
  *   1. POST /unblocker/req  → sends search request, returns x-response-id
@@ -14,7 +14,7 @@
 
 'use strict';
 
-const LOG_PREFIX = '[BPI][SERP]';
+const LOG_PREFIX = '[PreMeet][SERP]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ function extractLinkedInUrl(data) {
  * Send a SERP request and poll for results. Returns raw response data.
  *
  * @param {string} searchUrl  Full Google search URL.
- * @param {string} apiToken   Bright Data API bearer token.
+ * @param {string} apiToken   API bearer token.
  * @param {string} [customerId]
  * @returns {Promise<*>} Parsed response (object, array, or string).
  */
@@ -180,11 +180,11 @@ async function _serpRequest(searchUrl, apiToken, customerId) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Search Google via Bright Data async SERP API to find a LinkedIn profile URL.
+ * Search Google via async SERP API to find a LinkedIn profile URL.
  *
  * @param {string} query      Search query (email, "name company", etc.)
- * @param {string} apiToken   Bright Data API bearer token.
- * @param {string} [customerId]  Bright Data customer ID (defaults to internal).
+ * @param {string} apiToken   API bearer token.
+ * @param {string} [customerId]  customer ID (defaults to internal).
  * @returns {Promise<string|null>} LinkedIn URL or null if not found.
  */
 export async function serpFindLinkedInUrl(query, apiToken, customerId) {
@@ -299,7 +299,7 @@ export async function serpFindLinkedInUrl(query, apiToken, customerId) {
  * Search Google for company information via SERP and extract structured data.
  *
  * @param {string} companyName  Company name to search for.
- * @param {string} apiToken     Bright Data API bearer token.
+ * @param {string} apiToken     API bearer token.
  * @param {string} [customerId]
  * @returns {Promise<Object|null>} Structured company info or null.
  */

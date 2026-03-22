@@ -1,7 +1,7 @@
 /**
  * sidepanel.js
  *
- * Bright People Intel - Side Panel UI Controller
+ * PreMeet - Side Panel UI Controller
  *
  * Renders the full PersonData model from the response normalizer:
  *   - Profile header (avatar, name, title, company, location)
@@ -18,7 +18,7 @@
 
 'use strict';
 
-const LOG_PREFIX = '[BPI][SidePanel]';
+const LOG_PREFIX = '[PreMeet][SidePanel]';
 
 // -- DOM References --
 

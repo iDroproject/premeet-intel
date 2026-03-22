@@ -1,7 +1,7 @@
 /**
  * background/log-buffer.js
  *
- * Bright People Intel – Structured Log Buffer
+ * PreMeet – Structured Log Buffer
  *
  * Circular buffer storing the last 200 structured log entries.
  * Queried by the popup log viewer via GET_LOGS message.

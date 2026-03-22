@@ -1,12 +1,12 @@
 /**
  * background/cache/cache-manager.js
  *
- * Bright People Intel – Chrome Storage Cache with TTL + LRU Eviction
+ * PreMeet – Chrome Storage Cache with TTL + LRU Eviction
  *
  * Wraps chrome.storage.local to provide a simple key/value cache with:
  *   - Per-entry TTL (default 7 days).
  *   - LRU eviction when the entry count exceeds MAX_ENTRIES (500).
- *   - Namespace prefix (`bpi_`) to avoid key collisions with other extensions.
+ *   - Namespace prefix (`pm_`) to avoid key collisions with other extensions.
  *   - Size estimation via JSON serialisation length.
  *
  * All methods are async and use Promises (no callbacks).
@@ -21,12 +21,12 @@
 
 'use strict';
 
-const LOG_PREFIX = '[BPI][Cache]';
+const LOG_PREFIX = '[PreMeet][Cache]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 /** All keys written by this manager are prefixed to avoid collisions. */
-const KEY_PREFIX = 'bpi_';
+const KEY_PREFIX = 'pm_';
 
 /**
  * Maximum number of cache entries before LRU eviction runs.

@@ -1,9 +1,9 @@
 /**
  * tests/integration-tests.js
  *
- * Bright People Intel -- Integration Test Suite
+ * PreMeet -- Integration Test Suite
  *
- * Tests that make real API calls to Bright Data endpoints.
+ * Tests that make real API calls to enrichment API endpoints.
  * Requires a valid API token and network connectivity.
  *
  * WARNING: These tests hit live APIs and may consume API credits.

@@ -1,7 +1,7 @@
 /**
  * tests/api-tests.js
  *
- * Bright People Intel -- Unit Test Suite
+ * PreMeet -- Unit Test Suite
  *
  * Self-contained test harness with no external dependencies.
  * Designed to run in a browser context (loaded via run-tests.html)

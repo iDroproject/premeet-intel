@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Bright People Intel",
+  "name": "PreMeet",
   "version": "2.0.0",
-  "description": "Get professional background on meeting attendees directly in Google Calendar. Powered by Bright Data.",
+  "description": "Get professional background on meeting attendees directly in Google Calendar.",
 
   "permissions": [
     "storage",

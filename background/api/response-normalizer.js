@@ -1,9 +1,9 @@
 /**
  * background/api/response-normalizer.js
  *
- * Bright People Intel – Bright Data Response Normalizer
+ * PreMeet – Response Normalizer
  *
- * Converts raw Bright Data LinkedIn API responses into the unified
+ * Converts raw LinkedIn API responses into the unified
  * PersonData model. Includes confidence scoring with citations,
  * company intelligence fields, and ICP (Ideal Customer Profile) analysis.
  *
@@ -12,7 +12,7 @@
 
 'use strict';
 
-const LOG_PREFIX = '[BPI][Normalizer]';
+const LOG_PREFIX = '[PreMeet][Normalizer]';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -245,7 +245,7 @@ export function deriveIcpProfile(data) {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Normalize a raw Bright Data LinkedIn profile object into PersonData.
+ * Normalize a raw LinkedIn profile object into PersonData.
  *
  * @param {Object} rawProfile
  * @param {string} source
@@ -374,7 +374,7 @@ export function pickBestProfile(rawProfiles, targetName, source, context = {}) {
  * merged state.
  *
  * @param {Object} personData      Primary normalized PersonData.
- * @param {Object} enrichedProfile Raw enriched profile object from Bright Data.
+ * @param {Object} enrichedProfile Raw enriched profile object.
  * @returns {Object} Merged PersonData with updated company intel and ICP.
  */
 export function mergeBusinessEnrichedData(personData, enrichedProfile) {

@@ -1,7 +1,7 @@
 /**
  * background/api/bright-data-scraper.js
  *
- * Bright People Intel – Bright Data Web Scraper API Client (WSA)
+ * PreMeet – Web Scraper API Client (WSA)
  *
  * Provides LinkedIn profile scraping:
  *   - scrapeByLinkedInUrl()  – scrape a LinkedIn profile URL to get profile data
@@ -18,7 +18,7 @@
 
 'use strict';
 
-const LOG_PREFIX = '[BPI][BrightData]';
+const LOG_PREFIX = '[PreMeet][BrightData]';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ async function fetchWithErrorHandling(url, options) {
       bodyExcerpt = text.slice(0, 200);
     } catch (_) { /* ignore */ }
     throw new Error(
-      `Bright Data API returned HTTP ${response.status} for ${url}` +
+      `API returned HTTP ${response.status} for ${url}` +
       (bodyExcerpt ? `: ${bodyExcerpt}` : '')
     );
   }
@@ -102,7 +102,7 @@ export function extractLinkedInId(profile, fallbackUrl) {
  * Scrape a LinkedIn profile by its public URL using the WSA scrape endpoint.
  *
  * @param {string} linkedInUrl  Full LinkedIn profile URL.
- * @param {string} apiToken     Bright Data API bearer token.
+ * @param {string} apiToken     API bearer token.
  * @returns {Promise<{mode: 'direct'|'snapshot', profiles?: Array, snapshotId?: string}>}
  */
 export async function scrapeByLinkedInUrl(linkedInUrl, apiToken) {
@@ -138,7 +138,7 @@ export async function scrapeByLinkedInUrl(linkedInUrl, apiToken) {
 }
 
 /**
- * Poll a Bright Data snapshot until its status is "ready".
+ * Poll a snapshot until its status is "ready".
  *
  * @param {string} snapshotId
  * @param {string} apiToken
