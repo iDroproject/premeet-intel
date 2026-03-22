@@ -33,7 +33,29 @@ export interface EnrichedAttendee extends Attendee {
   error?: string;
 }
 
-// Message types between content script ↔ background ↔ popup
+// ─── Credits ─────────────────────────────────────────────────────────────────
+
+export type Plan = 'free' | 'pro';
+
+export interface Credits {
+  plan: Plan;
+  used: number;         // enrichments used this month
+  limit: number;        // monthly limit (10 free, unlimited pro)
+  resetMonth: string;   // 'YYYY-MM' — resets at start of new month
+}
+
+// ─── Feature Requests ─────────────────────────────────────────────────────────
+
+export interface FeatureRequest {
+  id: string;
+  title: string;
+  description: string;
+  votes: number;
+  upvotedByUser: boolean;
+  createdAt: number;
+}
+
+// ─── Message types between content script ↔ background ↔ popup
 
 export type ContentToBackground =
   | { type: 'MEETING_DETECTED'; payload: MeetingEvent }

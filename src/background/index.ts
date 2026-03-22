@@ -4,6 +4,7 @@
 
 import type { MeetingEvent, EnrichedAttendee, ContentToBackground, PopupToBackground } from '../types';
 import { enrichAll } from './enrichment';
+import { hasCredit, useCredit } from '../utils/credits';
 
 const LOG = '[PreMeet][SW]';
 
@@ -65,8 +66,26 @@ async function handleMeetingDetected(meeting: MeetingEvent): Promise<void> {
   broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: currentEnriched } });
 
   try {
+    // Guard against credit exhaustion before running enrichment
+    const creditAvailable = await hasCredit();
+    if (!creditAvailable) {
+      console.warn(LOG, 'No enrichment credits remaining this month.');
+      currentEnriched = meeting.attendees.map((a) => ({
+        ...a,
+        person: null,
+        enrichedAt: Date.now(),
+        status: 'error' as const,
+        error: 'Monthly enrichment limit reached. Upgrade to Pro for unlimited enrichments.',
+      }));
+      broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: currentEnriched } });
+      return;
+    }
+
     const enriched = await enrichAll(meeting.attendees);
     currentEnriched = enriched;
+
+    // Consume one credit for the enrichment run
+    await useCredit();
 
     // Broadcast final enriched data
     broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: enriched } });

@@ -31,8 +31,42 @@
       .pm-header__logo {
         width: 28px; height: 28px; flex-shrink: 0;
       }
+      .pm-header__info { flex: 1; min-width: 0; }
       .pm-header__title { font-size: 15px; font-weight: 600; }
-      .pm-header__meeting { font-size: 12px; opacity: 0.85; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+      .pm-header__meeting { font-size: 12px; opacity: 0.85; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+      .pm-credits {
+        font-size: 11px;
+        background: rgba(255,255,255,0.18);
+        border-radius: 10px;
+        padding: 3px 8px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      .pm-credits--low { background: rgba(254,202,202,0.35); }
+
+      /* ── Tabs ── */
+      .pm-tabs {
+        display: flex;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f9fafb;
+      }
+      .pm-tab {
+        flex: 1;
+        padding: 9px 0;
+        font-size: 12px;
+        font-weight: 500;
+        color: #6b7280;
+        cursor: pointer;
+        border: none;
+        background: none;
+        border-bottom: 2px solid transparent;
+        transition: color 0.15s, border-color 0.15s;
+      }
+      .pm-tab:hover { color: #374151; }
+      .pm-tab--active {
+        color: #2563eb;
+        border-bottom-color: #2563eb;
+      }
 
       /* ── States ── */
       .pm-state {
@@ -92,6 +126,112 @@
       .pm-card--pending .pm-card__title { width: 80px; height: 12px; }
       @keyframes pm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+      /* ── Feature Requests ── */
+      .pm-features {
+        padding: 0;
+      }
+      .pm-feature-add {
+        padding: 12px 16px;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f9fafb;
+      }
+      .pm-feature-add__toggle {
+        width: 100%;
+        padding: 7px 12px;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .pm-feature-add__toggle:hover { background: #1d4ed8; }
+      .pm-feature-add__form { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+      .pm-input {
+        width: 100%;
+        padding: 7px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: inherit;
+        outline: none;
+        resize: none;
+      }
+      .pm-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+      .pm-feature-add__actions { display: flex; gap: 6px; }
+      .pm-btn {
+        padding: 6px 12px;
+        border-radius: 5px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        border: none;
+      }
+      .pm-btn--primary { background: #2563eb; color: #fff; }
+      .pm-btn--primary:hover { background: #1d4ed8; }
+      .pm-btn--ghost { background: none; color: #6b7280; border: 1px solid #d1d5db; }
+      .pm-btn--ghost:hover { background: #f3f4f6; }
+
+      .pm-feature-list { padding: 4px 0; }
+      .pm-feature-item {
+        padding: 10px 16px;
+        border-bottom: 1px solid #f3f4f6;
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .pm-feature-item:last-child { border-bottom: none; }
+      .pm-vote {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        flex-shrink: 0;
+        min-width: 32px;
+      }
+      .pm-vote__btn {
+        background: none;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        width: 28px; height: 22px;
+        font-size: 13px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.1s, border-color 0.1s;
+        line-height: 1;
+      }
+      .pm-vote__btn:hover { background: #f3f4f6; }
+      .pm-vote__btn--active {
+        background: #eff6ff;
+        border-color: #2563eb;
+        color: #2563eb;
+      }
+      .pm-vote__count {
+        font-size: 11px;
+        font-weight: 600;
+        color: #374151;
+      }
+      .pm-feature__body { flex: 1; min-width: 0; }
+      .pm-feature__title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #111827;
+        line-height: 1.3;
+      }
+      .pm-feature__desc {
+        font-size: 11px;
+        color: #6b7280;
+        margin-top: 3px;
+        line-height: 1.4;
+      }
+
       /* ── Footer ── */
       .pm-footer {
         padding: 8px 16px;
@@ -110,32 +250,61 @@
         <circle cx="22" cy="7" r="1.5" fill="#fff" opacity="0.7"/>
         <circle cx="6" cy="7" r="1" fill="#fff" opacity="0.5"/>
       </svg>
-      <div>
+      <div class="pm-header__info">
         <div class="pm-header__title">PreMeet</div>
         <div class="pm-header__meeting" id="pm-meeting-title"></div>
       </div>
+      <div class="pm-credits pm-hidden" id="pm-credits"></div>
     </header>
 
-    <div class="pm-loading-bar pm-hidden" id="pm-loading-bar"></div>
+    <nav class="pm-tabs">
+      <button class="pm-tab pm-tab--active" id="pm-tab-attendees">Attendees</button>
+      <button class="pm-tab" id="pm-tab-features">Feature Requests</button>
+    </nav>
 
-    <!-- Empty state -->
-    <div class="pm-state" id="pm-empty">
-      <div class="pm-state__icon">📅</div>
-      <div class="pm-state__title">No meeting selected</div>
-      <div class="pm-state__body">Click on a Google Calendar event to see who you're meeting.</div>
+    <div id="pm-panel-attendees">
+      <div class="pm-loading-bar pm-hidden" id="pm-loading-bar"></div>
+
+      <!-- Empty state -->
+      <div class="pm-state" id="pm-empty">
+        <div class="pm-state__icon">&#128197;</div>
+        <div class="pm-state__title">No meeting selected</div>
+        <div class="pm-state__body">Click on a Google Calendar event to see who you're meeting.</div>
+      </div>
+
+      <!-- Error state -->
+      <div class="pm-state pm-hidden" id="pm-error">
+        <div class="pm-state__icon">&#9888;&#65039;</div>
+        <div class="pm-state__title">Something went wrong</div>
+        <div class="pm-state__body" id="pm-error-msg">Could not load meeting data.</div>
+      </div>
+
+      <!-- Attendee list -->
+      <div class="pm-list pm-hidden" id="pm-list"></div>
+
+      <footer class="pm-footer pm-hidden" id="pm-footer">PreMeet &copy; <span id="pm-year"></span></footer>
     </div>
 
-    <!-- Error state -->
-    <div class="pm-state pm-hidden" id="pm-error">
-      <div class="pm-state__icon">⚠️</div>
-      <div class="pm-state__title">Something went wrong</div>
-      <div class="pm-state__body" id="pm-error-msg">Could not load meeting data.</div>
+    <div id="pm-panel-features" class="pm-hidden">
+      <div class="pm-features">
+        <!-- Add new request -->
+        <div class="pm-feature-add">
+          <button class="pm-feature-add__toggle" id="pm-add-toggle">
+            <span>+</span> Request a feature
+          </button>
+          <div class="pm-feature-add__form pm-hidden" id="pm-add-form">
+            <input class="pm-input" id="pm-new-title" placeholder="Feature title" maxlength="80" />
+            <textarea class="pm-input" id="pm-new-desc" placeholder="Describe the feature (optional)" rows="2" maxlength="200"></textarea>
+            <div class="pm-feature-add__actions">
+              <button class="pm-btn pm-btn--primary" id="pm-submit-request">Submit</button>
+              <button class="pm-btn pm-btn--ghost" id="pm-cancel-request">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <!-- Feature list -->
+        <div class="pm-feature-list" id="pm-feature-list"></div>
+      </div>
     </div>
-
-    <!-- Attendee list -->
-    <div class="pm-list pm-hidden" id="pm-list"></div>
-
-    <footer class="pm-footer pm-hidden" id="pm-footer">PreMeet &copy; <span id="pm-year"></span></footer>
 
     <script type="module" src="./index.ts"></script>
   </body>
