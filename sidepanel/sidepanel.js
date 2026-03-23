@@ -128,6 +128,7 @@ function getCardRefs(cardEl) {
     companyLogo:         r('company-logo'),
     companyName:         r('company-name'),
     companyIndustry:     r('company-industry'),
+    companyWebsite:      r('company-website'),
     companyMeta:         r('company-meta'),
     companyDesc:         r('company-desc'),
     companyProducts:     r('company-products'),
@@ -459,6 +460,16 @@ function renderCompany(refs, data) {
   if (refs.companyIndustry) {
     refs.companyIndustry.textContent = data.companyIndustry || '';
     refs.companyIndustry.hidden = !data.companyIndustry;
+  }
+
+  if (refs.companyWebsite) {
+    if (data.companyWebsite && /^https?:\/\//i.test(data.companyWebsite)) {
+      refs.companyWebsite.href = data.companyWebsite;
+      refs.companyWebsite.textContent = data.companyWebsite.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '');
+      refs.companyWebsite.hidden = false;
+    } else {
+      refs.companyWebsite.hidden = true;
+    }
   }
 
   // Meta pills: size, revenue, founded, HQ, funding
@@ -1024,7 +1035,7 @@ function applyEnrichResult(cardEl, refs, enrichType, enrichData) {
       if (enrichData.company_description) data.companyDescription = enrichData.company_description;
       if (enrichData.company_industry)    data.companyIndustry = enrichData.company_industry;
       if (enrichData.company_website)     data.companyWebsite = enrichData.company_website;
-      if (enrichData.company_founded_year) data.companyFoundedYear = enrichData.company_founded_year;
+      if (enrichData.company_founded_year) data.companyFounded = enrichData.company_founded_year;
       if (enrichData.company_headquarters) data.companyHeadquarters = enrichData.company_headquarters;
       if (enrichData.company_funding)     data.companyFunding = enrichData.company_funding;
       if (enrichData.products_services)   data.companyProducts = enrichData.products_services;

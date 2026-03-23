@@ -736,6 +736,19 @@ a:hover {
   color: var(--pm-text-secondary);
 }
 
+.bpi-company-card__website {
+  display: inline-block;
+  font-size: var(--pm-fs-sm);
+  color: var(--pm-accent);
+  text-decoration: none;
+  margin-bottom: var(--pm-sp-sm);
+  word-break: break-all;
+}
+
+.bpi-company-card__website:hover {
+  text-decoration: underline;
+}
+
 .bpi-company-card__meta {
   display: flex;
   gap: var(--pm-sp-xs);
