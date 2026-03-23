@@ -258,13 +258,16 @@
     const results = [];
 
     // Selector list of known GCal guest/attendee item containers.
-    // The class .PoMeXc is a known attendee chip; others are observed variants.
+    // Updated with confirmed 2024-2025 selectors from other GCal extensions.
     const ATTENDEE_SELECTORS = [
-      '.PoMeXc',        // Event popup guest chip
-      '.PKKqje',        // Alternate attendee chip class
-      '.xYjf6e',        // Guest list item
+      '.PoMeXc',           // Event popup guest chip
+      '.PKKqje',           // Alternate attendee chip class
+      '.xYjf6e',           // Guest list item
       '[jsname="ESCLMb"]', // Guest list container children
       '[jsname="haAclf"]', // Another observed attendee element
+      // Confirmed selectors from modern GCal (2024-2025):
+      '#xDetDlgAtt [data-email]',   // Attendees section, email attribute
+      '#xDetDlgAtt .bgOWSb',        // Guest info text div inside attendees section
     ];
 
     ATTENDEE_SELECTORS.forEach((selector) => {
@@ -428,6 +431,58 @@
     return results;
   }
 
+  /**
+   * Strategy 7 – title-attribute email scan.
+   * Google Calendar places attendee email addresses in the `title` attribute
+   * of attendee chip elements (confirmed from multiple independent GCal
+   * extensions in 2024-2025). This is the most direct and reliable strategy
+   * for email extraction when data-email is absent.
+   *
+   * @param {Element} root
+   * @returns {Array<{name: string, email: string, company: string|null, element: Element}>}
+   */
+  function extractViaTitleAttribute(root) {
+    const results = [];
+    // [title*="@"] matches any element whose title tooltip contains an @-sign,
+    // which in GCal always means an email address.
+    const candidates = root.querySelectorAll('[title*="@"]');
+
+    candidates.forEach((el) => {
+      const title = el.getAttribute('title') || '';
+      // title may be just an email, or "Name <email@domain.com>", or "email@domain.com"
+      const emailMatch = title.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+      if (!emailMatch) return;
+
+      const email = emailMatch[0];
+
+      // Try to get the display name from aria-label, then text content.
+      let name = cleanAttendeeName(el.getAttribute('aria-label') || '');
+      if (!name || name.includes('@')) {
+        name = cleanAttendeeName(el.textContent.trim());
+      }
+      if (!name || name.includes('@')) {
+        // Extract from "Name <email>" format.
+        const nameFromTitle = title.replace(/<[^>]+>/, '').replace(email, '').trim();
+        name = cleanAttendeeName(nameFromTitle);
+      }
+      if (!name || name.includes('@')) {
+        name = nameFromEmail(email);
+      }
+
+      // Use the closest list item or block element as the injection target.
+      const target = el.closest('li, [role="listitem"], div.PoMeXc, div.PKKqje') || el;
+
+      results.push({
+        name,
+        email,
+        company: deriveCompanyFromEmail(email),
+        element: target,
+      });
+    });
+
+    return results;
+  }
+
   // ─── Class Definition ───────────────────────────────────────────────────────
 
   /**
@@ -449,12 +504,13 @@
       }
 
       const strategies = [
+        { name: 'titleAttribute', fn: extractViaTitleAttribute }, // Highest confidence
         { name: 'dataAttributes', fn: extractViaDataAttributes },
         { name: 'ariaLabels',     fn: extractViaAriaLabels },
         { name: 'mailtoLinks',    fn: extractViaMailtoLinks },
         { name: 'knownClasses',   fn: extractViaKnownClasses },
         { name: 'guestSection',   fn: extractViaGuestSection },
-        { name: 'textScan',       fn: extractViaTextScan },
+        { name: 'textScan',       fn: extractViaTextScan },       // Broadest fallback
       ];
 
       const all = [];

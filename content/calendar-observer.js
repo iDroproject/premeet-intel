@@ -32,6 +32,11 @@
     const role = node.getAttribute('role');
     if (role === 'dialog' || role === 'alertdialog') return true;
 
+    // GCal event detail dialog – confirmed ID used in modern GCal.
+    // #xDetDlgAtt is the attendees section inside the event detail popup.
+    // We treat its closest dialog ancestor as the popup root.
+    if (node.id === 'xDetDlgAtt') return true;
+
     // Google Calendar event detail popups carry data-eventid.
     if (node.hasAttribute('data-eventid')) return true;
 
@@ -41,19 +46,14 @@
     // Side-panel style event detail containers.
     if (
       node.matches(
-        '[jsname="r4nke"], [jsname="VdSJob"], .VdSJob, [data-view="event-detail"]'
+        '[jsname="r4nke"], [jsname="VdSJob"], .VdSJob, [data-view="event-detail"], ' +
+        '[jsname="CnSW2d"]'
       )
     )
       return true;
 
     // Some versions render event chips that expand into panels.
     if (node.classList.contains('OcVpRe') || node.classList.contains('V65ue')) return true;
-
-    // Modern GCal uses specific jscontroller-driven popups.
-    if (node.hasAttribute('jscontroller') && node.hasAttribute('jsmodel')) return false; // Too broad, skip
-
-    // Popover/tooltip containers used in newer GCal.
-    if (role === 'tooltip' && node.hasAttribute('data-eventid')) return true;
 
     // GCal event detail panel opened as a side-panel.
     if (node.classList.contains('VdSJob') || node.classList.contains('YpDpRd')) return true;
@@ -211,7 +211,9 @@
 
           // Check descendants (GCal often inserts a wrapper then populates it).
           const descendantPopups = node.querySelectorAll(
-            '[role="dialog"], [role="alertdialog"], [data-eventid], [data-eventchip], .OcVpRe, .V65ue, .VdSJob, .YpDpRd, [aria-label*="guest" i], [aria-label*="attendee" i]'
+            '[role="dialog"], [role="alertdialog"], [data-eventid], [data-eventchip], ' +
+            '#xDetDlgAtt, [jsname="CnSW2d"], .OcVpRe, .V65ue, .VdSJob, .YpDpRd, ' +
+            '[aria-label*="guest" i], [aria-label*="attendee" i]'
           );
           descendantPopups.forEach((p) => candidatePopups.add(p));
 
@@ -251,12 +253,21 @@
         return;
       }
 
+      // If we received the attendees section (#xDetDlgAtt), walk up to the
+      // dialog root so we have the full popup context for injection.
+      if (popupEl.id === 'xDetDlgAtt' || !popupEl.getAttribute('role')) {
+        const dialogRoot = popupEl.closest('[role="dialog"], [role="alertdialog"]');
+        if (dialogRoot && dialogRoot !== popupEl) {
+          popupEl = dialogRoot;
+        }
+      }
+
       if (this._processed.has(popupEl)) {
         // Already handled this exact element instance.
         return;
       }
 
-      console.log(LOG_PREFIX, 'Processing popup:', popupEl.tagName, popupEl.className.toString().slice(0, 60));
+      console.log(LOG_PREFIX, 'Processing popup:', popupEl.tagName, (popupEl.id || popupEl.className.toString()).slice(0, 60));
 
       const attendees = this._extractor.extract(popupEl);
 
@@ -316,7 +327,9 @@
      */
     _scanExisting() {
       const existing = document.querySelectorAll(
-        '[role="dialog"], [role="alertdialog"], [data-eventid], [data-eventchip], .OcVpRe, .V65ue, .VdSJob, .YpDpRd, [aria-label*="guest" i], [aria-label*="attendee" i]'
+        '[role="dialog"], [role="alertdialog"], #xDetDlgAtt, [data-eventid], [data-eventchip], ' +
+        '[jsname="CnSW2d"], .OcVpRe, .V65ue, .VdSJob, .YpDpRd, ' +
+        '[aria-label*="guest" i], [aria-label*="attendee" i]'
       );
 
       if (existing.length === 0) {
