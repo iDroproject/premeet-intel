@@ -280,6 +280,9 @@
 
       const injected = this._injector.inject(popupEl, attendees);
 
+      // Inject the single "Brief" CTA for all attendees at once.
+      this._injector.injectBriefButton(popupEl, attendees);
+
       if (injected) {
         // Mark as processed only after a successful injection.
         this._processed.add(popupEl);
@@ -309,6 +312,7 @@
 
         if (attendees.length > 0) {
           const injected = this._injector.inject(popupEl, attendees);
+          this._injector.injectBriefButton(popupEl, attendees);
           if (injected) {
             this._processed.add(popupEl);
           } else {

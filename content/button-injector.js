@@ -242,6 +242,42 @@
     }
 
     /**
+     * Inject a single prominent "Brief" CTA button that triggers background
+     * lookups for all attendees at once. Injected once per popup, before the
+     * attendee list, after any existing popup header.
+     * Safe to call multiple times – guarded by [data-bpi-brief-wrap].
+     *
+     * @param {Element} popupEl - The event popup root element.
+     * @param {Array<{name: string, email: string, company: string|null}>} attendees
+     * @returns {boolean} True if the button was injected.
+     */
+    injectBriefButton(popupEl, attendees) {
+      if (!popupEl || !(popupEl instanceof Element)) return false;
+      if (!attendees || attendees.length === 0) return false;
+
+      // Don't inject twice.
+      if (popupEl.querySelector('[data-bpi-brief-wrap="true"]')) return false;
+
+      const briefWrap = createBriefButton(attendees);
+
+      // Preferred injection targets: attendee section, guest list, or popup root.
+      const target =
+        popupEl.querySelector('#xDetDlgAtt') ||
+        popupEl.querySelector('[aria-label*="guest" i]') ||
+        popupEl.querySelector('[aria-label*="attendee" i]') ||
+        popupEl;
+
+      try {
+        target.insertBefore(briefWrap, target.firstChild);
+        console.log(LOG_PREFIX, 'Brief button injected for', attendees.length, 'attendee(s)');
+        return true;
+      } catch (err) {
+        console.warn(LOG_PREFIX, 'Failed to inject Brief button:', err);
+        return false;
+      }
+    }
+
+    /**
      * Remove all injected PreMeet inline buttons from a popup element.
      *
      * @param {Element} popupEl
@@ -249,12 +285,138 @@
     remove(popupEl) {
       if (!popupEl) return;
       popupEl.querySelectorAll('.bpi-inline-btn').forEach((el) => el.remove());
+      popupEl.querySelectorAll('.bpi-brief-btn-wrap').forEach((el) => el.remove());
       popupEl.querySelectorAll('[data-bpi-injected]').forEach((el) => {
         el.removeAttribute('data-bpi-injected');
       });
     }
   }
 
-  // Expose to shared content-script scope.
-  window.ButtonInjector = ButtonInjector;
-})();
+  // ─── Brief Button Factory ──────────────────────────────────────────────────
+
+  /**
+   * Create a prominent "Brief" CTA button that triggers background lookups
+   * for ALL attendees in the event at once.
+   *
+   * @param {Array<{name: string, email: string, company: string|null}>} attendees
+   * @returns {HTMLDivElement} Wrapper div containing the button.
+   */
+  function createBriefButton(attendees) {
+    const wrap = document.createElement('div');
+    wrap.className = 'bpi-brief-btn-wrap';
+    wrap.dataset.bpiBriefWrap = 'true';
+
+    const btn = document.createElement('button');
+    btn.className = 'bpi-brief-btn';
+    btn.setAttribute('type', 'button');
+    btn.setAttribute(
+      'title',
+      `Brief all ${attendees.length} attendee${attendees.length !== 1 ? 's' : ''}`
+    );
+    btn.setAttribute(
+      'aria-label',
+      `Get professional background on all ${attendees.length} attendees`
+    );
+
+    const icon = document.createElement('span');
+    icon.className = 'bpi-brief-btn__icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '\u{1F4CB}'; // clipboard
+
+    const label = document.createElement('span');
+    label.textContent = 'Brief';
+
+    const count = document.createElement('span');
+    count.className = 'bpi-brief-btn__count';
+    count.textContent = String(attendees.length);
+
+    btn.appendChild(icon);
+    btn.appendChild(label);
+    btn.appendChild(count);
+    wrap.appendChild(btn);
+
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      handleBriefClick(btn, attendees);
+    });
+
+    return wrap;
+  }
+
+  /**
+   * Handle click on the "Brief" button.
+   * Opens the side panel then fires FETCH_PERSON_BACKGROUND for each attendee
+   * with a short stagger so the service worker isn't overwhelmed.
+   *
+   * @param {HTMLButtonElement} btn
+   * @param {Array<{name: string, email: string, company: string|null}>} attendees
+   */
+  function handleBriefClick(btn, attendees) {
+    if (btn.classList.contains('loading')) return;
+
+    if (!isContextValid()) {
+      console.warn(LOG_PREFIX, 'Extension context invalidated – please refresh the page.');
+      return;
+    }
+
+    console.log(LOG_PREFIX, 'Brief clicked for', attendees.length, 'attendee(s)');
+
+    btn.classList.add('loading');
+    btn.setAttribute('aria-busy', 'true');
+    btn.disabled = true;
+
+    try {
+      chrome.runtime.sendMessage({ type: 'OPEN_SIDE_PANEL' }, () => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            LOG_PREFIX,
+            'Error opening side panel:',
+            chrome.runtime.lastError.message
+          );
+        }
+
+        // Fire a fetch for each attendee with 250 ms stagger.
+        attendees.forEach((attendee, idx) => {
+          setTimeout(() => {
+            const payload = {
+              name: attendee.name,
+              email: attendee.email,
+              company: attendee.company,
+            };
+            chrome.runtime.sendMessage({ type: 'FETCH_PERSON_BACKGROUND', payload }, () => {
+              if (chrome.runtime.lastError) {
+                console.error(
+                  LOG_PREFIX,
+                  'Error fetching background for',
+                  attendee.email,
+                  ':',
+                  chrome.runtime.lastError.message
+                );
+              }
+            });
+          }, idx * 250);
+        });
+
+        // Re-enable the button after all requests are queued.
+        setTimeout(() => {
+          btn.classList.remove('loading');
+          btn.removeAttribute('aria-busy');
+          btn.disabled = false;
+        }, Math.max(1500, attendees.length * 250 + 500));
+      });
+    } catch (err) {
+      console.warn(LOG_PREFIX, 'Failed to send message (context may be invalidated):', err.message);
+      btn.classList.remove('loading');
+      btn.removeAttribute('aria-busy');
+      btn.disabled = false;
+    }
+  }
+
+  // ─── Class Definition ─────────────────────────────────────────────────────
+
+  /**
+   * ButtonInjector
+   * Injects compact inline PreMeet action buttons next to each
+   * attendee element in an event popup.
+   */
