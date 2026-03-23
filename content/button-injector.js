@@ -208,18 +208,26 @@
         // Guard: don't inject twice on the same element.
         if (el.getAttribute('data-bpi-injected') === 'true') return;
 
+        // Also guard if any ancestor already has the button.
+        if (el.closest('[data-bpi-injected="true"]')) return;
+
         const btn = createInlineButton(attendee);
 
         try {
-          // Insert the button as a sibling after the attendee element,
-          // or append to its parent if nextSibling insertion fails.
-          if (el.nextSibling) {
-            el.parentElement.insertBefore(btn, el.nextSibling);
-          } else {
-            el.parentElement.appendChild(btn);
+          // Find the best insertion target: the element itself if it has a
+          // parent, otherwise walk up to the nearest block-level container.
+          let target = el;
+          if (el.tagName === 'SPAN' || el.tagName === 'A' || el.tagName === 'STRONG') {
+            // Inline elements: inject inside the parent block.
+            const parentBlock = el.closest('li, div, tr, p') || el.parentElement;
+            if (parentBlock && parentBlock !== popupEl) target = parentBlock;
           }
 
-          el.setAttribute('data-bpi-injected', 'true');
+          // Append button at the end of the target element (most compatible
+          // across GCal DOM variants; avoids breaking complex flex layouts).
+          target.appendChild(btn);
+
+          target.setAttribute('data-bpi-injected', 'true');
           injectedCount++;
         } catch (err) {
           console.warn(LOG_PREFIX, 'Failed to inject inline button:', err);

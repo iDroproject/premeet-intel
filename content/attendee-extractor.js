@@ -298,6 +298,136 @@
     return results;
   }
 
+  /**
+   * Strategy 5 – Full text-node scan for email addresses.
+   * Walks every text node inside the popup. When a text node contains an
+   * email address we use its nearest block-level ancestor as the attendee
+   * element so the "Know" button can be injected adjacent to it.
+   *
+   * This is the most resilient strategy: it works regardless of GCal class
+   * names or data-attribute schemes because it operates on visible text.
+   *
+   * @param {Element} root
+   * @returns {Array<{name: string, email: string, company: string|null, element: Element}>}
+   */
+  function extractViaTextScan(root) {
+    const results = [];
+    const emailRe = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let textNode;
+
+    while ((textNode = walker.nextNode())) {
+      const text = textNode.textContent || '';
+      const matches = text.match(emailRe);
+      if (!matches) continue;
+
+      matches.forEach((email) => {
+        if (!email.includes('@')) return;
+
+        // Walk up to the nearest block-level or list element that bounds
+        // this attendee row, so the button is inserted next to the chip.
+        let el = textNode.parentElement;
+        const BLOCK = new Set(['LI', 'TR', 'DIV', 'SPAN', 'P', 'ARTICLE', 'SECTION']);
+        while (el && el !== root && !BLOCK.has(el.tagName)) {
+          el = el.parentElement;
+        }
+        if (!el || el === root) el = textNode.parentElement;
+
+        // Try to pull a display name from aria-label or nearby text.
+        let name = cleanAttendeeName(
+          el.getAttribute('aria-label') || ''
+        );
+
+        // If aria-label didn't give a clean name, look at the element's full
+        // text and strip the email to see if there's a residual name.
+        if (!name || name.includes('@')) {
+          const fullText = (el.innerText || el.textContent || '')
+            .replace(email, '')
+            .replace(/,\s*$/, '')
+            .trim();
+          name = cleanAttendeeName(fullText);
+        }
+
+        if (!name || name.includes('@')) {
+          name = nameFromEmail(email);
+        }
+
+        results.push({
+          name,
+          email,
+          company: deriveCompanyFromEmail(email),
+          element: el,
+        });
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Strategy 6 – Scan elements near "X guests" text.
+   * Finds the section of the popup that mentions guest count and scans
+   * all descendant leaf elements for names / emails.
+   *
+   * @param {Element} root
+   * @returns {Array<{name: string, email: string, company: string|null, element: Element}>}
+   */
+  function extractViaGuestSection(root) {
+    const results = [];
+    const emailRe = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+
+    // Find the element whose text contains "X guest(s)" or "Guests".
+    const guestHeaderEl = Array.from(root.querySelectorAll('*')).find((el) => {
+      if (el.children.length > 5) return false; // Skip large containers
+      const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+      return /^\d+\s+guests?$/.test(t) || t === 'guests' || t === 'guest';
+    });
+
+    if (!guestHeaderEl) return results;
+
+    // The guest list is typically a sibling or nearby ancestor's child.
+    const guestSection =
+      guestHeaderEl.closest('[aria-label*="guest" i], [aria-label*="attendee" i]') ||
+      guestHeaderEl.parentElement?.parentElement;
+
+    if (!guestSection || guestSection === root) return results;
+
+    // Walk all leaf elements in the guest section.
+    guestSection.querySelectorAll('*').forEach((el) => {
+      if (el.children.length > 0) return; // Leaf elements only
+      const text = (el.innerText || el.textContent || '').trim();
+      if (!text) return;
+
+      if (emailRe.test(text)) {
+        const email = text.match(emailRe)[0];
+        results.push({
+          name: nameFromEmail(email),
+          email,
+          company: deriveCompanyFromEmail(email),
+          element: el.parentElement || el,
+        });
+      } else if (text.length > 1 && text.length < 60 && !text.match(/^\d+$/) && text !== 'Organizer') {
+        // Might be a display name with no visible email – still capture so
+        // we can show a button (email will be blank, button shows the name).
+        const ariaEmail =
+          el.getAttribute('data-email') ||
+          el.getAttribute('data-hovercard-id')?.replace(/^contact:/, '') ||
+          '';
+        if (ariaEmail.includes('@')) {
+          results.push({
+            name: cleanAttendeeName(text),
+            email: ariaEmail,
+            company: deriveCompanyFromEmail(ariaEmail),
+            element: el.parentElement || el,
+          });
+        }
+      }
+    });
+
+    return results;
+  }
+
   // ─── Class Definition ───────────────────────────────────────────────────────
 
   /**
@@ -323,6 +453,8 @@
         { name: 'ariaLabels',     fn: extractViaAriaLabels },
         { name: 'mailtoLinks',    fn: extractViaMailtoLinks },
         { name: 'knownClasses',   fn: extractViaKnownClasses },
+        { name: 'guestSection',   fn: extractViaGuestSection },
+        { name: 'textScan',       fn: extractViaTextScan },
       ];
 
       const all = [];

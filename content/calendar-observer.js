@@ -28,11 +28,15 @@
   function isEventPopup(node) {
     if (!(node instanceof Element)) return false;
 
-    // Explicit dialog role.
-    if (node.getAttribute('role') === 'dialog') return true;
+    // Explicit dialog role (most reliable across GCal versions).
+    const role = node.getAttribute('role');
+    if (role === 'dialog' || role === 'alertdialog') return true;
 
     // Google Calendar event detail popups carry data-eventid.
     if (node.hasAttribute('data-eventid')) return true;
+
+    // Event chip expanded views (modern GCal).
+    if (node.hasAttribute('data-eventchip')) return true;
 
     // Side-panel style event detail containers.
     if (
@@ -45,10 +49,41 @@
     // Some versions render event chips that expand into panels.
     if (node.classList.contains('OcVpRe') || node.classList.contains('V65ue')) return true;
 
+    // Modern GCal uses specific jscontroller-driven popups.
+    if (node.hasAttribute('jscontroller') && node.hasAttribute('jsmodel')) return false; // Too broad, skip
+
+    // Popover/tooltip containers used in newer GCal.
+    if (role === 'tooltip' && node.hasAttribute('data-eventid')) return true;
+
+    // GCal event detail panel opened as a side-panel.
+    if (node.classList.contains('VdSJob') || node.classList.contains('YpDpRd')) return true;
+
     // Full-page event editing form – detect the Guests section container.
     if (isEditFormPage() && isEditFormGuestSection(node)) return true;
 
     return false;
+  }
+
+  /**
+   * Determine whether a DOM node is likely a GCal event popup by scanning
+   * its content for event-like patterns (time, guests, attendees).
+   * Used as a broader fallback when strict selectors fail.
+   *
+   * @param {Node} node
+   * @returns {boolean}
+   */
+  function looksLikeEventPopup(node) {
+    if (!(node instanceof Element)) return false;
+    // Must be reasonably sized to be a popup.
+    const rect = node.getBoundingClientRect();
+    if (rect.width < 200 || rect.height < 100) return false;
+
+    const text = (node.innerText || node.textContent || '').toLowerCase();
+    // GCal popups typically mention guests or have attendee info.
+    const hasGuestText = /\bguest|\battendee|\borganizer/.test(text);
+    // And contain an email address.
+    const hasEmail = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/.test(text);
+    return hasGuestText && hasEmail;
   }
 
   /**
@@ -176,7 +211,7 @@
 
           // Check descendants (GCal often inserts a wrapper then populates it).
           const descendantPopups = node.querySelectorAll(
-            '[role="dialog"], [data-eventid], .OcVpRe, .V65ue, [aria-label*="guest" i], [aria-label*="attendee" i]'
+            '[role="dialog"], [role="alertdialog"], [data-eventid], [data-eventchip], .OcVpRe, .V65ue, .VdSJob, .YpDpRd, [aria-label*="guest" i], [aria-label*="attendee" i]'
           );
           descendantPopups.forEach((p) => candidatePopups.add(p));
 
@@ -241,27 +276,39 @@
     }
 
     /**
-     * Retry processing a popup once after 800 ms to handle lazy-loaded guest
-     * lists.
+     * Retry processing a popup with escalating delays to handle lazy-loaded
+     * guest lists. Tries at 400ms, 1200ms, and 2500ms.
      *
      * @param {Element} popupEl
+     * @param {number} [attempt=0]
      */
-    _retryOnce(popupEl) {
+    _retryOnce(popupEl, attempt = 0) {
+      const delays = [400, 1200, 2500];
+      if (attempt >= delays.length) {
+        console.log(LOG_PREFIX, 'Max retries reached – popup may have no guests');
+        this._processed.add(popupEl);
+        return;
+      }
+
       setTimeout(() => {
         if (!popupEl.isConnected || this._processed.has(popupEl)) return;
 
-        console.log(LOG_PREFIX, 'Retrying popup after delay');
+        console.log(LOG_PREFIX, `Retrying popup (attempt ${attempt + 1}) after ${delays[attempt]}ms`);
         const attendees = this._extractor.extract(popupEl);
 
         if (attendees.length > 0) {
           const injected = this._injector.inject(popupEl, attendees);
-          if (injected) this._processed.add(popupEl);
+          if (injected) {
+            this._processed.add(popupEl);
+          } else {
+            // Extraction found attendees but injection failed – still retry.
+            this._retryOnce(popupEl, attempt + 1);
+          }
         } else {
-          console.log(LOG_PREFIX, 'Retry found no attendees – popup may have no guests');
-          // Mark as processed anyway to avoid infinite retries.
-          this._processed.add(popupEl);
+          // No attendees yet – keep retrying.
+          this._retryOnce(popupEl, attempt + 1);
         }
-      }, 800);
+      }, delays[attempt]);
     }
 
     /**
@@ -269,15 +316,44 @@
      */
     _scanExisting() {
       const existing = document.querySelectorAll(
-        '[role="dialog"], [data-eventid], .OcVpRe, .V65ue, [aria-label*="guest" i], [aria-label*="attendee" i]'
+        '[role="dialog"], [role="alertdialog"], [data-eventid], [data-eventchip], .OcVpRe, .V65ue, .VdSJob, .YpDpRd, [aria-label*="guest" i], [aria-label*="attendee" i]'
       );
 
-      if (existing.length === 0) return;
+      if (existing.length === 0) {
+        // No strict matches — try broader content-based detection.
+        this._scanExistingFallback();
+        return;
+      }
 
       console.log(LOG_PREFIX, `Found ${existing.length} existing popup(s) on start`);
       requestAnimationFrame(() => {
         existing.forEach((popup) => this._processPopup(popup));
       });
+    }
+
+    /**
+     * Broader fallback scan: look for any visible element that looks like a
+     * GCal event popup based on its text content (guest/attendee + email).
+     */
+    _scanExistingFallback() {
+      // Limit to likely popup containers: fixed/absolute positioned overlays.
+      const candidates = document.querySelectorAll(
+        'div[style*="position: fixed"], div[style*="position:fixed"], ' +
+        'div[style*="position: absolute"], div[style*="position:absolute"], ' +
+        '[data-eventid], [jsaction*="eventdetail"], [jsaction*="event_detail"]'
+      );
+
+      let found = 0;
+      candidates.forEach((el) => {
+        if (looksLikeEventPopup(el)) {
+          found++;
+          requestAnimationFrame(() => this._processPopup(el));
+        }
+      });
+
+      if (found > 0) {
+        console.log(LOG_PREFIX, `Fallback scan found ${found} popup(s)`);
+      }
     }
   }
 
