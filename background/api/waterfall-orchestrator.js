@@ -56,6 +56,38 @@ const LAYER_TIMEOUTS = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Compute a Gravatar avatar image URL for the given email address.
+ *
+ * Uses the SHA-256 hash of the lowercase-trimmed email, which is the format
+ * Gravatar adopted in 2024 (replacing MD5). The `d=404` parameter causes
+ * Gravatar to return HTTP 404 when no avatar exists, so the sidepanel
+ * onerror handler can fall back to initials without an extra round-trip.
+ *
+ * This must be called from the service worker — never from extension pages
+ * (sidepanel/popup) — so that SubtleCrypto is available and no fetch() call
+ * to gravatar.com is ever issued from an extension page context, which would
+ * otherwise be blocked by CORS.
+ *
+ * @param {string} email
+ * @returns {Promise<string|null>}
+ */
+async function gravatarAvatarUrl(email) {
+  if (!email || typeof email !== 'string') return null;
+  try {
+    const normalised = email.trim().toLowerCase();
+    const encoded = new TextEncoder().encode(normalised);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+    const hashHex = Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    return `https://www.gravatar.com/avatar/${hashHex}?d=404&s=200`;
+  } catch (err) {
+    console.warn(LOG_PREFIX, 'gravatarAvatarUrl failed:', err.message);
+    return null;
+  }
+}
+
 function normaliseCacheKey(value) {
   return (value || 'unknown')
     .trim()
@@ -609,6 +641,16 @@ export class WaterfallOrchestrator {
     // Re-derive ICP after all merges so badges reflect final data.
     const { deriveIcpProfile } = await import('./response-normalizer.js');
     personData.icp = deriveIcpProfile(personData);
+
+    // Gravatar avatar fallback — computed in the service worker so the sidepanel
+    // never needs to call fetch() on gravatar.com (which would be blocked by CORS).
+    if (!personData.avatarUrl && email) {
+      const gravatarUrl = await gravatarAvatarUrl(email);
+      if (gravatarUrl) {
+        personData.avatarUrl = gravatarUrl;
+        console.log(LOG_PREFIX, 'Gravatar fallback set for:', personData.name);
+      }
+    }
 
     // Carry over calendar email.
     if (email && !personData.email) {
