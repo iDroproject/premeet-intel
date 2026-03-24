@@ -176,7 +176,6 @@ export interface Database {
           updated_at?: string;
         };
       };
-    };
       subscriptions: {
         Row: {
           id: string;
