@@ -188,17 +188,77 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
           payload: { email: attendee.email, attendee: currentEnriched[i] },
         });
 
-        const enriched = await enrichAttendee(attendee);
+        // Try waterfall pipeline first (produces rich PersonData) if API token is available
+        const apiToken = await resolveApiToken();
+        let personData: PersonData | null = null;
 
-        // Detect cache hit (enriched very quickly with data = likely cached)
-        const fromCache = enriched.person !== null && (Date.now() - enriched.enrichedAt) < 100;
+        if (apiToken) {
+          try {
+            const orchestrator = new WaterfallOrchestrator(cache, apiToken);
+            orchestrator.onInterimResult = (interim: PersonData) => {
+              // Broadcast interim data so the card progressively fills
+              currentEnriched[i] = {
+                ...currentEnriched[i],
+                personData: interim,
+                hasLinkedIn: !!interim.linkedinUrl,
+                person: {
+                  name: interim.name,
+                  email: attendee.email,
+                  title: interim.currentTitle,
+                  company: interim.currentCompany ? {
+                    name: interim.currentCompany,
+                    domain: '',
+                    website: interim.companyWebsite,
+                    description: interim.companyDescription,
+                  } : null,
+                },
+              };
+              broadcastToPopups({
+                type: 'ATTENDEE_UPDATE',
+                payload: { email: attendee.email, attendee: currentEnriched[i] },
+              });
+            };
+            personData = await orchestrator.fetch({
+              name: attendee.name,
+              email: attendee.email,
+              company: attendee.company || '',
+            });
+          } catch (waterfallErr) {
+            console.warn(LOG, `Waterfall failed for ${attendee.email}, falling back to basic:`, (waterfallErr as Error).message);
+          }
+        }
 
-        currentEnriched[i] = {
-          ...enriched,
-          stage: 'complete',
-          fromCache,
-          hasLinkedIn: enriched.person !== null,
-        };
+        // Fall back to basic enrichment if waterfall didn't produce data
+        if (!personData) {
+          const enriched = await enrichAttendee(attendee);
+          const fromCache = enriched.person !== null && (Date.now() - enriched.enrichedAt) < 100;
+          currentEnriched[i] = {
+            ...enriched,
+            stage: 'complete',
+            fromCache,
+            hasLinkedIn: enriched.person !== null,
+          };
+        } else {
+          currentEnriched[i] = {
+            ...currentEnriched[i],
+            status: 'done',
+            stage: 'complete',
+            personData,
+            hasLinkedIn: !!personData.linkedinUrl,
+            fromCache: false,
+            person: {
+              name: personData.name,
+              email: attendee.email,
+              title: personData.currentTitle,
+              company: personData.currentCompany ? {
+                name: personData.currentCompany,
+                domain: '',
+                website: personData.companyWebsite,
+                description: personData.companyDescription,
+              } : null,
+            },
+          };
+        }
       } catch (err) {
         console.error(LOG, `Enrichment failed for ${attendee.email}:`, err);
         currentEnriched[i] = {

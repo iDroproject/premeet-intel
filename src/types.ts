@@ -1,5 +1,7 @@
 // PreMeet shared TypeScript types
 
+import type { PersonData } from './background/enrichment/types';
+
 export interface Attendee {
   name: string;
   email: string;
@@ -40,6 +42,8 @@ export interface EnrichedAttendee extends Attendee {
   fromCache?: boolean;
   /** Whether LinkedIn data has been resolved (usable state) */
   hasLinkedIn?: boolean;
+  /** Full enrichment data from the waterfall pipeline */
+  personData?: PersonData;
 }
 
 // ─── Credits ─────────────────────────────────────────────────────────────────
