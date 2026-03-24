@@ -70,6 +70,26 @@ export interface Credits {
   resetMonth: string;   // 'YYYY-MM' — resets at start of new month
 }
 
+// ─── Activity Log ────────────────────────────────────────────────────────────
+
+/** Generic data-source labels (no vendor names) */
+export type DataSourceLabel = 'Web Search' | 'Profile Lookup' | 'Profile Scraper' | 'Business Data' | 'Cache';
+
+export type LogStatus = 'success' | 'partial' | 'failed' | 'cached';
+
+export interface ActivityLogEntry {
+  id: string;
+  timestamp: number;
+  attendeeName: string;
+  attendeeEmail: string;
+  status: LogStatus;
+  /** 0 = cached, 1 = new lookup */
+  creditsUsed: 0 | 1;
+  /** Which generic data sources returned data */
+  dataSources: DataSourceLabel[];
+  meetingTitle: string;
+}
+
 // ─── Feature Requests ─────────────────────────────────────────────────────────
 
 export interface FeatureRequest {
@@ -100,4 +120,5 @@ export type PopupToBackground =
   | { type: 'GET_CURRENT_MEETING' }
   | { type: 'GET_CACHE_STATS' }
   | { type: 'CLEAR_CACHE' }
+  | { type: 'GET_ACTIVITY_LOG' }
   | { type: 'PING' };

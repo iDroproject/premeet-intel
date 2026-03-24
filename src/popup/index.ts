@@ -1,7 +1,7 @@
 // PreMeet popup entry point
 // Renders enriched meeting attendees and feature requests. Communicates with the background SW.
 
-import type { MeetingEvent, EnrichedAttendee, BackgroundToPopup, FeatureRequest, Settings } from '../types';
+import type { MeetingEvent, EnrichedAttendee, BackgroundToPopup, FeatureRequest, Settings, ActivityLogEntry, DataSourceLabel } from '../types';
 import { getCredits, remainingCredits } from '../utils/credits';
 import {
   getFeatureRequests,
@@ -10,6 +10,7 @@ import {
   addFeatureRequest,
 } from '../utils/featureRequests';
 import { getSettings, saveSettings } from '../utils/settings';
+import { getActivityLog } from '../utils/activityLog';
 
 const LOG = '[PreMeet][Popup]';
 
@@ -29,9 +30,12 @@ const Els = {
   credits:        $('pm-credits'),
   // Tabs
   tabAttendees:   $('pm-tab-attendees'),
+  tabActivity:    $('pm-tab-activity'),
   tabFeatures:    $('pm-tab-features'),
   panelAttendees: $('pm-panel-attendees'),
+  panelActivity:  $('pm-panel-activity'),
   panelFeatures:  $('pm-panel-features'),
+  activityList:   $('pm-activity-list'),
   // Feature requests
   addToggle:      $('pm-add-toggle'),
   addForm:        $('pm-add-form'),
@@ -71,32 +75,42 @@ function initials(name: string): string {
 
 // ─── Credits Display ──────────────────────────────────────────────────────────
 
+function nextResetLabel(resetMonth: string): string {
+  const [y, m] = resetMonth.split('-').map(Number);
+  const next = new Date(y, m, 1); // month is 0-indexed, so m (1-indexed) gives next month
+  return next.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 async function refreshCredits(): Promise<void> {
   if (!Els.credits) return;
   const credits = await getCredits();
   const remaining = remainingCredits(credits);
   if (credits.plan === 'pro') {
     Els.credits.textContent = 'Pro';
-    Els.credits.classList.remove('pm-hidden', 'pm-credits--low');
+    Els.credits.classList.remove('pm-hidden', 'pm-credits--low', 'pm-credits--warn');
   } else {
-    Els.credits.textContent = `${remaining}/${credits.limit} left`;
+    const resetLabel = nextResetLabel(credits.resetMonth);
+    Els.credits.innerHTML = `${remaining}/${credits.limit} briefs left<span class="pm-credits__reset">Resets ${escapeHtml(resetLabel)}</span>`;
     Els.credits.classList.remove('pm-hidden');
-    Els.credits.classList.toggle('pm-credits--low', remaining <= 2);
+    Els.credits.classList.toggle('pm-credits--warn', remaining <= 3 && remaining > 1);
+    Els.credits.classList.toggle('pm-credits--low', remaining <= 1);
   }
 }
 
 // ─── Tab Management ───────────────────────────────────────────────────────────
 
-type Tab = 'attendees' | 'features';
+type Tab = 'attendees' | 'activity' | 'features';
 
 function switchTab(tab: Tab): void {
-  const isAttendees = tab === 'attendees';
-  Els.tabAttendees?.classList.toggle('pm-tab--active', isAttendees);
-  Els.tabFeatures?.classList.toggle('pm-tab--active', !isAttendees);
-  Els.panelAttendees?.classList.toggle('pm-hidden', !isAttendees);
-  Els.panelFeatures?.classList.toggle('pm-hidden', isAttendees);
+  Els.tabAttendees?.classList.toggle('pm-tab--active', tab === 'attendees');
+  Els.tabActivity?.classList.toggle('pm-tab--active', tab === 'activity');
+  Els.tabFeatures?.classList.toggle('pm-tab--active', tab === 'features');
+  Els.panelAttendees?.classList.toggle('pm-hidden', tab !== 'attendees');
+  Els.panelActivity?.classList.toggle('pm-hidden', tab !== 'activity');
+  Els.panelFeatures?.classList.toggle('pm-hidden', tab !== 'features');
 
-  if (!isAttendees) loadFeatureRequests();
+  if (tab === 'features') loadFeatureRequests();
+  if (tab === 'activity') loadActivityLog();
 }
 
 // ─── Attendee View Management ─────────────────────────────────────────────────
@@ -199,6 +213,76 @@ function renderFeatureRequests(requests: FeatureRequest[]): void {
 async function loadFeatureRequests(): Promise<void> {
   const requests = await getFeatureRequests();
   renderFeatureRequests(requests);
+}
+
+// ─── Activity Log Render ─────────────────────────────────────────────────────
+
+const SOURCE_ABBREV: Record<DataSourceLabel, string> = {
+  'Web Search': 'WS',
+  'Profile Lookup': 'PL',
+  'Profile Scraper': 'PS',
+  'Business Data': 'BD',
+  'Cache': 'C',
+};
+
+function relativeTime(ts: number): string {
+  const diff = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
+  success: { cls: 'pm-badge--success', label: 'OK' },
+  partial: { cls: 'pm-badge--partial', label: 'Partial' },
+  failed:  { cls: 'pm-badge--failed',  label: 'Failed' },
+  cached:  { cls: 'pm-badge--cached',  label: 'Cached' },
+};
+
+function renderActivityLog(entries: ActivityLogEntry[]): void {
+  if (!Els.activityList) return;
+  Els.activityList.innerHTML = '';
+
+  if (entries.length === 0) {
+    Els.activityList.innerHTML = `
+      <div class="pm-state">
+        <div class="pm-state__icon">&#128220;</div>
+        <div class="pm-state__title">No activity yet</div>
+        <div class="pm-state__body">Enrichment history will appear here after your first meeting brief.</div>
+      </div>`;
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'pm-log-item';
+
+    const badge = STATUS_BADGE[entry.status] ?? STATUS_BADGE.failed;
+    const sources = entry.dataSources
+      .map((s) => `<span class="pm-source-icon" title="${escapeHtml(s)}">${SOURCE_ABBREV[s] ?? '?'}</span>`)
+      .join('');
+
+    row.innerHTML = `
+      <span class="pm-log__time">${escapeHtml(relativeTime(entry.timestamp))}</span>
+      <div class="pm-log__info">
+        <div class="pm-log__name">${escapeHtml(entry.attendeeName || entry.attendeeEmail)}</div>
+        <div class="pm-log__meeting">${escapeHtml(entry.meetingTitle)}</div>
+      </div>
+      <div class="pm-log__meta">
+        <span class="pm-badge ${badge.cls}">${badge.label}</span>
+        <div class="pm-log__sources">${sources}</div>
+        <span class="pm-log__credit">${entry.creditsUsed === 0 ? '0cr' : '1cr'}</span>
+      </div>
+    `;
+
+    Els.activityList!.appendChild(row);
+  });
+}
+
+async function loadActivityLog(): Promise<void> {
+  const entries = await getActivityLog();
+  renderActivityLog(entries);
 }
 
 // ─── Settings Panel ──────────────────────────────────────────────────────────
@@ -311,6 +395,7 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
 function wireEvents(): void {
   // Tab switching
   Els.tabAttendees?.addEventListener('click', () => switchTab('attendees'));
+  Els.tabActivity?.addEventListener('click', () => switchTab('activity'));
   Els.tabFeatures?.addEventListener('click', () => switchTab('features'));
 
   // Add feature form toggle

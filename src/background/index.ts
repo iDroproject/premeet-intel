@@ -8,6 +8,8 @@ import { enrichAttendee } from './enrichment';
 import { hasCredit, useCredit } from '../utils/credits';
 import { WaterfallOrchestrator, CacheManager } from './enrichment/index';
 import type { PersonData, ProgressPayload } from './enrichment/types';
+import { addLogEntry, getActivityLog } from '../utils/activityLog';
+import type { ActivityLogEntry, DataSourceLabel } from '../types';
 
 const LOG = '[PreMeet][SW]';
 
@@ -83,9 +85,60 @@ chrome.runtime.onMessage.addListener(
       return true;
     }
 
+    if (msg.type === 'GET_ACTIVITY_LOG') {
+      getActivityLog().then((entries) => sendResponse({ ok: true, entries })).catch(() => sendResponse({ ok: false }));
+      return true;
+    }
+
     return false;
   },
 );
+
+// ─── Activity Logging ────────────────────────────────────────────────────────
+
+function resolveDataSources(personData: PersonData | null, fromCache: boolean): DataSourceLabel[] {
+  if (fromCache) return ['Cache'];
+  if (!personData) return [];
+  const sources: DataSourceLabel[] = [];
+  // Map internal _source to generic labels
+  if (personData._source === 'scraper') sources.push('Profile Scraper');
+  if (personData._source === 'filter') sources.push('Business Data');
+  // If we have LinkedIn data, profile lookup/search was used
+  if (personData.linkedinUrl) sources.push('Web Search', 'Profile Lookup');
+  // Deduplicate
+  return [...new Set(sources)];
+}
+
+function buildLogEntry(
+  attendeeName: string,
+  attendeeEmail: string,
+  meetingTitle: string,
+  status: 'done' | 'error',
+  personData: PersonData | null,
+  fromCache: boolean,
+): ActivityLogEntry {
+  let logStatus: ActivityLogEntry['status'];
+  if (fromCache) {
+    logStatus = 'cached';
+  } else if (status === 'error') {
+    logStatus = 'failed';
+  } else if (personData && personData._confidence === 'low') {
+    logStatus = 'partial';
+  } else {
+    logStatus = 'success';
+  }
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: Date.now(),
+    attendeeName,
+    attendeeEmail,
+    status: logStatus,
+    creditsUsed: fromCache ? 0 : 1,
+    dataSources: resolveDataSources(personData, fromCache),
+    meetingTitle,
+  };
+}
 
 // ─── Waterfall Enrichment Pipeline ───────────────────────────────────────────
 
@@ -274,6 +327,18 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
         type: 'ATTENDEE_UPDATE',
         payload: { email: attendee.email, attendee: currentEnriched[i] },
       });
+
+      // Log the enrichment result
+      const ea = currentEnriched[i];
+      const logEntry = buildLogEntry(
+        attendee.name,
+        attendee.email,
+        meeting.title,
+        ea.status === 'error' ? 'error' : 'done',
+        ea.personData ?? null,
+        ea.fromCache ?? false,
+      );
+      addLogEntry(logEntry).catch((err) => console.warn(LOG, 'Failed to write activity log:', err));
     }
 
     await useCredit();
