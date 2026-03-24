@@ -84,7 +84,7 @@
       .pm-card:last-child { border-bottom: none; }
 
       .pm-avatar {
-        width: 42px; height: 42px; border-radius: 50%;
+        width: 48px; height: 48px; border-radius: 50%;
         background: #dbeafe; color: #1d4ed8;
         display: flex; align-items: center; justify-content: center;
         font-size: 15px; font-weight: 600; flex-shrink: 0;
@@ -100,28 +100,122 @@
       .pm-card__company { font-size: 13px; color: #374151; margin-top: 5px; font-weight: 500; }
       .pm-card__email { font-size: 11px; color: #9ca3af; margin-top: 3px; }
 
+      /* ── Progress stepper ── */
+      .pm-stepper {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 20px;
+        background: #f9fafb;
+        border-bottom: 1px solid #f3f4f6;
+      }
+      .pm-step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        flex: 1;
+        position: relative;
+      }
+      .pm-step__dot {
+        width: 24px; height: 24px; border-radius: 50%;
+        background: #e5e7eb;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 11px; color: #9ca3af;
+        transition: all 0.3s ease;
+      }
+      .pm-step__label {
+        font-size: 10px; color: #9ca3af;
+        white-space: nowrap;
+        transition: color 0.3s ease;
+      }
+      .pm-step--active .pm-step__dot {
+        background: #2563eb; color: #fff;
+        animation: pm-dot-pulse 1.4s ease-in-out infinite;
+      }
+      .pm-step--active .pm-step__label { color: #2563eb; font-weight: 600; }
+      .pm-step--done .pm-step__dot {
+        background: #16a34a; color: #fff;
+      }
+      .pm-step--done .pm-step__label { color: #16a34a; }
+      .pm-step__connector {
+        position: absolute;
+        top: 12px; left: calc(50% + 16px); right: calc(-50% + 16px);
+        height: 2px; background: #e5e7eb;
+        transition: background 0.3s ease;
+      }
+      .pm-step--done .pm-step__connector { background: #16a34a; }
+      @keyframes pm-dot-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(37,99,235,0.4); } 50% { box-shadow: 0 0 0 6px rgba(37,99,235,0); } }
+
+      /* ── Attendee counter ── */
+      .pm-counter {
+        padding: 8px 20px;
+        font-size: 12px;
+        color: #6b7280;
+        background: #fafbfc;
+        border-bottom: 1px solid #f3f4f6;
+      }
+
       /* ── Skeleton loading ── */
       .pm-card--pending .pm-avatar {
+        width: 48px; height: 48px;
         background: #f3f4f6;
         color: transparent;
-        animation: pm-pulse 1.4s ease-in-out infinite;
+        animation: pm-shimmer 1.4s ease-in-out infinite;
       }
       .pm-card--pending .pm-card__name {
         background: #f3f4f6; border-radius: 4px; color: transparent;
-        width: 140px; height: 16px;
-        animation: pm-pulse 1.4s ease-in-out infinite;
+        width: 120px; height: 16px;
+        animation: pm-shimmer 1.4s ease-in-out infinite;
       }
       .pm-card--pending .pm-card__title {
         background: #f3f4f6; border-radius: 3px; color: transparent;
-        width: 100px; height: 12px;
-        animation: pm-pulse 1.4s ease-in-out infinite 0.1s;
+        width: 160px; height: 12px;
+        animation: pm-shimmer 1.4s ease-in-out infinite 0.1s;
       }
       .pm-card--pending .pm-card__company {
         background: #f3f4f6; border-radius: 3px; color: transparent;
-        width: 120px; height: 13px;
-        animation: pm-pulse 1.4s ease-in-out infinite 0.2s;
+        width: 100px; height: 12px;
+        animation: pm-shimmer 1.4s ease-in-out infinite 0.2s;
+      }
+      @keyframes pm-shimmer {
+        0% { background-position: -200px 0; }
+        100% { background-position: 200px 0; }
+      }
+      .pm-card--pending .pm-avatar,
+      .pm-card--pending .pm-card__name,
+      .pm-card--pending .pm-card__title,
+      .pm-card--pending .pm-card__company {
+        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+        background-size: 400px 100%;
       }
       @keyframes pm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+      /* ── Progressive data fill ── */
+      .pm-card__name.pm-fadein,
+      .pm-card__title.pm-fadein,
+      .pm-card__company.pm-fadein {
+        animation: pm-data-fadein 200ms ease-out;
+      }
+      @keyframes pm-data-fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+
+      /* ── Cache hit flash ── */
+      .pm-card--cache-hit {
+        animation: pm-cache-flash 600ms ease-out;
+      }
+      @keyframes pm-cache-flash { 0% { background: rgba(22,163,74,0.15); } 100% { background: transparent; } }
+
+      /* ── Usable state: green left-border when LinkedIn data arrives ── */
+      .pm-card--usable {
+        border-left: 3px solid #16a34a;
+      }
+
+      /* ── Complete state: full green border ── */
+      .pm-card--complete {
+        border: 1px solid #16a34a;
+        border-radius: 4px;
+        margin: 4px 8px;
+      }
 
       /* ── Footer ── */
       .pm-footer {
@@ -144,11 +238,38 @@
       <div class="pm-header__info">
         <div class="pm-header__title">PreMeet</div>
         <div class="pm-header__meeting" id="pm-meeting-title"></div>
+        <div class="pm-header__meeting" id="pm-attendee-count" style="font-size:11px;opacity:0.7;"></div>
       </div>
       <div class="pm-credits pm-hidden" id="pm-credits"></div>
     </header>
 
     <div class="pm-loading-bar pm-hidden" id="pm-loading-bar"></div>
+
+    <!-- Progress stepper -->
+    <div class="pm-stepper pm-hidden" id="pm-stepper">
+      <div class="pm-step" data-step="searching">
+        <div class="pm-step__dot">1</div>
+        <div class="pm-step__label">Searching</div>
+        <div class="pm-step__connector"></div>
+      </div>
+      <div class="pm-step" data-step="resolving">
+        <div class="pm-step__dot">2</div>
+        <div class="pm-step__label">Resolving</div>
+        <div class="pm-step__connector"></div>
+      </div>
+      <div class="pm-step" data-step="enriching">
+        <div class="pm-step__dot">3</div>
+        <div class="pm-step__label">Enriching</div>
+        <div class="pm-step__connector"></div>
+      </div>
+      <div class="pm-step" data-step="complete">
+        <div class="pm-step__dot">4</div>
+        <div class="pm-step__label">Complete</div>
+      </div>
+    </div>
+
+    <!-- Attendee counter -->
+    <div class="pm-counter pm-hidden" id="pm-counter"></div>
 
     <!-- Empty state -->
     <div class="pm-state" id="pm-empty">

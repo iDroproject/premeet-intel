@@ -3,8 +3,8 @@
 // Supports both the basic enrichment pipeline (MEETING_DETECTED) and the
 // full waterfall enrichment pipeline (FETCH_PERSON_BACKGROUND).
 
-import type { MeetingEvent, EnrichedAttendee, ContentToBackground, PopupToBackground } from '../types';
-import { enrichAll } from './enrichment';
+import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, ContentToBackground, PopupToBackground } from '../types';
+import { enrichAttendee } from './enrichment';
 import { hasCredit, useCredit } from '../utils/credits';
 import { WaterfallOrchestrator, CacheManager } from './enrichment/index';
 import type { PersonData, ProgressPayload } from './enrichment/types';
@@ -138,8 +138,10 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
     person: null,
     enrichedAt: Date.now(),
     status: 'pending' as const,
+    stage: 'searching' as EnrichmentStage,
   }));
 
+  // Broadcast initial state with all attendees as pending/skeleton
   broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: currentEnriched } });
 
   if (senderTabId != null) {
@@ -157,18 +159,64 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
         person: null,
         enrichedAt: Date.now(),
         status: 'error' as const,
+        stage: 'complete' as EnrichmentStage,
         error: 'Monthly enrichment limit reached. Upgrade to Pro for unlimited enrichments.',
       }));
       broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: currentEnriched } });
       return;
     }
 
-    const enriched = await enrichAll(meeting.attendees);
-    currentEnriched = enriched;
+    // Enrich attendees one by one, broadcasting per-attendee updates
+    for (let i = 0; i < meeting.attendees.length; i++) {
+      const attendee = meeting.attendees[i];
+
+      // Broadcast "resolving" stage for this attendee
+      currentEnriched[i] = {
+        ...currentEnriched[i],
+        stage: 'resolving',
+      };
+      broadcastToPopups({
+        type: 'ATTENDEE_UPDATE',
+        payload: { email: attendee.email, attendee: currentEnriched[i] },
+      });
+
+      try {
+        // Broadcast "enriching" stage
+        currentEnriched[i] = { ...currentEnriched[i], stage: 'enriching' };
+        broadcastToPopups({
+          type: 'ATTENDEE_UPDATE',
+          payload: { email: attendee.email, attendee: currentEnriched[i] },
+        });
+
+        const enriched = await enrichAttendee(attendee);
+
+        // Detect cache hit (enriched very quickly with data = likely cached)
+        const fromCache = enriched.person !== null && (Date.now() - enriched.enrichedAt) < 100;
+
+        currentEnriched[i] = {
+          ...enriched,
+          stage: 'complete',
+          fromCache,
+          hasLinkedIn: enriched.person !== null,
+        };
+      } catch (err) {
+        console.error(LOG, `Enrichment failed for ${attendee.email}:`, err);
+        currentEnriched[i] = {
+          ...currentEnriched[i],
+          status: 'error',
+          stage: 'complete',
+          error: (err as Error).message,
+        };
+      }
+
+      // Broadcast completed attendee
+      broadcastToPopups({
+        type: 'ATTENDEE_UPDATE',
+        payload: { email: attendee.email, attendee: currentEnriched[i] },
+      });
+    }
 
     await useCredit();
-
-    broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: enriched } });
     notifyContentScript({ type: 'ENRICHMENT_COMPLETE' });
 
     console.log(LOG, `Enrichment complete for "${meeting.title}"`);

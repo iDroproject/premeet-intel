@@ -26,11 +26,20 @@ export interface Company {
   description: string | null;
 }
 
+/** Enrichment stage for the progress stepper */
+export type EnrichmentStage = 'searching' | 'resolving' | 'enriching' | 'complete';
+
 export interface EnrichedAttendee extends Attendee {
   person: Person | null;
   enrichedAt: number;
   status: 'pending' | 'done' | 'error';
   error?: string;
+  /** Current enrichment stage for progress display */
+  stage?: EnrichmentStage;
+  /** Whether this result came from cache */
+  fromCache?: boolean;
+  /** Whether LinkedIn data has been resolved (usable state) */
+  hasLinkedIn?: boolean;
 }
 
 // ─── Credits ─────────────────────────────────────────────────────────────────
@@ -64,6 +73,7 @@ export type ContentToBackground =
 
 export type BackgroundToPopup =
   | { type: 'MEETING_UPDATE'; payload: { meeting: MeetingEvent; attendees: EnrichedAttendee[] } }
+  | { type: 'ATTENDEE_UPDATE'; payload: { email: string; attendee: EnrichedAttendee } }
   | { type: 'ENRICHMENT_PROGRESS'; payload: { email: string; attendee: EnrichedAttendee } }
   | { type: 'FETCH_PROGRESS'; payload: unknown }
   | { type: 'INTERIM_PERSON_DATA'; payload: unknown }
