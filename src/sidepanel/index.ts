@@ -185,7 +185,8 @@ function showView(view: View): void {
   Els.list?.classList.toggle(hidden, view !== 'list');
   Els.footer?.classList.toggle(hidden, view !== 'list');
   Els.error?.classList.toggle(hidden, view !== 'error');
-  Els.stepper?.classList.toggle(hidden, view !== 'list');
+  // Stepper visibility is controlled by updateStepper() — hide by default
+  Els.stepper?.classList.toggle(hidden, true);
   Els.counter?.classList.toggle(hidden, view !== 'list');
 }
 
@@ -200,10 +201,16 @@ const STAGE_ORDER: EnrichmentStage[] = ['searching', 'resolving', 'enriching', '
 function updateStepper(): void {
   if (!Els.stepper) return;
 
+  // Hide stepper entirely if no attendee has started enrichment
+  const anyEnriching = [...attendeeMap.values()].some((a) => a.status === 'pending' || a.status === 'done' || a.status === 'error');
+  Els.stepper.classList.toggle('pm-hidden', !anyEnriching);
+  if (!anyEnriching) return;
+
   let highestIdx = -1;
   let allDone = true;
   for (const a of attendeeMap.values()) {
     if (a.status === 'pending') allDone = false;
+    if (a.status === 'idle') continue; // idle attendees don't affect stepper
     const stage = a.stage || (a.status === 'done' ? 'complete' : 'searching');
     const idx = STAGE_ORDER.indexOf(stage);
     if (idx > highestIdx) highestIdx = idx;
@@ -235,13 +242,15 @@ function updateStepper(): void {
 function updateCounter(): void {
   if (!Els.counter) return;
   const total = attendeeMap.size;
-  const done = [...attendeeMap.values()].filter((a) => a.status === 'done' || a.status === 'error').length;
-  const pending = total - done;
+  const enriched = [...attendeeMap.values()].filter((a) => a.status === 'done' || a.status === 'error').length;
+  const enriching = [...attendeeMap.values()].filter((a) => a.status === 'pending').length;
 
-  if (pending > 0) {
-    Els.counter.textContent = `Enriching ${done} of ${total} attendees\u2026`;
+  if (enriching > 0) {
+    Els.counter.textContent = `Enriching\u2026 ${enriched} of ${total} attendees`;
+  } else if (enriched > 0) {
+    Els.counter.textContent = `${enriched} of ${total} attendee${total !== 1 ? 's' : ''} enriched`;
   } else {
-    Els.counter.textContent = `${total} attendee${total !== 1 ? 's' : ''} enriched`;
+    Els.counter.textContent = `${total} attendee${total !== 1 ? 's' : ''} \u2014 click a card to enrich`;
   }
 }
 
@@ -395,6 +404,7 @@ function createCardElement(attendee: EnrichedAttendee): HTMLElement {
 }
 
 function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void {
+  const isIdle = attendee.status === 'idle';
   const isPending = attendee.status === 'pending';
   const isDone = attendee.status === 'done';
   const pd = attendee.personData;
@@ -407,6 +417,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
 
   // Build class list
   const classes = ['pm-card'];
+  if (isIdle) classes.push('pm-card--idle');
   if (isPending) classes.push('pm-card--pending');
   if (attendee.fromCache) classes.push('pm-card--cache-hit');
   if (attendee.hasLinkedIn && !isDone) classes.push('pm-card--usable');
@@ -510,6 +521,21 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
 // ─── Event Delegation for Card Interactions ──────────────────────────────────
 
 function attachCardListeners(card: HTMLElement, key: string): void {
+  // Click-to-enrich: clicking the card header triggers enrichment for idle attendees
+  const header = card.querySelector<HTMLElement>('.pm-card__header');
+  if (header) {
+    header.addEventListener('click', (e) => {
+      // Don't trigger enrichment if clicking a link or the confidence badge
+      const target = e.target as HTMLElement;
+      if (target.closest('a') || target.closest('[data-confidence-click]')) return;
+
+      const attendee = attendeeMap.get(key);
+      if (attendee?.status !== 'idle') return;
+
+      chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: attendee.email } });
+    });
+  }
+
   // Confidence ring click → open modal
   const confBadge = card.querySelector<HTMLElement>('[data-confidence-click]');
   if (confBadge) {
@@ -586,8 +612,7 @@ function renderAllAttendees(meeting: MeetingEvent, attendees: EnrichedAttendee[]
   if (!Els.list) return;
 
   Els.list.innerHTML = '';
-  const isAnyPending = attendees.some((a) => a.status === 'pending');
-  setLoading(isAnyPending);
+  setLoading(false);
 
   for (const attendee of attendees) {
     const key = attendeeKey(attendee);

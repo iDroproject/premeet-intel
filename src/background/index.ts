@@ -70,6 +70,12 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
+    if (msg.type === 'ENRICH_ATTENDEE') {
+      handleEnrichSingleAttendee(msg.payload.email, sender.tab?.id);
+      sendResponse({ ok: true });
+      return false;
+    }
+
     if (msg.type === 'FETCH_PERSON_BACKGROUND') {
       handleFetchPersonBackground(msg.payload, sender.tab?.id);
       sendResponse({ ok: true });
@@ -216,15 +222,14 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
   console.log(LOG, `Meeting detected: "${meeting.title}" with ${meeting.attendees.length} attendee(s)`);
 
   currentMeeting = meeting;
+  // Show attendees immediately as idle — no enrichment until user clicks a card
   currentEnriched = meeting.attendees.map((a) => ({
     ...a,
     person: null,
     enrichedAt: Date.now(),
-    status: 'pending' as const,
-    stage: 'searching' as EnrichmentStage,
+    status: 'idle' as const,
   }));
 
-  // Broadcast initial state with all attendees as pending/skeleton
   broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: currentEnriched } });
 
   if (senderTabId != null) {
@@ -232,149 +237,131 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
       console.warn(LOG, 'Could not auto-open side panel:', err);
     });
   }
+}
 
+// ─── Single-Attendee On-Demand Enrichment ──────────────────────────────────
+
+async function handleEnrichSingleAttendee(email: string, _senderTabId?: number): Promise<void> {
+  if (!currentMeeting) return;
+
+  const idx = currentEnriched.findIndex((a) => a.email.toLowerCase() === email.toLowerCase());
+  if (idx === -1) return;
+
+  // Skip if already enriching or done
+  if (currentEnriched[idx].status === 'pending' || currentEnriched[idx].status === 'done') return;
+
+  const attendee = currentMeeting.attendees[idx];
+  console.log(LOG, `On-demand enrich for: "${attendee.name}" <${attendee.email}>`);
+
+  // Check credits
   try {
     const creditAvailable = await hasCredit();
     if (!creditAvailable) {
-      console.warn(LOG, 'No enrichment credits remaining this month.');
+      console.warn(LOG, 'No enrichment credits remaining.');
       const credits = await getCredits();
-      // Compute next reset date (first of next month)
       const [y, m] = credits.resetMonth.split('-').map(Number);
-      const nextReset = new Date(y, m, 1); // m is 1-indexed so this gives next month
+      const nextReset = new Date(y, m, 1);
       const resetDate = nextReset.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      currentEnriched = [];
-      broadcastToPopups({ type: 'CREDITS_EXHAUSTED', payload: { meeting, resetDate } });
+      broadcastToPopups({ type: 'CREDITS_EXHAUSTED', payload: { meeting: currentMeeting, resetDate } });
       return;
     }
+  } catch (err) {
+    console.error(LOG, 'Credit check failed:', err);
+    return;
+  }
 
-    // Enrich attendees one by one, broadcasting per-attendee updates
-    for (let i = 0; i < meeting.attendees.length; i++) {
-      const attendee = meeting.attendees[i];
+  // Mark as pending/searching
+  currentEnriched[idx] = { ...currentEnriched[idx], status: 'pending', stage: 'searching' };
+  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
 
-      // Broadcast "resolving" stage for this attendee
-      currentEnriched[i] = {
-        ...currentEnriched[i],
-        stage: 'resolving',
-      };
-      broadcastToPopups({
-        type: 'ATTENDEE_UPDATE',
-        payload: { email: attendee.email, attendee: currentEnriched[i] },
-      });
+  // Resolving stage
+  currentEnriched[idx] = { ...currentEnriched[idx], stage: 'resolving' };
+  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
 
+  try {
+    // Enriching stage
+    currentEnriched[idx] = { ...currentEnriched[idx], stage: 'enriching' };
+    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+
+    const apiToken = await resolveApiToken();
+    let personData: PersonData | null = null;
+
+    if (apiToken) {
       try {
-        // Broadcast "enriching" stage
-        currentEnriched[i] = { ...currentEnriched[i], stage: 'enriching' };
-        broadcastToPopups({
-          type: 'ATTENDEE_UPDATE',
-          payload: { email: attendee.email, attendee: currentEnriched[i] },
-        });
-
-        // Try waterfall pipeline first (produces rich PersonData) if API token is available
-        const apiToken = await resolveApiToken();
-        let personData: PersonData | null = null;
-
-        if (apiToken) {
-          try {
-            const orchestrator = new WaterfallOrchestrator(cache, apiToken);
-            orchestrator.onInterimResult = (interim: PersonData) => {
-              // Broadcast interim data so the card progressively fills
-              currentEnriched[i] = {
-                ...currentEnriched[i],
-                personData: interim,
-                hasLinkedIn: !!interim.linkedinUrl,
-                person: {
-                  name: interim.name,
-                  email: attendee.email,
-                  title: interim.currentTitle,
-                  company: interim.currentCompany ? {
-                    name: interim.currentCompany,
-                    domain: '',
-                    website: interim.companyWebsite,
-                    description: interim.companyDescription,
-                  } : null,
-                },
-              };
-              broadcastToPopups({
-                type: 'ATTENDEE_UPDATE',
-                payload: { email: attendee.email, attendee: currentEnriched[i] },
-              });
-            };
-            personData = await orchestrator.fetch({
-              name: attendee.name,
-              email: attendee.email,
-              company: attendee.company || '',
-            });
-          } catch (waterfallErr) {
-            console.warn(LOG, `Waterfall failed for ${attendee.email}, falling back to basic:`, (waterfallErr as Error).message);
-          }
-        }
-
-        // Fall back to basic enrichment if waterfall didn't produce data
-        if (!personData) {
-          const enriched = await enrichAttendee(attendee);
-          const fromCache = enriched.person !== null && (Date.now() - enriched.enrichedAt) < 100;
-          currentEnriched[i] = {
-            ...enriched,
-            stage: 'complete',
-            fromCache,
-            hasLinkedIn: enriched.person !== null,
-          };
-        } else {
-          currentEnriched[i] = {
-            ...currentEnriched[i],
-            status: 'done',
-            stage: 'complete',
-            personData,
-            hasLinkedIn: !!personData.linkedinUrl,
-            fromCache: false,
+        const orchestrator = new WaterfallOrchestrator(cache, apiToken);
+        orchestrator.onInterimResult = (interim: PersonData) => {
+          currentEnriched[idx] = {
+            ...currentEnriched[idx],
+            personData: interim,
+            hasLinkedIn: !!interim.linkedinUrl,
             person: {
-              name: personData.name,
+              name: interim.name,
               email: attendee.email,
-              title: personData.currentTitle,
-              company: personData.currentCompany ? {
-                name: personData.currentCompany,
+              title: interim.currentTitle,
+              company: interim.currentCompany ? {
+                name: interim.currentCompany,
                 domain: '',
-                website: personData.companyWebsite,
-                description: personData.companyDescription,
+                website: interim.companyWebsite,
+                description: interim.companyDescription,
               } : null,
             },
           };
-        }
-      } catch (err) {
-        console.error(LOG, `Enrichment failed for ${attendee.email}:`, err);
-        currentEnriched[i] = {
-          ...currentEnriched[i],
-          status: 'error',
-          stage: 'complete',
-          error: (err as Error).message,
+          broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
         };
+        personData = await orchestrator.fetch({
+          name: attendee.name,
+          email: attendee.email,
+          company: attendee.company || '',
+        });
+      } catch (waterfallErr) {
+        console.warn(LOG, `Waterfall failed for ${email}, falling back to basic:`, (waterfallErr as Error).message);
       }
-
-      // Broadcast completed attendee
-      broadcastToPopups({
-        type: 'ATTENDEE_UPDATE',
-        payload: { email: attendee.email, attendee: currentEnriched[i] },
-      });
-
-      // Log the enrichment result
-      const ea = currentEnriched[i];
-      const logEntry = buildLogEntry(
-        attendee.name,
-        attendee.email,
-        meeting.title,
-        ea.status === 'error' ? 'error' : 'done',
-        ea.personData ?? null,
-        ea.fromCache ?? false,
-      );
-      addLogEntry(logEntry).catch((err) => console.warn(LOG, 'Failed to write activity log:', err));
     }
 
-    await useCredit();
-    notifyContentScript({ type: 'ENRICHMENT_COMPLETE' });
-
-    console.log(LOG, `Enrichment complete for "${meeting.title}"`);
+    if (!personData) {
+      const enriched = await enrichAttendee(attendee);
+      const fromCache = enriched.person !== null && (Date.now() - enriched.enrichedAt) < 100;
+      currentEnriched[idx] = { ...enriched, stage: 'complete', fromCache, hasLinkedIn: enriched.person !== null };
+    } else {
+      currentEnriched[idx] = {
+        ...currentEnriched[idx],
+        status: 'done',
+        stage: 'complete',
+        personData,
+        hasLinkedIn: !!personData.linkedinUrl,
+        fromCache: false,
+        person: {
+          name: personData.name,
+          email: attendee.email,
+          title: personData.currentTitle,
+          company: personData.currentCompany ? {
+            name: personData.currentCompany,
+            domain: '',
+            website: personData.companyWebsite,
+            description: personData.companyDescription,
+          } : null,
+        },
+      };
+    }
   } catch (err) {
-    console.error(LOG, 'Enrichment pipeline error:', err);
+    console.error(LOG, `Enrichment failed for ${email}:`, err);
+    currentEnriched[idx] = { ...currentEnriched[idx], status: 'error', stage: 'complete', error: (err as Error).message };
+  }
+
+  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+
+  // Log and consume credit
+  const ea = currentEnriched[idx];
+  const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, ea.status === 'error' ? 'error' : 'done', ea.personData ?? null, ea.fromCache ?? false);
+  addLogEntry(logEntry).catch((e) => console.warn(LOG, 'Failed to write activity log:', e));
+
+  await useCredit().catch((e) => console.warn(LOG, 'Failed to use credit:', e));
+
+  // Check if all attendees are now enriched
+  const allDone = currentEnriched.every((a) => a.status === 'done' || a.status === 'error');
+  if (allDone) {
+    notifyContentScript({ type: 'ENRICHMENT_COMPLETE' });
+    console.log(LOG, `All attendees enriched for "${currentMeeting.title}"`);
   }
 }
 

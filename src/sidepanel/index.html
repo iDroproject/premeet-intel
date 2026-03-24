@@ -493,6 +493,18 @@
         border-color: var(--pm-success);
       }
 
+      /* ── Idle state: clickable card ── */
+      .pm-card--idle {
+        cursor: pointer;
+      }
+      .pm-card--idle .pm-card__header {
+        cursor: pointer;
+      }
+      .pm-card--idle:hover {
+        border-color: var(--pm-primary);
+        box-shadow: 0 2px 12px rgba(79,70,229,0.12);
+      }
+
       /* ── Tab switch animation ── */
       @keyframes pm-slideIn {
         from { opacity: 0; transform: translateX(8px); }
