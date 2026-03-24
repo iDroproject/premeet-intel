@@ -123,6 +123,13 @@
       .pm-state__title { font-size: 13px; font-weight: 600; color: var(--pm-text); }
       .pm-state__body { font-size: 12px; color: var(--pm-text-secondary); line-height: 1.5; }
       .pm-hidden { display: none !important; }
+      .pm-btn--upgrade {
+        margin-top: 6px;
+        padding: 0 20px;
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 600;
+      }
 
       /* ── Loading bar ── */
       .pm-loading-bar {
@@ -521,6 +528,14 @@
         <div class="pm-state__icon">&#9888;&#65039;</div>
         <div class="pm-state__title">Something went wrong</div>
         <div class="pm-state__body" id="pm-error-msg">Could not load meeting data.</div>
+      </div>
+
+      <!-- No credits state -->
+      <div class="pm-state pm-hidden" id="pm-no-credits">
+        <div class="pm-state__icon">&#128274;</div>
+        <div class="pm-state__title">Free briefs used up</div>
+        <div class="pm-state__body">You've used all 10 free briefs this month.<br/>Credits reset <strong id="pm-credits-reset-date"></strong>.</div>
+        <a href="https://premeet.co/pricing" target="_blank" rel="noopener" class="pm-btn pm-btn--primary pm-btn--upgrade">Upgrade to Pro</a>
       </div>
 
       <!-- Attendee list -->

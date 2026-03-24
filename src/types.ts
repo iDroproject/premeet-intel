@@ -112,6 +112,7 @@ export type BackgroundToPopup =
   | { type: 'MEETING_UPDATE'; payload: { meeting: MeetingEvent; attendees: EnrichedAttendee[] } }
   | { type: 'ATTENDEE_UPDATE'; payload: { email: string; attendee: EnrichedAttendee } }
   | { type: 'ENRICHMENT_PROGRESS'; payload: { email: string; attendee: EnrichedAttendee } }
+  | { type: 'CREDITS_EXHAUSTED'; payload: { meeting: MeetingEvent; resetDate: string } }
   | { type: 'FETCH_PROGRESS'; payload: unknown }
   | { type: 'INTERIM_PERSON_DATA'; payload: unknown }
   | { type: 'PERSON_BACKGROUND_RESULT'; payload: unknown };

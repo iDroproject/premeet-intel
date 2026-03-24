@@ -5,7 +5,7 @@
 
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, ContentToBackground, PopupToBackground } from '../types';
 import { enrichAttendee } from './enrichment';
-import { hasCredit, useCredit } from '../utils/credits';
+import { hasCredit, useCredit, getCredits } from '../utils/credits';
 import { WaterfallOrchestrator, CacheManager } from './enrichment/index';
 import type { PersonData, ProgressPayload } from './enrichment/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
@@ -207,15 +207,13 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
     const creditAvailable = await hasCredit();
     if (!creditAvailable) {
       console.warn(LOG, 'No enrichment credits remaining this month.');
-      currentEnriched = meeting.attendees.map((a) => ({
-        ...a,
-        person: null,
-        enrichedAt: Date.now(),
-        status: 'error' as const,
-        stage: 'complete' as EnrichmentStage,
-        error: 'Monthly enrichment limit reached. Upgrade to Pro for unlimited enrichments.',
-      }));
-      broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: currentEnriched } });
+      const credits = await getCredits();
+      // Compute next reset date (first of next month)
+      const [y, m] = credits.resetMonth.split('-').map(Number);
+      const nextReset = new Date(y, m, 1); // m is 1-indexed so this gives next month
+      const resetDate = nextReset.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      currentEnriched = [];
+      broadcastToPopups({ type: 'CREDITS_EXHAUSTED', payload: { meeting, resetDate } });
       return;
     }
 

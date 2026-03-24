@@ -24,6 +24,8 @@ const Els = {
   empty:          $('pm-empty'),
   error:          $('pm-error'),
   errorMsg:       $('pm-error-msg'),
+  noCredits:      $('pm-no-credits'),
+  creditsResetDate: $('pm-credits-reset-date'),
   list:           $('pm-list'),
   footer:         $('pm-footer'),
   year:           $('pm-year'),
@@ -87,13 +89,24 @@ async function refreshCredits(): Promise<void> {
   const remaining = remainingCredits(credits);
   if (credits.plan === 'pro') {
     Els.credits.textContent = 'Pro';
-    Els.credits.classList.remove('pm-hidden', 'pm-credits--low', 'pm-credits--warn');
+    Els.credits.classList.remove('pm-hidden', 'pm-credits--low', 'pm-credits--warn', 'pm-credits--expandable');
   } else {
     const resetLabel = nextResetLabel(credits.resetMonth);
-    Els.credits.innerHTML = `${remaining}/${credits.limit} briefs left<span class="pm-credits__reset">Resets ${escapeHtml(resetLabel)}</span>`;
+    const isExhausted = remaining === 0;
+    Els.credits.innerHTML = isExhausted
+      ? `0/${credits.limit} — Upgrade`
+      : `${remaining}/${credits.limit} briefs left<span class="pm-credits__reset">Resets ${escapeHtml(resetLabel)}</span>`;
     Els.credits.classList.remove('pm-hidden');
     Els.credits.classList.toggle('pm-credits--warn', remaining <= 3 && remaining > 1);
-    Els.credits.classList.toggle('pm-credits--low', remaining <= 1);
+    Els.credits.classList.toggle('pm-credits--low', remaining <= 1 || isExhausted);
+    Els.credits.classList.toggle('pm-credits--expandable', isExhausted);
+    if (isExhausted) {
+      Els.credits.title = 'Upgrade to Pro for unlimited briefs';
+      Els.credits.onclick = () => window.open('https://premeet.co/pricing', '_blank');
+    } else {
+      Els.credits.title = '';
+      Els.credits.onclick = null;
+    }
   }
 }
 
@@ -115,7 +128,7 @@ function switchTab(tab: Tab): void {
 
 // ─── Attendee View Management ─────────────────────────────────────────────────
 
-type View = 'empty' | 'list' | 'error';
+type View = 'empty' | 'list' | 'error' | 'no-credits';
 
 function showView(view: View): void {
   const hidden = 'pm-hidden';
@@ -123,6 +136,7 @@ function showView(view: View): void {
   Els.list?.classList.toggle(hidden, view !== 'list');
   Els.footer?.classList.toggle(hidden, view !== 'list');
   Els.error?.classList.toggle(hidden, view !== 'error');
+  Els.noCredits?.classList.toggle(hidden, view !== 'no-credits');
 }
 
 function setLoading(on: boolean): void {
@@ -386,6 +400,19 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
   if (msg.type === 'MEETING_UPDATE') {
     const { meeting, attendees } = msg.payload;
     renderAttendees(meeting, attendees);
+    refreshCredits();
+  }
+  if (msg.type === 'CREDITS_EXHAUSTED') {
+    const { meeting, resetDate } = msg.payload;
+    if (Els.meetingTitle) {
+      Els.meetingTitle.textContent = meeting.title;
+      Els.meetingTitle.title = meeting.title;
+    }
+    if (Els.creditsResetDate) {
+      Els.creditsResetDate.textContent = resetDate;
+    }
+    setLoading(false);
+    showView('no-credits');
     refreshCredits();
   }
 });
