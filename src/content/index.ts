@@ -1,16 +1,62 @@
 // PreMeet content script — injected into Google Calendar pages
 // Detects calendar event popups, extracts attendees, and notifies the background SW.
+// Supports two trigger modes:
+//   - Auto (default): sends MEETING_DETECTED immediately on popup open
+//   - Manual: injects "Brief" / "Brief All" buttons; sends on click
 
-import type { Attendee, MeetingEvent, ContentToBackground } from '../types';
+import type { Attendee, MeetingEvent, ContentToBackground, TriggerMode } from '../types';
 import { initOnboarding, onMeetingDetected, onEnrichmentComplete } from './onboarding';
 import { cleanName, nameFromEmail, companyFromEmail, isContextValid } from './helpers';
+import { injectButtons, removeButtons } from './button-injector';
+import type { AttendeeWithElement } from './button-injector';
 
 const LOG = '[PreMeet][Content]';
 
+// ─── Trigger Mode State ─────────────────────────────────────────────────────
+
+let triggerMode: TriggerMode = 'auto';
+
+async function loadTriggerMode(): Promise<void> {
+  try {
+    const result = await chrome.storage.sync.get('pm_settings');
+    const settings = result.pm_settings;
+    if (settings && settings.triggerMode) {
+      triggerMode = settings.triggerMode;
+    }
+  } catch {
+    // Default to auto
+  }
+  console.log(LOG, 'Trigger mode:', triggerMode);
+}
+
+// Listen for settings changes so mode updates without reload
+function watchTriggerMode(): void {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync' || !changes.pm_settings) return;
+    const newSettings = changes.pm_settings.newValue;
+    if (newSettings && newSettings.triggerMode && newSettings.triggerMode !== triggerMode) {
+      const oldMode = triggerMode;
+      triggerMode = newSettings.triggerMode;
+      console.log(LOG, `Trigger mode changed: ${oldMode} → ${triggerMode}`);
+      // Clean up any injected buttons if switching to auto
+      if (triggerMode === 'auto') {
+        document.querySelectorAll('[data-pm-brief-all="true"]').forEach((el) => {
+          const popup = el.closest('[role="dialog"], [data-eventid], .OcVpRe, .V65ue');
+          if (popup) removeButtons(popup);
+        });
+      }
+    }
+  });
+}
+
 // ─── Extraction Strategies ────────────────────────────────────────────────────
 
-function extractViaDataAttributes(root: Element): Attendee[] {
-  const results: Attendee[] = [];
+interface AttendeeRaw extends Attendee {
+  element: Element | null;
+}
+
+function extractViaDataAttributes(root: Element): AttendeeRaw[] {
+  const results: AttendeeRaw[] = [];
   root.querySelectorAll<HTMLElement>('[data-email], [data-hovercard-id]').forEach((el) => {
     const email =
       el.dataset.email ||
@@ -18,39 +64,39 @@ function extractViaDataAttributes(root: Element): Attendee[] {
     if (!email || !email.includes('@')) return;
     let name = cleanName(el.getAttribute('aria-label') || el.textContent?.trim() || '');
     if (!name || name.includes('@')) name = nameFromEmail(email);
-    results.push({ name, email, company: companyFromEmail(email) });
+    results.push({ name, email, company: companyFromEmail(email), element: el });
   });
   return results;
 }
 
-function extractViaAriaLabels(root: Element): Attendee[] {
-  const results: Attendee[] = [];
+function extractViaAriaLabels(root: Element): AttendeeRaw[] {
+  const results: AttendeeRaw[] = [];
   const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
   root.querySelectorAll('[aria-label*="guest" i], [aria-label*="attendee" i], [aria-label*="invited" i]').forEach((section) => {
     const text = (section as HTMLElement).innerText || section.textContent || '';
     for (const email of text.match(EMAIL_RE) || []) {
-      results.push({ name: nameFromEmail(email), email, company: companyFromEmail(email) });
+      results.push({ name: nameFromEmail(email), email, company: companyFromEmail(email), element: section as Element });
     }
   });
   return results;
 }
 
-function extractViaMailtoLinks(root: Element): Attendee[] {
-  const results: Attendee[] = [];
+function extractViaMailtoLinks(root: Element): AttendeeRaw[] {
+  const results: AttendeeRaw[] = [];
   root.querySelectorAll<HTMLAnchorElement>('a[href^="mailto:"]').forEach((link) => {
     const email = link.href.replace('mailto:', '').split('?')[0].trim();
     if (!email.includes('@')) return;
     let name = link.textContent?.trim() || '';
     if (!name || name.includes('@')) name = nameFromEmail(email);
-    results.push({ name, email, company: companyFromEmail(email) });
+    results.push({ name, email, company: companyFromEmail(email), element: link });
   });
   return results;
 }
 
 const ATTENDEE_SELECTORS = ['.PoMeXc', '.PKKqje', '.xYjf6e', '[jsname="ESCLMb"]', '[jsname="haAclf"]'];
 
-function extractViaKnownClasses(root: Element): Attendee[] {
-  const results: Attendee[] = [];
+function extractViaKnownClasses(root: Element): AttendeeRaw[] {
+  const results: AttendeeRaw[] = [];
   ATTENDEE_SELECTORS.forEach((sel) => {
     root.querySelectorAll<HTMLElement>(sel).forEach((el) => {
       const email = el.dataset.email || el.getAttribute('title') || el.getAttribute('data-tooltip') || '';
@@ -60,20 +106,20 @@ function extractViaKnownClasses(root: Element): Attendee[] {
       );
       if (!email.includes('@') && !name) return;
       const resolvedEmail = email.includes('@') ? email : '';
-      results.push({ name: name || nameFromEmail(resolvedEmail), email: resolvedEmail, company: resolvedEmail ? companyFromEmail(resolvedEmail) : null });
+      results.push({ name: name || nameFromEmail(resolvedEmail), email: resolvedEmail, company: resolvedEmail ? companyFromEmail(resolvedEmail) : null, element: el });
     });
   });
   return results;
 }
 
-function extractAttendees(popup: Element): Attendee[] {
+function extractAttendees(popup: Element): AttendeeRaw[] {
   const strategies = [extractViaDataAttributes, extractViaAriaLabels, extractViaMailtoLinks, extractViaKnownClasses];
-  const all: Attendee[] = [];
+  const all: AttendeeRaw[] = [];
   for (const fn of strategies) {
     try { all.push(...fn(popup)); } catch { /* ignore */ }
   }
   // Deduplicate by email (fallback: name)
-  const seen = new Map<string, Attendee>();
+  const seen = new Map<string, AttendeeRaw>();
   for (const a of all) {
     const key = (a.email || a.name).toLowerCase();
     if (key && !seen.has(key)) seen.set(key, a);
@@ -84,11 +130,9 @@ function extractAttendees(popup: Element): Attendee[] {
 // ─── Title Extraction ─────────────────────────────────────────────────────────
 
 function extractTitle(popup: Element): string {
-  // Try common title element selectors in GCal event popups
   const titleEl =
     popup.querySelector<HTMLElement>('h1, [data-eventid] h1, .UblTBe, [jsname="r4nke"] .P7O229, [aria-label^="Event:"]');
   if (titleEl) return titleEl.textContent?.trim() || 'Meeting';
-  // Fallback: aria-label on the dialog itself
   const label = popup.getAttribute('aria-label') || '';
   if (label && !label.toLowerCase().includes('dialog')) return label.trim();
   return 'Meeting';
@@ -132,6 +176,19 @@ function sendMeetingDetected(meeting: MeetingEvent): void {
   });
 }
 
+function sendSingleBrief(attendee: Attendee): void {
+  if (!isContextValid()) return;
+  // Build a single-attendee meeting event
+  const meeting: MeetingEvent = { title: 'Meeting', attendees: [attendee] };
+  onMeetingDetected();
+  const msg: ContentToBackground = { type: 'MEETING_DETECTED', payload: meeting };
+  chrome.runtime.sendMessage(msg, () => {
+    if (chrome.runtime.lastError) {
+      console.warn(LOG, 'sendMessage error:', chrome.runtime.lastError.message);
+    }
+  });
+}
+
 // ─── Observer ────────────────────────────────────────────────────────────────
 
 const processed = new WeakSet<Element>();
@@ -147,9 +204,7 @@ function processPopup(popup: Element): void {
       const retried = extractAttendees(popup);
       if (retried.length > 0) {
         processed.add(popup);
-        const meeting: MeetingEvent = { title: extractTitle(popup), attendees: retried };
-        console.log(LOG, `Meeting detected: "${meeting.title}" (${retried.length} attendee(s))`);
-        sendMeetingDetected(meeting);
+        handlePopupWithAttendees(popup, retried);
       } else {
         processed.add(popup); // No guests — mark done to avoid loops
       }
@@ -158,9 +213,44 @@ function processPopup(popup: Element): void {
   }
 
   processed.add(popup);
-  const meeting: MeetingEvent = { title: extractTitle(popup), attendees };
-  console.log(LOG, `Meeting detected: "${meeting.title}" (${attendees.length} attendee(s))`);
-  sendMeetingDetected(meeting);
+  handlePopupWithAttendees(popup, attendees);
+}
+
+function handlePopupWithAttendees(popup: Element, attendees: AttendeeRaw[]): void {
+  const title = extractTitle(popup);
+  const meeting: MeetingEvent = {
+    title,
+    attendees: attendees.map(({ name, email, company }) => ({ name, email, company })),
+  };
+
+  console.log(LOG, `Meeting detected: "${title}" (${attendees.length} attendee(s)) [mode: ${triggerMode}]`);
+
+  if (triggerMode === 'auto') {
+    sendMeetingDetected(meeting);
+  } else {
+    // Manual mode: inject buttons
+    const withElements: AttendeeWithElement[] = attendees.map((a) => ({
+      name: a.name,
+      email: a.email,
+      company: a.company,
+      element: a.element,
+    }));
+
+    injectButtons(
+      popup,
+      withElements,
+      // Single-attendee brief
+      (attendee) => {
+        console.log(LOG, `Manual brief for: ${attendee.name || attendee.email}`);
+        sendSingleBrief(attendee);
+      },
+      // Brief all
+      (allAttendees) => {
+        console.log(LOG, `Manual brief all: ${allAttendees.length} attendee(s)`);
+        sendMeetingDetected({ title, attendees: allAttendees });
+      },
+    );
+  }
 }
 
 function handleMutations(mutations: MutationRecord[]): void {
@@ -193,7 +283,10 @@ function handleMutations(mutations: MutationRecord[]): void {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
-function init(): void {
+async function init(): Promise<void> {
+  await loadTriggerMode();
+  watchTriggerMode();
+
   const observer = new MutationObserver(handleMutations);
   observer.observe(document.body, { childList: true, subtree: true });
   console.log(LOG, 'Observer started on', window.location.href);

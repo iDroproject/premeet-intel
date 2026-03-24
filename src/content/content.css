@@ -187,6 +187,105 @@
   flex-shrink: 0;
 }
 
+/* ── Brief Buttons (Manual Trigger Mode) ──────────────────────────────────── */
+
+/* Per-attendee inline "Brief" pill */
+.pm-brief-inline {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 2px 8px;
+  background: #4F46E5;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-family: var(--pm-font);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background 150ms ease, opacity 150ms ease;
+  white-space: nowrap;
+}
+
+.pm-brief-inline:hover {
+  background: #4338CA;
+}
+
+.pm-brief-inline:active {
+  background: #3730A3;
+}
+
+.pm-brief-inline.pm-brief--loading {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pm-brief-inline__icon {
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* "Brief All" header button */
+.pm-brief-all-wrap {
+  padding: 6px 8px 4px;
+}
+
+.pm-brief-all {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: #4F46E5;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--pm-font);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 150ms ease, opacity 150ms ease;
+  white-space: nowrap;
+}
+
+.pm-brief-all:hover {
+  background: #4338CA;
+}
+
+.pm-brief-all:active {
+  background: #3730A3;
+}
+
+.pm-brief-all.pm-brief--loading {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pm-brief-all__icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pm-brief-all__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
 /* ── Dark Mode ─────────────────────────────────────────────────────────────── */
 
 @media (prefers-color-scheme: dark) {
@@ -207,6 +306,22 @@
     background: #1f2937;
     border-color: rgba(34, 197, 94, 0.3);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .pm-brief-inline {
+    background: #6366F1;
+  }
+
+  .pm-brief-inline:hover {
+    background: #818CF8;
+  }
+
+  .pm-brief-all {
+    background: #6366F1;
+  }
+
+  .pm-brief-all:hover {
+    background: #818CF8;
   }
 }
 
