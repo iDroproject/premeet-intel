@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "precommit": "npm run typecheck && npm run test"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
     "typescript": "^5.4.5",
     "vite": "^5.2.11",
-    "vite-plugin-web-extension": "^4.1.1"
+    "vite-plugin-web-extension": "^4.1.1",
+    "vitest": "^4.1.1"
   }
 }

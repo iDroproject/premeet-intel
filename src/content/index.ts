@@ -3,41 +3,9 @@
 
 import type { Attendee, MeetingEvent, ContentToBackground } from '../types';
 import { initOnboarding, onMeetingDetected, onEnrichmentComplete } from './onboarding';
+import { cleanName, nameFromEmail, companyFromEmail, isContextValid } from './helpers';
 
 const LOG = '[PreMeet][Content]';
-
-// ─── Attendee Helpers ────────────────────────────────────────────────────────
-
-/** GCal attendance-status/role suffixes to strip from names. */
-const STATUS_SUFFIX_RE = /,?\s*\b(Attending|Organizer|Maybe|Tentative|Declined|Awaiting|Not responded|Accepted|Optional|Required|Creator|organizer|accepted|declined|tentative|needsAction)\b/gi;
-
-function cleanName(raw: string): string {
-  return raw.replace(STATUS_SUFFIX_RE, '').replace(/,\s*$/, '').replace(/\s+/g, ' ').trim();
-}
-
-function nameFromEmail(email: string): string {
-  const local = email.split('@')[0];
-  return local
-    .replace(/[._+\-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-const FREE_DOMAINS = new Set([
-  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'hotmail.com',
-  'hotmail.co.uk', 'outlook.com', 'live.com', 'msn.com', 'icloud.com',
-  'me.com', 'mac.com', 'aol.com', 'protonmail.com', 'proton.me',
-]);
-
-function companyFromEmail(email: string): string | null {
-  if (!email.includes('@')) return null;
-  const domain = email.split('@')[1].toLowerCase();
-  if (FREE_DOMAINS.has(domain)) return null;
-  const parts = domain.split('.');
-  const root = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
-  return root.charAt(0).toUpperCase() + root.slice(1);
-}
 
 // ─── Extraction Strategies ────────────────────────────────────────────────────
 
@@ -151,6 +119,10 @@ function findPopupAncestor(el: Element): Element | null {
 // ─── Message Sending ─────────────────────────────────────────────────────────
 
 function sendMeetingDetected(meeting: MeetingEvent): void {
+  if (!isContextValid()) {
+    console.warn(LOG, 'Extension context invalidated — skipping sendMessage.');
+    return;
+  }
   onMeetingDetected();
   const msg: ContentToBackground = { type: 'MEETING_DETECTED', payload: meeting };
   chrome.runtime.sendMessage(msg, () => {
@@ -171,7 +143,7 @@ function processPopup(popup: Element): void {
   if (attendees.length === 0) {
     // Retry once after DOM settles
     setTimeout(() => {
-      if (!popup.isConnected || processed.has(popup)) return;
+      if (!popup.isConnected || processed.has(popup) || !isContextValid()) return;
       const retried = extractAttendees(popup);
       if (retried.length > 0) {
         processed.add(popup);
@@ -192,6 +164,7 @@ function processPopup(popup: Element): void {
 }
 
 function handleMutations(mutations: MutationRecord[]): void {
+  if (!isContextValid()) return; // extension reloaded — stop processing
   const candidates = new Set<Element>();
 
   for (const { addedNodes } of mutations) {
@@ -231,13 +204,16 @@ function init(): void {
 
 // ─── Message Listener (from background) ──────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === 'ENRICHMENT_COMPLETE') {
-    onEnrichmentComplete();
-    sendResponse({ ok: true });
-  }
-  return false;
-});
+if (isContextValid()) {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (!isContextValid()) return false;
+    if (msg?.type === 'ENRICHMENT_COMPLETE') {
+      onEnrichmentComplete();
+      sendResponse({ ok: true });
+    }
+    return false;
+  });
+}
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
