@@ -89,7 +89,7 @@ export interface PersonData {
   // Metadata
   _source: 'scraper' | 'filter' | 'error' | 'unknown';
   _fetchedAt: string;
-  _confidence: 'low' | 'medium' | 'high';
+  _confidence: 'high' | 'good' | 'partial' | 'low';
   _confidenceScore: number;
   _confidenceCitations: ConfidenceCitation[];
 }

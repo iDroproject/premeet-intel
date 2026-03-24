@@ -71,6 +71,13 @@ function confidenceColor(score: number): ConfidenceColor {
   return 'red';
 }
 
+const CONFIDENCE_HEX: Record<ConfidenceColor, string> = {
+  green: '#16a34a',
+  blue: '#2563eb',
+  amber: '#d97706',
+  red: '#dc2626',
+};
+
 function confidenceTooltipHtml(score: number, citations: ConfidenceCitation[]): string {
   let html = `<strong>${score}% match</strong>`;
   if (citations.length > 0) {
@@ -81,6 +88,75 @@ function confidenceTooltipHtml(score: number, citations: ConfidenceCitation[]): 
     }
   }
   return html;
+}
+
+/** Build a 24px SVG circular progress ring */
+function confidenceRingSvg(score: number, color: ConfidenceColor): string {
+  const size = 24;
+  const stroke = 3;
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const filled = (score / 100) * circ;
+  const gap = circ - filled;
+  const hex = CONFIDENCE_HEX[color];
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}"
+      fill="none" stroke="#e5e7eb" stroke-width="${stroke}" />
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}"
+      fill="none" stroke="${hex}" stroke-width="${stroke}"
+      stroke-dasharray="${filled} ${gap}"
+      stroke-linecap="round"
+      transform="rotate(-90 ${size / 2} ${size / 2})" />
+  </svg>`;
+}
+
+/** Factor weights for the bar chart in the modal */
+const FACTOR_WEIGHTS: Record<string, number> = {
+  'Email Match': 40,
+  'Name Match': 25,
+  'Domain Match': 20,
+  'Completeness': 15,
+};
+
+function openConfidenceModal(pd: PersonData): void {
+  const overlay = document.getElementById('pm-confidence-modal');
+  const body = document.getElementById('pm-modal-body');
+  if (!overlay || !body) return;
+
+  const score = pd._confidenceScore;
+  const color = confidenceColor(score);
+  const hex = CONFIDENCE_HEX[color];
+  const citations = pd._confidenceCitations || [];
+
+  let factorsHtml = '';
+  for (const c of citations) {
+    const maxPts = FACTOR_WEIGHTS[c.factor] || 40;
+    const pct = Math.round((c.points / maxPts) * 100);
+    factorsHtml += `
+      <div class="pm-modal__factor">
+        <span class="pm-modal__factor-name">${escapeHtml(c.factor)}</span>
+        <div class="pm-modal__factor-bar">
+          <div class="pm-modal__factor-fill" style="width:${pct}%;background:${hex};"></div>
+        </div>
+        <span class="pm-modal__factor-pts">${c.points}/${maxPts}</span>
+      </div>
+      <div class="pm-modal__factor-desc">${escapeHtml(c.description)}</div>`;
+  }
+
+  body.innerHTML = `
+    <div class="pm-modal__title">Confidence Breakdown</div>
+    <div class="pm-modal__score">
+      <div class="pm-modal__score-value" style="color:${hex}">${score}%</div>
+      <div class="pm-modal__score-label">${escapeHtml(pd.name)}</div>
+    </div>
+    ${factorsHtml}`;
+
+  overlay.classList.add('pm-modal-overlay--open');
+}
+
+function closeConfidenceModal(): void {
+  document.getElementById('pm-confidence-modal')?.classList.remove('pm-modal-overlay--open');
 }
 
 // ─── Credits Display ────────────────────────────────────────────────────────
@@ -185,8 +261,8 @@ function renderConfidenceBadge(pd: PersonData): string {
   const color = confidenceColor(score);
   const tooltip = confidenceTooltipHtml(score, pd._confidenceCitations || []);
   return `
-    <div class="pm-confidence pm-confidence--${color}" title="${score}%">
-      ${score}
+    <div class="pm-confidence" data-confidence-click title="${score}% match">
+      ${confidenceRingSvg(score, color)}
       <div class="pm-confidence__tooltip">${tooltip}</div>
     </div>`;
 }
@@ -364,7 +440,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   if (hasRichData && pd._confidenceScore != null) {
     confidenceHtml = renderConfidenceBadge(pd);
     if (pd._confidenceScore < 50) {
-      confidenceWarning = '<div class="pm-confidence__warning">Low confidence — verify this match</div>';
+      confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
     }
   }
 
@@ -434,6 +510,16 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
 // ─── Event Delegation for Card Interactions ──────────────────────────────────
 
 function attachCardListeners(card: HTMLElement, key: string): void {
+  // Confidence ring click → open modal
+  const confBadge = card.querySelector<HTMLElement>('[data-confidence-click]');
+  if (confBadge) {
+    confBadge.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const attendee = attendeeMap.get(key);
+      if (attendee?.personData) openConfidenceModal(attendee.personData);
+    });
+  }
+
   // Bio toggle
   const bioToggle = card.querySelector<HTMLButtonElement>(`[data-toggle-bio="${CSS.escape(key)}"]`);
   if (bioToggle) {
@@ -555,6 +641,12 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
 
 document.addEventListener('DOMContentLoaded', () => {
   if (Els.year) Els.year.textContent = String(new Date().getFullYear());
+
+  // Modal close handlers
+  document.getElementById('pm-modal-close')?.addEventListener('click', closeConfidenceModal);
+  document.getElementById('pm-confidence-modal')?.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).classList.contains('pm-modal-overlay')) closeConfidenceModal();
+  });
 
   refreshCredits();
 

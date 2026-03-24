@@ -1,7 +1,8 @@
 // PreMeet – Response Normalizer
 // Converts raw LinkedIn API responses into the unified PersonData model.
 
-import type { PersonData, IcpProfile, ConfidenceCitation, ExperienceEntry, EducationEntry, PostEntry } from './types';
+import type { PersonData, IcpProfile, ExperienceEntry, EducationEntry, PostEntry } from './types';
+import { computeConfidence } from '../../utils/confidence';
 
 const LOG_PREFIX = '[PreMeet][Normalizer]';
 
@@ -86,75 +87,12 @@ function normalizePostEntry(entry: Record<string, unknown>): PostEntry {
   };
 }
 
-// ─── Confidence Scoring ──────────────────────────────────────────────────────
+// ─── Confidence Context ─────────────────────────────────────────────────────
 
 interface ConfidenceContext {
   email?: string;
+  calendarName?: string;
   serpVerified?: boolean;
-}
-
-function assessConfidence(
-  data: Partial<PersonData>,
-  context: ConfidenceContext = {},
-): { level: 'low' | 'medium' | 'high'; score: number; citations: ConfidenceCitation[] } {
-  let score = 0;
-  const citations: ConfidenceCitation[] = [];
-
-  if (data.avatarUrl) {
-    score += 2;
-    citations.push({ factor: 'avatar', points: 2, description: 'Profile photo present' });
-  }
-
-  if (data.currentTitle) {
-    score += 2;
-    citations.push({ factor: 'title', points: 2, description: `Current title: "${data.currentTitle}"` });
-  }
-
-  if (data.currentCompany) {
-    score += 1;
-    citations.push({ factor: 'company', points: 1, description: `Company: "${data.currentCompany}"` });
-  }
-
-  if (data.bio) {
-    score += 1;
-    citations.push({ factor: 'bio', points: 1, description: 'Bio/about section present' });
-  }
-
-  if (data.experience?.length) {
-    score += 1;
-    citations.push({ factor: 'experience', points: 1, description: `${data.experience.length} experience entries` });
-  }
-
-  if (data.education?.length) {
-    score += 1;
-    citations.push({ factor: 'education', points: 1, description: `${data.education.length} education entries` });
-  }
-
-  if (data.linkedinUrl) {
-    score += 2;
-    citations.push({ factor: 'linkedin', points: 2, description: 'LinkedIn profile URL verified' });
-  }
-
-  if (context.email && data.currentCompany) {
-    const domain = (context.email.split('@')[1] || '').toLowerCase();
-    const companyLower = data.currentCompany.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const domainRoot = domain.split('.').slice(-2, -1)[0] || '';
-    if (domainRoot && companyLower.includes(domainRoot)) {
-      score += 1;
-      citations.push({ factor: 'email-match', points: 1, description: `Email domain "${domain}" matches company` });
-    }
-  }
-
-  if (context.serpVerified) {
-    score += 1;
-    citations.push({ factor: 'serp-verified', points: 1, description: 'LinkedIn URL found via Google Search' });
-  }
-
-  let level: 'low' | 'medium' | 'high' = 'low';
-  if (score >= 8) level = 'high';
-  else if (score >= 4) level = 'medium';
-
-  return { level, score, citations };
 }
 
 // ─── ICP Analysis ────────────────────────────────────────────────────────────
@@ -309,7 +247,15 @@ export function normalizeLinkedInProfile(
     _confidenceCitations: [],
   };
 
-  const conf = assessConfidence(normalized, context);
+  const conf = computeConfidence(
+    {
+      attendeeName: context.calendarName || name,
+      attendeeEmail: context.email || '',
+      attendeeCompany: null,
+    },
+    normalized,
+    { serpVerified: context.serpVerified },
+  );
   normalized._confidence = conf.level;
   normalized._confidenceScore = conf.score;
   normalized._confidenceCitations = conf.citations;
@@ -317,7 +263,7 @@ export function normalizeLinkedInProfile(
 
   console.log(
     LOG_PREFIX,
-    `Normalized "${name}" — confidence: ${conf.level} (${conf.score}/12), citations: ${conf.citations.length},`,
+    `Normalized "${name}" — confidence: ${conf.level} (${conf.score}/100), citations: ${conf.citations.length},`,
     `seniority: ${normalized.icp.seniorityLevel}, department: ${normalized.icp.department ?? 'unknown'},`,
     `signals: [${normalized.icp.icpSignals.join(', ')}]`,
   );
@@ -331,26 +277,27 @@ export function pickBestProfile(
   source: PersonData['_source'],
   context: ConfidenceContext = {},
 ): PersonData | null {
+  const ctx = { ...context, calendarName: context.calendarName || targetName };
   if (!Array.isArray(rawProfiles) || rawProfiles.length === 0) return null;
-  if (rawProfiles.length === 1) return normalizeLinkedInProfile(rawProfiles[0], source, context);
+  if (rawProfiles.length === 1) return normalizeLinkedInProfile(rawProfiles[0], source, ctx);
 
   const nameLower = (targetName || '').toLowerCase().trim();
 
   const exactMatch = rawProfiles.find((p) => (toStringOrNull(p.name) || '').toLowerCase() === nameLower);
-  if (exactMatch) return normalizeLinkedInProfile(exactMatch, source, context);
+  if (exactMatch) return normalizeLinkedInProfile(exactMatch, source, ctx);
 
   let bestRaw = rawProfiles[0];
   let bestScore = -1;
 
   for (const p of rawProfiles) {
-    const n = normalizeLinkedInProfile(p, source, context);
+    const n = normalizeLinkedInProfile(p, source, ctx);
     if (n._confidenceScore > bestScore) {
       bestScore = n._confidenceScore;
       bestRaw = p;
     }
   }
 
-  return normalizeLinkedInProfile(bestRaw, source, context);
+  return normalizeLinkedInProfile(bestRaw, source, ctx);
 }
 
 export function mergeBusinessEnrichedData(
