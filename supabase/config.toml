@@ -1,0 +1,24 @@
+# PreMeet Supabase Configuration
+# See: https://supabase.com/docs/guides/cli/config
+
+[project]
+id = ""  # Set via SUPABASE_PROJECT_ID env var
+
+[db]
+# Connection pooling: use transaction mode for serverless/short-lived connections
+# PgBouncer sits at port 6543 (pooled) vs 5432 (direct)
+pooler_mode = "transaction"
+
+[db.pooler]
+enabled = true
+default_pool_size = 15
+max_client_conn = 100
+
+[auth]
+enabled = true
+site_url = "chrome-extension://premeet"
+
+[auth.external.google]
+enabled = true
+client_id = ""   # Set via SUPABASE_AUTH_GOOGLE_CLIENT_ID env var
+secret = ""      # Set via SUPABASE_AUTH_GOOGLE_SECRET env var
