@@ -59,12 +59,18 @@ export interface FeatureRequest {
 
 export type ContentToBackground =
   | { type: 'MEETING_DETECTED'; payload: MeetingEvent }
+  | { type: 'FETCH_PERSON_BACKGROUND'; payload: { name: string; email: string; company: string } }
   | { type: 'PING' };
 
 export type BackgroundToPopup =
   | { type: 'MEETING_UPDATE'; payload: { meeting: MeetingEvent; attendees: EnrichedAttendee[] } }
-  | { type: 'ENRICHMENT_PROGRESS'; payload: { email: string; attendee: EnrichedAttendee } };
+  | { type: 'ENRICHMENT_PROGRESS'; payload: { email: string; attendee: EnrichedAttendee } }
+  | { type: 'FETCH_PROGRESS'; payload: unknown }
+  | { type: 'INTERIM_PERSON_DATA'; payload: unknown }
+  | { type: 'PERSON_BACKGROUND_RESULT'; payload: unknown };
 
 export type PopupToBackground =
   | { type: 'GET_CURRENT_MEETING' }
+  | { type: 'GET_CACHE_STATS' }
+  | { type: 'CLEAR_CACHE' }
   | { type: 'PING' };
