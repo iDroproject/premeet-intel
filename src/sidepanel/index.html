@@ -3,22 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self';" />
     <title>PreMeet</title>
     <style>
+      /* ── Inter Font ── */
+      @font-face {
+        font-family: 'Inter';
+        font-style: normal;
+        font-display: swap;
+        font-weight: 100 900;
+        src: url('/fonts/inter-latin-var.woff2') format('woff2');
+      }
+
+      /* ── Reset ── */
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+      /* ── Design Tokens ── */
+      :root {
+        --pm-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        --pm-primary: #4F46E5;
+        --pm-primary-hover: #4338CA;
+        --pm-primary-light: #EEF2FF;
+        --pm-surface: #FFFFFF;
+        --pm-bg: #F9FAFB;
+        --pm-text: #111827;
+        --pm-text-secondary: #6B7280;
+        --pm-text-tertiary: #9CA3AF;
+        --pm-border: #E5E7EB;
+        --pm-border-light: #F3F4F6;
+        --pm-success: #059669;
+        --pm-success-light: #D1FAE5;
+        --pm-warning: #D97706;
+        --pm-error: #DC2626;
+        --pm-radius: 8px;
+        --pm-transition: 200ms ease;
+      }
+
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        font-size: 14px;
-        color: #1a1a2e;
-        background: #fff;
+        font-family: var(--pm-font);
+        font-size: 12px;
+        color: var(--pm-text);
+        background: var(--pm-bg);
         min-height: 100vh;
       }
 
       /* ── Header ── */
       .pm-header {
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        background: var(--pm-primary);
         color: #fff;
         padding: 16px 20px;
         display: flex;
@@ -32,7 +63,7 @@
         width: 32px; height: 32px; flex-shrink: 0;
       }
       .pm-header__info { flex: 1; min-width: 0; }
-      .pm-header__title { font-size: 16px; font-weight: 600; }
+      .pm-header__title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
       .pm-header__meeting {
         font-size: 13px; opacity: 0.85; margin-top: 3px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -44,17 +75,18 @@
         padding: 3px 8px;
         white-space: nowrap;
         flex-shrink: 0;
+        font-weight: 500;
       }
       .pm-credits--low { background: rgba(254,202,202,0.35); }
 
       /* ── Loading bar ── */
       .pm-loading-bar {
-        height: 3px; background: #dbeafe;
+        height: 3px; background: var(--pm-primary-light);
         position: relative; overflow: hidden;
       }
       .pm-loading-bar::after {
         content: ''; position: absolute; left: -60%; top: 0;
-        width: 60%; height: 100%; background: #2563eb;
+        width: 60%; height: 100%; background: var(--pm-primary);
         animation: pm-slide 1.2s ease-in-out infinite;
       }
       @keyframes pm-slide { to { left: 100%; } }
@@ -65,22 +97,42 @@
         padding: 60px 24px; text-align: center; gap: 12px;
       }
       .pm-state__icon { font-size: 36px; }
-      .pm-state__title { font-size: 16px; font-weight: 600; color: #374151; }
-      .pm-state__body { font-size: 13px; color: #6b7280; line-height: 1.6; max-width: 280px; }
+      .pm-state__title { font-size: 15px; font-weight: 600; color: var(--pm-text); }
+      .pm-state__body { font-size: 12px; color: var(--pm-text-secondary); line-height: 1.6; max-width: 280px; }
       .pm-hidden { display: none !important; }
 
       /* ── Attendee list ── */
-      .pm-list { padding: 8px 0; }
+      .pm-list { padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
 
+      /* ── Card ── */
       .pm-card {
         padding: 16px 20px;
-        border-bottom: 1px solid #f3f4f6;
-        transition: background 0.15s;
+        background: var(--pm-surface);
+        border: 1px solid var(--pm-border);
+        border-radius: var(--pm-radius);
+        transition: box-shadow var(--pm-transition), border-color var(--pm-transition);
+        animation: pm-fadeInUp var(--pm-transition) ease-out both;
       }
-      .pm-card:hover { background: #f9fafb; }
-      .pm-card:last-child { border-bottom: none; }
+      .pm-card:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        border-color: #D1D5DB;
+      }
 
-      /* ── Card Header (always visible) ── */
+      /* Card entrance stagger */
+      @keyframes pm-fadeInUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .pm-card:nth-child(1) { animation-delay: 0ms; }
+      .pm-card:nth-child(2) { animation-delay: 50ms; }
+      .pm-card:nth-child(3) { animation-delay: 100ms; }
+      .pm-card:nth-child(4) { animation-delay: 150ms; }
+      .pm-card:nth-child(5) { animation-delay: 200ms; }
+      .pm-card:nth-child(6) { animation-delay: 250ms; }
+      .pm-card:nth-child(7) { animation-delay: 300ms; }
+      .pm-card:nth-child(8) { animation-delay: 350ms; }
+
+      /* ── Card Header ── */
       .pm-card__header {
         display: flex;
         gap: 14px;
@@ -89,11 +141,13 @@
 
       .pm-avatar {
         width: 48px; height: 48px; border-radius: 50%;
-        background: #dbeafe; color: #1d4ed8;
+        background: var(--pm-primary-light); color: var(--pm-primary);
         display: flex; align-items: center; justify-content: center;
         font-size: 15px; font-weight: 600; flex-shrink: 0;
         text-transform: uppercase;
         overflow: hidden;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px var(--pm-border);
       }
       .pm-avatar img {
         width: 100%; height: 100%; object-fit: cover;
@@ -101,19 +155,17 @@
 
       .pm-card__body { flex: 1; min-width: 0; }
       .pm-card__name {
-        font-weight: 600; font-size: 15px; color: #111827;
+        font-weight: 600; font-size: 15px; color: var(--pm-text);
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .pm-card__name a {
         color: inherit; text-decoration: none;
       }
-      .pm-card__name a:hover { color: #2563eb; text-decoration: underline; }
-      .pm-card__title { font-size: 12px; color: #6b7280; margin-top: 3px; }
-      .pm-card__company { font-size: 13px; color: #374151; margin-top: 5px; font-weight: 500; }
-      .pm-card__email { font-size: 11px; color: #9ca3af; margin-top: 3px; }
-
-      /* ── Location ── */
-      .pm-card__location { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+      .pm-card__name a:hover { color: var(--pm-primary); text-decoration: underline; }
+      .pm-card__title { font-size: 13px; color: var(--pm-text-secondary); margin-top: 3px; font-weight: 400; }
+      .pm-card__company { font-size: 13px; color: var(--pm-text); margin-top: 5px; font-weight: 500; }
+      .pm-card__email { font-size: 11px; color: var(--pm-text-tertiary); margin-top: 3px; }
+      .pm-card__location { font-size: 11px; color: var(--pm-text-tertiary); margin-top: 2px; }
 
       /* ── Quick stats row ── */
       .pm-card__stats {
@@ -121,11 +173,11 @@
         margin-top: 6px; flex-wrap: wrap;
       }
       .pm-card__stat {
-        font-size: 11px; color: #6b7280;
+        font-size: 11px; color: var(--pm-text-secondary);
       }
-      .pm-card__stat strong { font-weight: 600; color: #374151; }
+      .pm-card__stat strong { font-weight: 600; color: var(--pm-text); }
 
-      /* ── Confidence ring (24px SVG circular progress) ── */
+      /* ── Confidence ring ── */
       .pm-confidence {
         width: 24px; height: 24px;
         flex-shrink: 0;
@@ -133,17 +185,21 @@
         cursor: pointer;
       }
       .pm-confidence svg { display: block; }
+      .pm-confidence__ring-fill {
+        transition: stroke-dashoffset 600ms ease;
+      }
       .pm-confidence__tooltip {
         display: none;
         position: absolute; top: 100%; right: 0; margin-top: 4px;
-        background: #1f2937; color: #f9fafb; padding: 8px 10px;
+        background: #1F2937; color: var(--pm-bg); padding: 8px 10px;
         border-radius: 6px; font-size: 11px; font-weight: 400;
         white-space: nowrap; z-index: 20; line-height: 1.5;
         min-width: 180px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       }
       .pm-confidence:hover .pm-confidence__tooltip { display: block; }
       .pm-confidence__warning {
-        font-size: 11px; color: #dc2626; margin-top: 4px;
+        font-size: 11px; color: var(--pm-error); margin-top: 4px;
         font-style: italic;
       }
 
@@ -157,21 +213,22 @@
       }
       .pm-modal-overlay--open { display: flex; }
       .pm-modal {
-        background: #fff; border-radius: 10px;
+        background: var(--pm-surface); border-radius: 12px;
         box-shadow: 0 8px 30px rgba(0,0,0,0.18);
         width: 300px; max-width: 90vw; max-height: 80vh;
         overflow-y: auto; padding: 20px;
       }
       .pm-modal__title {
-        font-size: 15px; font-weight: 700; color: #111827;
+        font-size: 15px; font-weight: 700; color: var(--pm-text);
         margin-bottom: 12px;
       }
       .pm-modal__close {
         position: absolute; top: 12px; right: 14px;
         background: none; border: none; font-size: 18px;
-        color: #6b7280; cursor: pointer;
+        color: var(--pm-text-secondary); cursor: pointer;
+        transition: color var(--pm-transition);
       }
-      .pm-modal__close:hover { color: #111827; }
+      .pm-modal__close:hover { color: var(--pm-text); }
       .pm-modal__score {
         text-align: center; margin-bottom: 16px;
       }
@@ -179,17 +236,17 @@
         font-size: 32px; font-weight: 800;
       }
       .pm-modal__score-label {
-        font-size: 12px; color: #6b7280; margin-top: 2px;
+        font-size: 12px; color: var(--pm-text-secondary); margin-top: 2px;
       }
       .pm-modal__factor {
         display: flex; align-items: center; gap: 10px;
-        padding: 8px 0; border-top: 1px solid #f3f4f6;
+        padding: 8px 0; border-top: 1px solid var(--pm-border-light);
       }
       .pm-modal__factor-name {
-        font-size: 12px; font-weight: 600; color: #374151; flex: 1;
+        font-size: 12px; font-weight: 600; color: var(--pm-text); flex: 1;
       }
       .pm-modal__factor-bar {
-        width: 80px; height: 6px; background: #f3f4f6;
+        width: 80px; height: 6px; background: var(--pm-border-light);
         border-radius: 3px; overflow: hidden; flex-shrink: 0;
       }
       .pm-modal__factor-fill {
@@ -197,18 +254,18 @@
         transition: width 0.3s ease;
       }
       .pm-modal__factor-pts {
-        font-size: 11px; color: #6b7280; width: 32px; text-align: right; flex-shrink: 0;
+        font-size: 11px; color: var(--pm-text-secondary); width: 32px; text-align: right; flex-shrink: 0;
       }
       .pm-modal__factor-desc {
-        font-size: 11px; color: #9ca3af; margin-top: 2px;
+        font-size: 11px; color: var(--pm-text-tertiary); margin-top: 2px;
         grid-column: 1 / -1;
       }
 
       /* ── Company section ── */
       .pm-company-section {
         margin-top: 10px; padding: 10px 12px;
-        background: #f9fafb; border-radius: 6px;
-        border: 1px solid #f3f4f6;
+        background: var(--pm-bg); border-radius: var(--pm-radius);
+        border: 1px solid var(--pm-border-light);
       }
       .pm-company-section__header {
         display: flex; gap: 8px; align-items: center;
@@ -216,29 +273,29 @@
       .pm-company-section__logo {
         width: 24px; height: 24px; border-radius: 4px;
         object-fit: contain; flex-shrink: 0;
-        background: #fff; border: 1px solid #e5e7eb;
+        background: var(--pm-surface); border: 1px solid var(--pm-border);
       }
       .pm-company-section__name {
-        font-size: 13px; font-weight: 600; color: #374151;
+        font-size: 13px; font-weight: 600; color: var(--pm-text);
       }
       .pm-company-section__meta {
-        font-size: 11px; color: #6b7280; margin-left: auto; white-space: nowrap;
+        font-size: 11px; color: var(--pm-text-secondary); margin-left: auto; white-space: nowrap;
       }
       .pm-company-section__desc {
-        font-size: 12px; color: #6b7280; margin-top: 6px;
+        font-size: 12px; color: var(--pm-text-secondary); margin-top: 6px;
         line-height: 1.5;
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
         overflow: hidden;
       }
       .pm-company-section a {
-        font-size: 11px; color: #2563eb; text-decoration: none;
-        margin-top: 4px; display: inline-block;
+        font-size: 11px; color: var(--pm-primary); text-decoration: none;
+        margin-top: 4px; display: inline-block; font-weight: 500;
       }
       .pm-company-section a:hover { text-decoration: underline; }
 
       /* ── Bio ── */
       .pm-bio {
-        font-size: 12px; color: #4b5563; line-height: 1.6;
+        font-size: 12px; color: #4B5563; line-height: 1.6;
         margin-top: 8px;
       }
       .pm-bio--collapsed {
@@ -246,73 +303,80 @@
         overflow: hidden;
       }
       .pm-bio__toggle {
-        font-size: 11px; color: #2563eb; cursor: pointer;
+        font-size: 11px; color: var(--pm-primary); cursor: pointer;
         border: none; background: none; padding: 0; margin-top: 2px;
+        font-family: var(--pm-font); font-weight: 500;
       }
       .pm-bio__toggle:hover { text-decoration: underline; }
 
       /* ── Expandable sections ── */
       .pm-section {
-        border-top: 1px solid #f3f4f6;
+        border-top: 1px solid var(--pm-border-light);
         margin-top: 8px;
       }
       .pm-section__toggle {
         width: 100%; display: flex; align-items: center; justify-content: space-between;
         padding: 8px 0; background: none; border: none;
-        font-size: 12px; font-weight: 600; color: #374151;
+        font-size: 11px; font-weight: 500; color: var(--pm-text);
         cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        font-family: var(--pm-font);
+        transition: color var(--pm-transition);
       }
-      .pm-section__toggle:hover { color: #2563eb; }
+      .pm-section__toggle:hover { color: var(--pm-primary); }
       .pm-section__arrow {
-        font-size: 10px; color: #9ca3af; transition: transform 0.2s;
+        font-size: 10px; color: var(--pm-text-tertiary); transition: transform var(--pm-transition);
       }
       .pm-section--open .pm-section__arrow { transform: rotate(180deg); }
       .pm-section__content {
         display: none; padding-bottom: 8px;
+        animation: pm-dataFadeIn var(--pm-transition) ease-out;
       }
       .pm-section--open .pm-section__content { display: block; }
 
       /* ── Work history timeline ── */
-      .pm-timeline { list-style: none; padding-left: 12px; border-left: 2px solid #e5e7eb; }
+      .pm-timeline { list-style: none; padding-left: 12px; border-left: 2px solid var(--pm-border); }
       .pm-timeline__item { padding: 4px 0 8px 12px; position: relative; }
       .pm-timeline__item::before {
         content: ''; position: absolute; left: -7px; top: 10px;
         width: 8px; height: 8px; border-radius: 50%;
-        background: #e5e7eb; border: 2px solid #fff;
+        background: var(--pm-border); border: 2px solid var(--pm-surface);
       }
-      .pm-timeline__role { font-size: 12px; font-weight: 600; color: #374151; }
-      .pm-timeline__company { font-size: 11px; color: #6b7280; }
-      .pm-timeline__dates { font-size: 10px; color: #9ca3af; }
+      .pm-timeline__role { font-size: 12px; font-weight: 600; color: var(--pm-text); }
+      .pm-timeline__company { font-size: 11px; color: var(--pm-text-secondary); }
+      .pm-timeline__dates { font-size: 10px; color: var(--pm-text-tertiary); }
 
       /* ── Education ── */
       .pm-edu { margin-bottom: 6px; }
-      .pm-edu__school { font-size: 12px; font-weight: 600; color: #374151; }
-      .pm-edu__degree { font-size: 11px; color: #6b7280; }
-      .pm-edu__years { font-size: 10px; color: #9ca3af; }
+      .pm-edu__school { font-size: 12px; font-weight: 600; color: var(--pm-text); }
+      .pm-edu__degree { font-size: 11px; color: var(--pm-text-secondary); }
+      .pm-edu__years { font-size: 10px; color: var(--pm-text-tertiary); }
 
       /* ── Skills ── */
       .pm-skills { display: flex; flex-wrap: wrap; gap: 4px; }
       .pm-skill-tag {
         font-size: 11px; padding: 2px 8px; border-radius: 10px;
-        background: #eff6ff; color: #1d4ed8; white-space: nowrap;
+        background: var(--pm-primary-light); color: var(--pm-primary);
+        white-space: nowrap; font-weight: 500;
       }
 
       /* ── Company Intel ── */
-      .pm-intel { font-size: 12px; color: #4b5563; line-height: 1.6; }
+      .pm-intel { font-size: 12px; color: #4B5563; line-height: 1.6; }
       .pm-intel__row { margin-bottom: 4px; }
-      .pm-intel__label { font-weight: 600; color: #374151; }
+      .pm-intel__label { font-weight: 600; color: var(--pm-text); }
 
       /* ── Recent posts ── */
       .pm-post {
-        padding: 6px 0; border-bottom: 1px solid #f9fafb;
+        padding: 6px 0; border-bottom: 1px solid var(--pm-bg);
       }
       .pm-post:last-child { border-bottom: none; }
       .pm-post__title {
-        font-size: 12px; color: #374151; font-weight: 500;
+        font-size: 12px; color: var(--pm-text); font-weight: 500;
       }
-      .pm-post__title a { color: #2563eb; text-decoration: none; }
+      .pm-post__title a { color: var(--pm-primary); text-decoration: none; }
       .pm-post__title a:hover { text-decoration: underline; }
-      .pm-post__interaction { font-size: 10px; color: #9ca3af; }
+      .pm-post__interaction { font-size: 10px; color: var(--pm-text-tertiary); }
 
       /* ── Progress stepper ── */
       .pm-stepper {
@@ -320,8 +384,8 @@
         align-items: center;
         justify-content: space-between;
         padding: 12px 20px;
-        background: #f9fafb;
-        border-bottom: 1px solid #f3f4f6;
+        background: var(--pm-surface);
+        border-bottom: 1px solid var(--pm-border-light);
       }
       .pm-step {
         display: flex;
@@ -333,109 +397,116 @@
       }
       .pm-step__dot {
         width: 24px; height: 24px; border-radius: 50%;
-        background: #e5e7eb;
+        background: var(--pm-border);
         display: flex; align-items: center; justify-content: center;
-        font-size: 11px; color: #9ca3af;
+        font-size: 11px; color: var(--pm-text-tertiary);
         transition: all 0.3s ease;
       }
       .pm-step__label {
-        font-size: 10px; color: #9ca3af;
+        font-size: 10px; color: var(--pm-text-tertiary);
         white-space: nowrap;
         transition: color 0.3s ease;
       }
       .pm-step--active .pm-step__dot {
-        background: #2563eb; color: #fff;
+        background: var(--pm-primary); color: #fff;
         animation: pm-dot-pulse 1.4s ease-in-out infinite;
       }
-      .pm-step--active .pm-step__label { color: #2563eb; font-weight: 600; }
+      .pm-step--active .pm-step__label { color: var(--pm-primary); font-weight: 600; }
       .pm-step--done .pm-step__dot {
-        background: #16a34a; color: #fff;
+        background: var(--pm-success); color: #fff;
       }
-      .pm-step--done .pm-step__label { color: #16a34a; }
+      .pm-step--done .pm-step__label { color: var(--pm-success); }
       .pm-step__connector {
         position: absolute;
         top: 12px; left: calc(50% + 16px); right: calc(-50% + 16px);
-        height: 2px; background: #e5e7eb;
+        height: 2px; background: var(--pm-border);
         transition: background 0.3s ease;
       }
-      .pm-step--done .pm-step__connector { background: #16a34a; }
-      @keyframes pm-dot-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(37,99,235,0.4); } 50% { box-shadow: 0 0 0 6px rgba(37,99,235,0); } }
+      .pm-step--done .pm-step__connector { background: var(--pm-success); }
+      @keyframes pm-dot-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(79,70,229,0.4); } 50% { box-shadow: 0 0 0 6px rgba(79,70,229,0); } }
 
       /* ── Attendee counter ── */
       .pm-counter {
         padding: 8px 20px;
         font-size: 12px;
-        color: #6b7280;
-        background: #fafbfc;
-        border-bottom: 1px solid #f3f4f6;
+        color: var(--pm-text-secondary);
+        background: var(--pm-surface);
+        border-bottom: 1px solid var(--pm-border-light);
       }
 
       /* ── Skeleton loading ── */
       .pm-card--pending .pm-avatar {
         width: 48px; height: 48px;
-        background: #f3f4f6;
+        background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%);
+        background-size: 400px 100%;
         color: transparent;
-        animation: pm-shimmer 1.4s ease-in-out infinite;
+        animation: pm-shimmer 1.5s ease-in-out infinite;
       }
       .pm-card--pending .pm-card__name {
-        background: #f3f4f6; border-radius: 4px; color: transparent;
+        background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%);
+        background-size: 400px 100%;
+        border-radius: 4px; color: transparent;
         width: 120px; height: 16px;
-        animation: pm-shimmer 1.4s ease-in-out infinite;
+        animation: pm-shimmer 1.5s ease-in-out infinite;
       }
       .pm-card--pending .pm-card__title {
-        background: #f3f4f6; border-radius: 3px; color: transparent;
+        background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%);
+        background-size: 400px 100%;
+        border-radius: 4px; color: transparent;
         width: 160px; height: 12px;
-        animation: pm-shimmer 1.4s ease-in-out infinite 0.1s;
+        animation: pm-shimmer 1.5s ease-in-out infinite 0.1s;
       }
       .pm-card--pending .pm-card__company {
-        background: #f3f4f6; border-radius: 3px; color: transparent;
+        background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%);
+        background-size: 400px 100%;
+        border-radius: 4px; color: transparent;
         width: 100px; height: 12px;
-        animation: pm-shimmer 1.4s ease-in-out infinite 0.2s;
+        animation: pm-shimmer 1.5s ease-in-out infinite 0.2s;
       }
       @keyframes pm-shimmer {
         0% { background-position: -200px 0; }
         100% { background-position: 200px 0; }
       }
-      .pm-card--pending .pm-avatar,
-      .pm-card--pending .pm-card__name,
-      .pm-card--pending .pm-card__title,
-      .pm-card--pending .pm-card__company {
-        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
-        background-size: 400px 100%;
-      }
-      @keyframes pm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
       /* ── Progressive data fill ── */
       .pm-fadein {
-        animation: pm-data-fadein 200ms ease-out;
+        animation: pm-dataFadeIn var(--pm-transition) ease-out;
       }
-      @keyframes pm-data-fadein { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes pm-dataFadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
 
       /* ── Cache hit flash ── */
       .pm-card--cache-hit {
         animation: pm-cache-flash 600ms ease-out;
       }
-      @keyframes pm-cache-flash { 0% { background: rgba(22,163,74,0.15); } 100% { background: transparent; } }
+      @keyframes pm-cache-flash { 0% { background: rgba(5,150,105,0.12); } 100% { background: var(--pm-surface); } }
 
       /* ── Usable state: green left-border when LinkedIn data arrives ── */
       .pm-card--usable {
-        border-left: 3px solid #16a34a;
+        border-left: 3px solid var(--pm-success);
       }
 
       /* ── Complete state: full green border ── */
       .pm-card--complete {
-        border: 1px solid #16a34a;
-        border-radius: 4px;
-        margin: 4px 8px;
+        border-color: var(--pm-success);
+      }
+
+      /* ── Tab switch animation ── */
+      @keyframes pm-slideIn {
+        from { opacity: 0; transform: translateX(8px); }
+        to { opacity: 1; transform: translateX(0); }
       }
 
       /* ── Footer ── */
       .pm-footer {
         padding: 12px 20px;
-        border-top: 1px solid #f3f4f6;
+        border-top: 1px solid var(--pm-border-light);
         font-size: 11px;
-        color: #9ca3af;
+        color: var(--pm-text-tertiary);
         text-align: center;
+        background: var(--pm-surface);
       }
     </style>
   </head>

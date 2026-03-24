@@ -1,17 +1,22 @@
 /**
  * content.css
  *
- * PreMeet content script styles — onboarding UI.
- * All class names scoped under .pm-onboard-* to avoid GCal collisions.
+ * PreMeet content script styles — onboarding UI + Brief buttons.
+ * All class names scoped under .pm-onboard-* / .pm-brief-* to avoid GCal collisions.
  */
 
 /* ── Design Tokens ─────────────────────────────────────────────────────────── */
 
 :root {
-  --pm-font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
-  --pm-text: #1A1A2E;
+  --pm-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --pm-primary: #4F46E5;
+  --pm-primary-hover: #4338CA;
+  --pm-primary-active: #3730A3;
+  --pm-primary-light: #EEF2FF;
+  --pm-text: #111827;
   --pm-text-sec: #6B7280;
-  --pm-accent: #337ab7;
+  --pm-success: #059669;
+  --pm-radius: 8px;
 }
 
 /* ── Spinner Animation ─────────────────────────────────────────────────────── */
@@ -30,7 +35,7 @@
   max-width: 380px;
   opacity: 0;
   transform: translateY(12px);
-  transition: opacity 300ms ease, transform 300ms ease;
+  transition: opacity 200ms ease, transform 200ms ease;
   pointer-events: none;
 }
 
@@ -51,9 +56,9 @@
   gap: 10px;
   padding: 14px 16px;
   background: #fff;
-  border: 1px solid rgba(51, 122, 183, 0.2);
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(51, 122, 183, 0.08);
+  border: 1px solid rgba(79, 70, 229, 0.15);
+  border-radius: var(--pm-radius);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(79, 70, 229, 0.06);
   font-family: var(--pm-font);
   font-size: 13px;
   line-height: 1.5;
@@ -81,7 +86,7 @@
 
 .pm-onboard-welcome__text span {
   color: var(--pm-text-sec);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .pm-onboard-welcome__close {
@@ -115,16 +120,16 @@
   gap: 10px;
   padding: 12px 18px;
   background: #fff;
-  border: 1px solid rgba(51, 122, 183, 0.2);
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(79, 70, 229, 0.15);
+  border-radius: var(--pm-radius);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   font-family: var(--pm-font);
   font-size: 13px;
   font-weight: 500;
   color: var(--pm-text);
   opacity: 0;
   transform: translateY(12px);
-  transition: opacity 300ms ease, transform 300ms ease;
+  transition: opacity 200ms ease, transform 200ms ease;
   pointer-events: none;
 }
 
@@ -138,8 +143,8 @@
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(51, 122, 183, 0.2);
-  border-top-color: var(--pm-accent);
+  border: 2px solid rgba(79, 70, 229, 0.2);
+  border-top-color: var(--pm-primary);
   border-radius: 50%;
   animation: pm-onboard-spin 0.65s linear infinite;
   flex-shrink: 0;
@@ -157,16 +162,16 @@
   gap: 8px;
   padding: 12px 18px;
   background: #fff;
-  border: 1px solid rgba(34, 197, 94, 0.25);
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(5, 150, 105, 0.2);
+  border-radius: var(--pm-radius);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   font-family: var(--pm-font);
   font-size: 13px;
   font-weight: 500;
   color: var(--pm-text);
   opacity: 0;
   transform: translateY(12px);
-  transition: opacity 300ms ease, transform 300ms ease;
+  transition: opacity 200ms ease, transform 200ms ease;
   pointer-events: none;
 }
 
@@ -198,7 +203,7 @@
   gap: 3px;
   margin-left: 6px;
   padding: 2px 8px;
-  background: #4F46E5;
+  background: var(--pm-primary);
   color: #fff;
   border: none;
   border-radius: 12px;
@@ -213,11 +218,11 @@
 }
 
 .pm-brief-inline:hover {
-  background: #4338CA;
+  background: var(--pm-primary-hover);
 }
 
 .pm-brief-inline:active {
-  background: #3730A3;
+  background: var(--pm-primary-active);
 }
 
 .pm-brief-inline.pm-brief--loading {
@@ -242,10 +247,10 @@
   align-items: center;
   gap: 6px;
   padding: 5px 12px;
-  background: #4F46E5;
+  background: var(--pm-primary);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--pm-radius);
   font-family: var(--pm-font);
   font-size: 12px;
   font-weight: 600;
@@ -253,14 +258,15 @@
   cursor: pointer;
   transition: background 150ms ease, opacity 150ms ease;
   white-space: nowrap;
+  height: 36px;
 }
 
 .pm-brief-all:hover {
-  background: #4338CA;
+  background: var(--pm-primary-hover);
 }
 
 .pm-brief-all:active {
-  background: #3730A3;
+  background: var(--pm-primary-active);
 }
 
 .pm-brief-all.pm-brief--loading {
@@ -292,36 +298,21 @@
   :root {
     --pm-text: #E8E8F0;
     --pm-text-sec: #9CA3AF;
-    --pm-accent: #5ba3d9;
+    --pm-primary: #6366F1;
+    --pm-primary-hover: #818CF8;
   }
 
   .pm-onboard-welcome__content,
   .pm-onboard-hint {
-    background: #1f2937;
-    border-color: rgba(91, 163, 217, 0.25);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(91, 163, 217, 0.1);
+    background: #1F2937;
+    border-color: rgba(99, 102, 241, 0.2);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(99, 102, 241, 0.08);
   }
 
   .pm-onboard-toast {
-    background: #1f2937;
-    border-color: rgba(34, 197, 94, 0.3);
+    background: #1F2937;
+    border-color: rgba(5, 150, 105, 0.25);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  }
-
-  .pm-brief-inline {
-    background: #6366F1;
-  }
-
-  .pm-brief-inline:hover {
-    background: #818CF8;
-  }
-
-  .pm-brief-all {
-    background: #6366F1;
-  }
-
-  .pm-brief-all:hover {
-    background: #818CF8;
   }
 }
 
