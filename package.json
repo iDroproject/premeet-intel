@@ -1,6 +1,6 @@
 {
   "name": "premeet-extension",
-  "version": "0.1.0",
+  "version": "0.10.0",
   "description": "PreMeet Chrome Extension — turn every calendar invite into a complete business brief",
   "private": true,
   "scripts": {
@@ -9,7 +9,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "precommit": "npm run typecheck && npm run test"
+    "precommit": "npm run typecheck && npm run test",
+    "version:patch": "npm version patch --no-git-tag-version && npm run version:sync",
+    "version:minor": "npm version minor --no-git-tag-version && npm run version:sync",
+    "version:major": "npm version major --no-git-tag-version && npm run version:sync",
+    "version:sync": "node -e \"const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf-8'));const m=JSON.parse(fs.readFileSync('src/manifest.json','utf-8'));m.version=p.version;fs.writeFileSync('src/manifest.json',JSON.stringify(m,null,2)+'\\n');\""
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
