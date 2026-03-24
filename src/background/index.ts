@@ -20,12 +20,19 @@ chrome.runtime.onInstalled.addListener(() => {
   console.log(LOG, 'PreMeet installed.');
 });
 
+// ─── Side Panel Setup ────────────────────────────────────────────────────────
+// Open the side panel automatically when the extension action is clicked.
+
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) => {
+  console.warn(LOG, 'Failed to set side panel behavior:', err);
+});
+
 // ─── Message Handling ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(
   (
     msg: ContentToBackground | PopupToBackground,
-    _sender,
+    sender,
     sendResponse
   ) => {
     if (msg.type === 'PING') {
@@ -34,7 +41,7 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (msg.type === 'MEETING_DETECTED') {
-      handleMeetingDetected(msg.payload);
+      handleMeetingDetected(msg.payload, sender.tab?.id);
       sendResponse({ ok: true });
       return false;
     }
@@ -50,7 +57,7 @@ chrome.runtime.onMessage.addListener(
 
 // ─── Enrichment Pipeline ──────────────────────────────────────────────────────
 
-async function handleMeetingDetected(meeting: MeetingEvent): Promise<void> {
+async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number): Promise<void> {
   console.log(LOG, `Meeting detected: "${meeting.title}" with ${meeting.attendees.length} attendee(s)`);
 
   currentMeeting = meeting;
@@ -62,8 +69,15 @@ async function handleMeetingDetected(meeting: MeetingEvent): Promise<void> {
     status: 'pending' as const,
   }));
 
-  // Broadcast pending state to any open popups
+  // Broadcast pending state to any open side panels / popups
   broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: currentEnriched } });
+
+  // Auto-open the side panel on the tab that detected the meeting
+  if (senderTabId != null) {
+    chrome.sidePanel.open({ tabId: senderTabId }).catch((err) => {
+      console.warn(LOG, 'Could not auto-open side panel:', err);
+    });
+  }
 
   try {
     // Guard against credit exhaustion before running enrichment

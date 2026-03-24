@@ -3,7 +3,10 @@
   "name": "PreMeet",
   "version": "0.1.0",
   "description": "Turn every calendar invite into a complete business brief.",
-  "permissions": ["storage", "identity"],
+  "permissions": ["storage", "identity", "sidePanel"],
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
   "host_permissions": ["https://calendar.google.com/*"],
   "background": {
     "service_worker": "src/background/index.ts",
