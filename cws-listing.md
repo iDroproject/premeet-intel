@@ -38,15 +38,11 @@ KEY FEATURES
 
 • Recent LinkedIn Activity — See what your meeting attendees have been posting and engaging with recently.
 
-• Smart Enrichment — Drill deeper with one-click enrichment buttons for work history, education, skills, and company intel.
+• Smart Enrichment — Drill deeper with one-click buttons for skills, company intel, and more.
 
-• Manual Search — Look up anyone by name, even if they're not on the invite.
+• Lookup History — Revisit past profiles before follow-up meetings.
 
-• Lookup History — Review past lookups from the popup so you can revisit profiles before follow-up meetings.
-
-• Local Caching — Profiles are cached locally so repeat lookups are instant and you stay within API limits.
-
-• Privacy-First — All data is fetched on demand and stored locally in your browser. Nothing is sent to third-party servers beyond the lookup APIs.
+• Privacy-First — All data stored locally in your browser. We only access publicly available information.
 
 WHO IT'S FOR
 PreMeet is built for professionals who do external meetings regularly:
@@ -57,13 +53,20 @@ PreMeet is built for professionals who do external meetings regularly:
 — Founders taking investor or partner meetings
 — Anyone who wants to walk into a meeting prepared
 
-PERMISSIONS
-PreMeet only activates on calendar.google.com. It requests access to:
-— Google Calendar pages (to detect events and attendees)
-— Storage (to cache profiles locally)
-— Side Panel (to display profile cards alongside your calendar)
+YOUR DATA, YOUR CONTROL
+PreMeet only accesses publicly available professional information — the same data anyone can find with a Google search, just organized and delivered instantly.
+— We do NOT read your emails or access other tabs
+— We do NOT track your browsing activity
+— We do NOT sell or share any data
+— All profiles are cached locally in YOUR browser
+— PreMeet only activates on calendar.google.com
 
-PreMeet does not read your email, access other tabs, or track browsing activity.
+PERMISSIONS EXPLAINED
+Here's exactly why PreMeet requests each permission:
+— Google Calendar pages — To detect events and read attendee names
+— Storage — To cache profiles locally for instant repeat lookups
+— Side Panel — To display profiles alongside your calendar
+— Alarms — To periodically clean expired cache entries
 
 GETTING STARTED
 1. Install the extension
