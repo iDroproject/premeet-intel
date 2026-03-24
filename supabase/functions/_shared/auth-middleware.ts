@@ -9,7 +9,7 @@ import { corsHeaders } from './cors.ts';
 export interface AuthContext {
   userId: string;
   email: string;
-  tier: 'free' | 'pro';
+  tier: 'free' | 'pro' | 'enterprise';
   sessionId: string;
 }
 

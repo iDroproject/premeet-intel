@@ -12,7 +12,7 @@ const REFRESH_TOKEN_TTL = '30d';
 export interface PreMeetJwtPayload extends JWTPayload {
   sub: string; // user ID
   email: string;
-  tier: 'free' | 'pro';
+  tier: 'free' | 'pro' | 'enterprise';
   type: 'access' | 'refresh';
   sessionId: string;
 }
@@ -20,7 +20,7 @@ export interface PreMeetJwtPayload extends JWTPayload {
 export async function createAccessToken(payload: {
   userId: string;
   email: string;
-  tier: 'free' | 'pro';
+  tier: 'free' | 'pro' | 'enterprise';
   sessionId: string;
 }): Promise<string> {
   return new SignJWT({
@@ -40,7 +40,7 @@ export async function createAccessToken(payload: {
 export async function createRefreshToken(payload: {
   userId: string;
   email: string;
-  tier: 'free' | 'pro';
+  tier: 'free' | 'pro' | 'enterprise';
   sessionId: string;
 }): Promise<string> {
   return new SignJWT({

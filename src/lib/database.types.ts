@@ -2,7 +2,7 @@
 // Generated from the schema; keep in sync with migrations.
 // In production, regenerate via: npx supabase gen types typescript --project-id <id>
 
-export type SubscriptionTier = 'free' | 'pro';
+export type SubscriptionTier = 'free' | 'pro' | 'enterprise';
 export type EntityType = 'person' | 'company';
 export type EnrichmentStatus = 'pending' | 'success' | 'partial' | 'failed' | 'cached';
 export type ConfidenceLevel = 'high' | 'good' | 'partial' | 'low';
@@ -174,6 +174,74 @@ export interface Database {
           misses?: number;
           created_at?: string;
           updated_at?: string;
+        };
+      };
+    };
+      subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          stripe_customer_id: string;
+          stripe_subscription_id: string | null;
+          tier: SubscriptionTier;
+          status: string;
+          current_period_start: string | null;
+          current_period_end: string | null;
+          cancel_at_period_end: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          stripe_customer_id: string;
+          stripe_subscription_id?: string | null;
+          tier?: SubscriptionTier;
+          status?: string;
+          current_period_start?: string | null;
+          current_period_end?: string | null;
+          cancel_at_period_end?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          stripe_customer_id?: string;
+          stripe_subscription_id?: string | null;
+          tier?: SubscriptionTier;
+          status?: string;
+          current_period_start?: string | null;
+          current_period_end?: string | null;
+          cancel_at_period_end?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      billing_events: {
+        Row: {
+          id: string;
+          user_id: string | null;
+          stripe_event_id: string;
+          event_type: string;
+          data: Record<string, unknown>;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string | null;
+          stripe_event_id: string;
+          event_type: string;
+          data?: Record<string, unknown>;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string | null;
+          stripe_event_id?: string;
+          event_type?: string;
+          data?: Record<string, unknown>;
+          created_at?: string;
         };
       };
     };
