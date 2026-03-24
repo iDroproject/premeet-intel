@@ -1,7 +1,7 @@
 // PreMeet popup entry point
 // Renders enriched meeting attendees and feature requests. Communicates with the background SW.
 
-import type { MeetingEvent, EnrichedAttendee, BackgroundToPopup, FeatureRequest } from '../types';
+import type { MeetingEvent, EnrichedAttendee, BackgroundToPopup, FeatureRequest, Settings } from '../types';
 import { getCredits, remainingCredits } from '../utils/credits';
 import {
   getFeatureRequests,
@@ -9,6 +9,7 @@ import {
   removeUpvote,
   addFeatureRequest,
 } from '../utils/featureRequests';
+import { getSettings, saveSettings } from '../utils/settings';
 
 const LOG = '[PreMeet][Popup]';
 
@@ -39,6 +40,19 @@ const Els = {
   submitRequest:  $('pm-submit-request'),
   cancelRequest:  $('pm-cancel-request'),
   featureList:    $('pm-feature-list'),
+  // Settings
+  gear:           $('pm-gear'),
+  panelSettings:  $('pm-panel-settings'),
+  settingsBack:   $('pm-settings-back'),
+  setTrigger:     $<HTMLInputElement>('pm-set-trigger'),
+  triggerLabel:   $('pm-trigger-label'),
+  setCache:       $<HTMLSelectElement>('pm-set-cache'),
+  setConfidence:  $<HTMLInputElement>('pm-set-confidence'),
+  setCompact:     $<HTMLInputElement>('pm-set-compact'),
+  setToken:       $<HTMLInputElement>('pm-set-token'),
+  tokenEye:       $('pm-token-eye'),
+  saveToken:      $('pm-save-token'),
+  tokenFeedback:  $('pm-token-feedback'),
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -187,6 +201,101 @@ async function loadFeatureRequests(): Promise<void> {
   renderFeatureRequests(requests);
 }
 
+// ─── Settings Panel ──────────────────────────────────────────────────────────
+
+function openSettings(): void {
+  Els.panelSettings?.classList.remove('pm-hidden');
+}
+
+function closeSettings(): void {
+  Els.panelSettings?.classList.add('pm-hidden');
+}
+
+async function loadSettingsUI(): Promise<void> {
+  const s = await getSettings();
+  applySettingsToUI(s);
+}
+
+function applySettingsToUI(s: Settings): void {
+  if (Els.setTrigger) {
+    (Els.setTrigger as HTMLInputElement).checked = s.triggerMode === 'manual';
+  }
+  if (Els.triggerLabel) {
+    Els.triggerLabel.textContent = s.triggerMode === 'auto' ? 'Auto' : 'Manual';
+  }
+  if (Els.setCache) {
+    (Els.setCache as HTMLSelectElement).value = s.cacheDuration;
+  }
+  if (Els.setConfidence) {
+    (Els.setConfidence as HTMLInputElement).checked = s.showConfidenceScores;
+  }
+  if (Els.setCompact) {
+    (Els.setCompact as HTMLInputElement).checked = s.compactMode;
+  }
+  if (Els.setToken) {
+    (Els.setToken as HTMLInputElement).value = s.apiToken;
+  }
+}
+
+function showTokenFeedback(ok: boolean, msg: string): void {
+  if (!Els.tokenFeedback) return;
+  Els.tokenFeedback.textContent = msg;
+  Els.tokenFeedback.className = `pm-token-feedback ${ok ? 'pm-token-feedback--ok' : 'pm-token-feedback--err'}`;
+  Els.tokenFeedback.classList.remove('pm-hidden');
+  setTimeout(() => Els.tokenFeedback?.classList.add('pm-hidden'), 3000);
+}
+
+function wireSettingsEvents(): void {
+  Els.gear?.addEventListener('click', () => {
+    loadSettingsUI();
+    openSettings();
+  });
+
+  Els.settingsBack?.addEventListener('click', closeSettings);
+
+  // Trigger mode toggle
+  Els.setTrigger?.addEventListener('change', async () => {
+    const manual = (Els.setTrigger as HTMLInputElement).checked;
+    const mode = manual ? 'manual' : 'auto';
+    if (Els.triggerLabel) Els.triggerLabel.textContent = manual ? 'Manual' : 'Auto';
+    await saveSettings({ triggerMode: mode });
+  });
+
+  // Cache duration
+  Els.setCache?.addEventListener('change', async () => {
+    const val = (Els.setCache as HTMLSelectElement).value as Settings['cacheDuration'];
+    await saveSettings({ cacheDuration: val });
+  });
+
+  // Confidence scores
+  Els.setConfidence?.addEventListener('change', async () => {
+    await saveSettings({ showConfidenceScores: (Els.setConfidence as HTMLInputElement).checked });
+  });
+
+  // Compact mode
+  Els.setCompact?.addEventListener('change', async () => {
+    await saveSettings({ compactMode: (Els.setCompact as HTMLInputElement).checked });
+  });
+
+  // Token show/hide
+  Els.tokenEye?.addEventListener('click', () => {
+    const input = Els.setToken as HTMLInputElement | null;
+    if (!input) return;
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+
+  // Save token
+  Els.saveToken?.addEventListener('click', async () => {
+    const token = (Els.setToken as HTMLInputElement | null)?.value.trim() ?? '';
+    if (!token) {
+      showTokenFeedback(false, 'Please enter a token.');
+      return;
+    }
+    await saveSettings({ apiToken: token });
+    showTokenFeedback(true, 'Token saved successfully.');
+  });
+}
+
 // ─── Background Message Listener ─────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
@@ -245,6 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (Els.year) Els.year.textContent = String(new Date().getFullYear());
 
   wireEvents();
+  wireSettingsEvents();
   refreshCredits();
 
   // Ask the background SW for the current meeting

@@ -46,6 +46,19 @@ export interface EnrichedAttendee extends Attendee {
   personData?: PersonData;
 }
 
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+export type TriggerMode = 'auto' | 'manual';
+export type CacheDuration = '1d' | '7d' | '30d' | 'never';
+
+export interface Settings {
+  triggerMode: TriggerMode;
+  cacheDuration: CacheDuration;
+  showConfidenceScores: boolean;
+  compactMode: boolean;
+  apiToken: string;
+}
+
 // ─── Credits ─────────────────────────────────────────────────────────────────
 
 export type Plan = 'free' | 'pro';
