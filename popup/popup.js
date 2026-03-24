@@ -72,6 +72,7 @@ function wireTabBar() {
       });
 
       // Lazy-load tab content
+      if (targetId === 'bp-tab-stats') loadStats();
       if (targetId === 'bp-tab-history') loadHistory();
       if (targetId === 'bp-tab-logs') loadLogs();
     });
@@ -271,6 +272,61 @@ function loadHistory() {
 
       listEl.appendChild(item);
     });
+  });
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────
+
+function loadStats() {
+  chrome.runtime.sendMessage({ type: 'GET_ANALYTICS' }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.warn(LOG_PREFIX, 'GET_ANALYTICS failed:', chrome.runtime.lastError.message);
+      return;
+    }
+
+    if (!response?.ok || !response.analytics) return;
+
+    const { events, installedAt } = response.analytics;
+
+    const requested = events['brief_requested']?.count || 0;
+    const completed = events['brief_completed']?.count || 0;
+    const errors    = events['brief_error']?.count || 0;
+
+    const requestedEl = $('bp-stats-requested');
+    const completedEl = $('bp-stats-completed');
+    const errorsEl    = $('bp-stats-errors');
+    const rateEl      = $('bp-stats-rate');
+    const installedEl = $('bp-stats-installed');
+    const lastEl      = $('bp-stats-last-lookup');
+
+    if (requestedEl) requestedEl.textContent = requested.toString();
+    if (completedEl) completedEl.textContent = completed.toString();
+    if (errorsEl)    errorsEl.textContent    = errors.toString();
+
+    // Success rate
+    if (rateEl) {
+      if (requested > 0) {
+        const rate = Math.round((completed / requested) * 100);
+        rateEl.textContent = `${rate}%`;
+      } else {
+        rateEl.textContent = '\u2013';
+      }
+    }
+
+    // Install date
+    if (installedEl) {
+      installedEl.textContent = installedAt
+        ? new Date(installedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+        : '\u2013';
+    }
+
+    // Last lookup
+    if (lastEl) {
+      const lastAt = events['brief_requested']?.lastAt;
+      lastEl.textContent = lastAt
+        ? new Date(lastAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : '\u2013';
+    }
   });
 }
 

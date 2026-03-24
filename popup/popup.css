@@ -808,6 +808,40 @@ body {
   max-height: 60px;
 }
 
+/* ── Stats Details ────────────────────────────────────────────────────────── */
+
+.bp-stats-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 8px;
+}
+
+.bp-stats-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--pm-border-subtle);
+}
+
+.bp-stats-row:last-child {
+  border-bottom: none;
+}
+
+.bp-stats-row__label {
+  font-size: var(--pm-fs-sm);
+  color: var(--pm-text-secondary);
+  font-weight: 500;
+}
+
+.bp-stats-row__value {
+  font-size: var(--pm-fs-sm);
+  color: var(--pm-text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Accessibility ────────────────────────────────────────────────────────── */
 
 :focus-visible {

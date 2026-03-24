@@ -38,6 +38,8 @@
       <button class="bp-tab" role="tab" aria-selected="false"
               aria-controls="bp-tab-history" id="bp-tab-btn-history">History</button>
       <button class="bp-tab" role="tab" aria-selected="false"
+              aria-controls="bp-tab-stats" id="bp-tab-btn-stats">Stats</button>
+      <button class="bp-tab" role="tab" aria-selected="false"
               aria-controls="bp-tab-logs" id="bp-tab-btn-logs">Logs</button>
     </nav>
 
@@ -110,6 +112,41 @@
         <div class="bp-history-list" id="bp-history-list" aria-label="Lookup history">
           <p class="bp-history-empty" id="bp-history-empty">No lookups yet.</p>
         </div>
+      </div>
+
+      <!-- ═══ Stats tab ═══ -->
+      <div class="bp-tab-panel bp-hidden" id="bp-tab-stats" role="tabpanel" aria-labelledby="bp-tab-btn-stats">
+        <section class="bp-section" aria-label="Usage statistics">
+          <h2 class="bp-section__heading">Usage</h2>
+          <div class="bp-cache-grid bp-stats-grid" id="bp-stats-grid">
+            <div class="bp-cache-stat">
+              <span class="bp-cache-stat__value" id="bp-stats-requested">&ndash;</span>
+              <span class="bp-cache-stat__label">Briefs</span>
+            </div>
+            <div class="bp-cache-stat">
+              <span class="bp-cache-stat__value" id="bp-stats-completed">&ndash;</span>
+              <span class="bp-cache-stat__label">Success</span>
+            </div>
+            <div class="bp-cache-stat">
+              <span class="bp-cache-stat__value bp-cache-stat__value--warn" id="bp-stats-errors">&ndash;</span>
+              <span class="bp-cache-stat__label">Errors</span>
+            </div>
+          </div>
+          <div class="bp-stats-details" id="bp-stats-details">
+            <div class="bp-stats-row">
+              <span class="bp-stats-row__label">Success rate</span>
+              <span class="bp-stats-row__value" id="bp-stats-rate">&ndash;</span>
+            </div>
+            <div class="bp-stats-row">
+              <span class="bp-stats-row__label">Installed</span>
+              <span class="bp-stats-row__value" id="bp-stats-installed">&ndash;</span>
+            </div>
+            <div class="bp-stats-row">
+              <span class="bp-stats-row__label">Last lookup</span>
+              <span class="bp-stats-row__value" id="bp-stats-last-lookup">&ndash;</span>
+            </div>
+          </div>
+        </section>
       </div>
 
       <!-- ═══ Logs tab ═══ -->

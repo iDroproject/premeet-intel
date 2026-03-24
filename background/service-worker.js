@@ -29,6 +29,7 @@ import { deepLookupCustomEnrich } from './api/deep-lookup.js';
 
 import { CacheManager } from './cache/cache-manager.js';
 import { LogBuffer } from './log-buffer.js';
+import { trackEvent, markInstalled, getAnalytics, AnalyticsEvent } from './analytics.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ const MessageType = /** @type {const} */ ({
   PING:                     'PING',
   ENRICH_PROFILE:           'ENRICH_PROFILE',
   ENRICH_PROFILE_RESULT:    'ENRICH_PROFILE_RESULT',
+  GET_ANALYTICS:            'GET_ANALYTICS',
 });
 
 // ─── Module-level singletons ─────────────────────────────────────────────────
@@ -88,6 +90,12 @@ const logBuffer = new LogBuffer();
  */
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log(LOG_PREFIX, 'Extension installed/updated:', details.reason);
+
+  // Track install event.
+  if (details.reason === 'install') {
+    markInstalled();
+    trackEvent(AnalyticsEvent.EXTENSION_INSTALLED);
+  }
 
   // Configure the side panel to open only on explicit programmatic open() calls
   // (not automatically when the toolbar icon is clicked).
@@ -309,6 +317,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       // Run the full fetch pipeline asynchronously.
       (async () => {
+        // Track brief requested.
+        trackEvent(AnalyticsEvent.BRIEF_REQUESTED);
+
         // Signal the side panel to show its loading state.
         await notifySidePanel({
           type:    MessageType.FETCH_PERSON_BACKGROUND,
@@ -317,6 +328,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         try {
           const personData = await fetchPersonBackground(payload);
+
+          // Track brief completed.
+          trackEvent(AnalyticsEvent.BRIEF_COMPLETED);
 
           console.log(
             LOG_PREFIX,
@@ -329,6 +343,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             payload: personData,
           });
         } catch (err) {
+          // Track brief error.
+          trackEvent(AnalyticsEvent.BRIEF_ERROR);
           console.error(LOG_PREFIX, 'fetchPersonBackground failed:', err.message);
 
           // Push an error result to the side panel so it can show an error state.
@@ -486,6 +502,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       })();
       return true; // async sendResponse
+    }
+
+    // ── GET_ANALYTICS ─────────────────────────────────────────────────────
+    case MessageType.GET_ANALYTICS: {
+      getAnalytics()
+        .then((analytics) => {
+          sendResponse({ ok: true, analytics });
+        })
+        .catch((err) => {
+          sendResponse({ ok: false, error: err.message });
+        });
+      return true;
     }
 
     default:
