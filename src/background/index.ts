@@ -89,10 +89,26 @@ async function handleMeetingDetected(meeting: MeetingEvent): Promise<void> {
 
     // Broadcast final enriched data
     broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: enriched } });
+
+    // Notify content script that enrichment is done (used by onboarding)
+    notifyContentScript({ type: 'ENRICHMENT_COMPLETE' });
+
     console.log(LOG, `Enrichment complete for "${meeting.title}"`);
   } catch (err) {
     console.error(LOG, 'Enrichment pipeline error:', err);
   }
+}
+
+function notifyContentScript(msg: object): void {
+  chrome.tabs.query({ url: 'https://calendar.google.com/*' }, (tabs) => {
+    for (const tab of tabs) {
+      if (tab.id != null) {
+        chrome.tabs.sendMessage(tab.id, msg, () => {
+          void chrome.runtime.lastError; // suppress if no listener
+        });
+      }
+    }
+  });
 }
 
 function broadcastToPopups(msg: object): void {

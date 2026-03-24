@@ -1,0 +1,226 @@
+/**
+ * content.css
+ *
+ * PreMeet content script styles — onboarding UI.
+ * All class names scoped under .pm-onboard-* to avoid GCal collisions.
+ */
+
+/* ── Design Tokens ─────────────────────────────────────────────────────────── */
+
+:root {
+  --pm-font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+  --pm-text: #1A1A2E;
+  --pm-text-sec: #6B7280;
+  --pm-accent: #337ab7;
+}
+
+/* ── Spinner Animation ─────────────────────────────────────────────────────── */
+
+@keyframes pm-onboard-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Welcome Tooltip ───────────────────────────────────────────────────────── */
+
+.pm-onboard-welcome {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  max-width: 380px;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 300ms ease, transform 300ms ease;
+  pointer-events: none;
+}
+
+.pm-onboard-welcome--visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.pm-onboard-welcome--exit {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.pm-onboard-welcome__content {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid rgba(51, 122, 183, 0.2);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(51, 122, 183, 0.08);
+  font-family: var(--pm-font);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--pm-text);
+}
+
+.pm-onboard-welcome__icon {
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.pm-onboard-welcome__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pm-onboard-welcome__text strong {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--pm-text);
+}
+
+.pm-onboard-welcome__text span {
+  color: var(--pm-text-sec);
+  font-size: 12.5px;
+}
+
+.pm-onboard-welcome__close {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--pm-text-sec);
+  cursor: pointer;
+  padding: 0 0 0 4px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+
+.pm-onboard-welcome__close:hover {
+  opacity: 1;
+}
+
+/* ── Detection Hint ────────────────────────────────────────────────────────── */
+
+.pm-onboard-hint {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  background: #fff;
+  border: 1px solid rgba(51, 122, 183, 0.2);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  font-family: var(--pm-font);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--pm-text);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 300ms ease, transform 300ms ease;
+  pointer-events: none;
+}
+
+.pm-onboard-hint--visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.pm-onboard-hint__spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(51, 122, 183, 0.2);
+  border-top-color: var(--pm-accent);
+  border-radius: 50%;
+  animation: pm-onboard-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Success Toast ─────────────────────────────────────────────────────────── */
+
+.pm-onboard-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  background: #fff;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  font-family: var(--pm-font);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--pm-text);
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 300ms ease, transform 300ms ease;
+  pointer-events: none;
+}
+
+.pm-onboard-toast--visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.pm-onboard-toast--exit {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.pm-onboard-toast__icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ── Dark Mode ─────────────────────────────────────────────────────────────── */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pm-text: #E8E8F0;
+    --pm-text-sec: #9CA3AF;
+    --pm-accent: #5ba3d9;
+  }
+
+  .pm-onboard-welcome__content,
+  .pm-onboard-hint {
+    background: #1f2937;
+    border-color: rgba(91, 163, 217, 0.25);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(91, 163, 217, 0.1);
+  }
+
+  .pm-onboard-toast {
+    background: #1f2937;
+    border-color: rgba(34, 197, 94, 0.3);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* ── Reduced Motion ────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .pm-onboard-welcome,
+  .pm-onboard-hint,
+  .pm-onboard-toast {
+    transition: none;
+  }
+
+  .pm-onboard-hint__spinner {
+    animation: none;
+    opacity: 0.5;
+  }
+}

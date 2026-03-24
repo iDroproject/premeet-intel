@@ -2,6 +2,7 @@
 // Detects calendar event popups, extracts attendees, and notifies the background SW.
 
 import type { Attendee, MeetingEvent, ContentToBackground } from '../types';
+import { initOnboarding, onMeetingDetected, onEnrichmentComplete } from './onboarding';
 
 const LOG = '[PreMeet][Content]';
 
@@ -150,6 +151,7 @@ function findPopupAncestor(el: Element): Element | null {
 // ─── Message Sending ─────────────────────────────────────────────────────────
 
 function sendMeetingDetected(meeting: MeetingEvent): void {
+  onMeetingDetected();
   const msg: ContentToBackground = { type: 'MEETING_DETECTED', payload: meeting };
   chrome.runtime.sendMessage(msg, () => {
     if (chrome.runtime.lastError) {
@@ -227,8 +229,21 @@ function init(): void {
   document.querySelectorAll<Element>('[role="dialog"], [data-eventid], .OcVpRe, .V65ue').forEach(processPopup);
 }
 
+// ─── Message Listener (from background) ──────────────────────────────────────
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'ENRICHMENT_COMPLETE') {
+    onEnrichmentComplete();
+    sendResponse({ ok: true });
+  }
+  return false;
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', () => { init(); initOnboarding(); });
 } else {
   init();
+  initOnboarding();
 }
