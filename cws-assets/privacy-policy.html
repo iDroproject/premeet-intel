@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — PreMeet</title>
+  <style>
+    :root {
+      --pm-bg: #f8f9fb;
+      --pm-card: #ffffff;
+      --pm-text: #1a1a2e;
+      --pm-muted: #6b7280;
+      --pm-primary: #4A90D9;
+      --pm-border: #e5e7eb;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--pm-bg);
+      color: var(--pm-text);
+      line-height: 1.7;
+      padding: 2rem 1rem;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      background: var(--pm-card);
+      border-radius: 12px;
+      border: 1px solid var(--pm-border);
+      padding: 3rem 2.5rem;
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    .effective-date {
+      color: var(--pm-muted);
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+    h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      color: var(--pm-primary);
+    }
+    p { margin-bottom: 1rem; }
+    ul {
+      margin-bottom: 1rem;
+      padding-left: 1.5rem;
+    }
+    li { margin-bottom: 0.4rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--pm-border);
+    }
+    th {
+      font-weight: 600;
+      background: var(--pm-bg);
+    }
+    a { color: var(--pm-primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .highlight {
+      background: #eef4fb;
+      border-left: 3px solid var(--pm-primary);
+      padding: 1rem 1.25rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 600px) {
+      .container { padding: 2rem 1.25rem; }
+      h1 { font-size: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Privacy Policy</h1>
+    <p class="effective-date">Effective date: March 24, 2026</p>
+
+    <p>PreMeet ("we", "us", or "our") is a Chrome extension that turns Google Calendar invites into professional briefs. This policy explains what data PreMeet accesses, how it is handled, and the control you have over it.</p>
+
+    <div class="highlight">
+      <strong>The short version:</strong> PreMeet reads attendee names from your Google Calendar events, looks up publicly available professional information, and stores everything locally in your browser. We do not sell, share, or transfer your data to third parties.
+    </div>
+
+    <h2>1. What Data We Collect</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Source</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Attendee names and email addresses</td>
+          <td>Google Calendar event pages</td>
+          <td>To identify meeting participants and perform professional lookups</td>
+        </tr>
+        <tr>
+          <td>Professional profile data (title, company, work history, education, skills)</td>
+          <td>Publicly available sources (e.g., public LinkedIn profiles)</td>
+          <td>To generate attendee briefs displayed in the side panel</td>
+        </tr>
+        <tr>
+          <td>Profile photos</td>
+          <td>Gravatar (via email hash)</td>
+          <td>To display attendee avatars</td>
+        </tr>
+        <tr>
+          <td>Lookup activity log</td>
+          <td>Generated locally by the extension</td>
+          <td>To let you revisit past lookups before follow-up meetings</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>2. What We Do NOT Collect</h2>
+    <ul>
+      <li>We do <strong>not</strong> read your emails or email content.</li>
+      <li>We do <strong>not</strong> access tabs or pages outside of <code>calendar.google.com</code>.</li>
+      <li>We do <strong>not</strong> track your browsing history or activity on other websites.</li>
+      <li>We do <strong>not</strong> collect keystrokes, form inputs, or passwords.</li>
+      <li>We do <strong>not</strong> run on any page other than Google Calendar.</li>
+    </ul>
+
+    <h2>3. How Data Is Stored</h2>
+    <p>All profile data and lookup history are stored <strong>locally in your browser</strong> using <code>chrome.storage.local</code>. Data never leaves your device except for the outbound API calls described in Section 4.</p>
+    <ul>
+      <li><strong>Cache TTL:</strong> Cached profile data expires automatically after 7 days.</li>
+      <li><strong>Cache limit:</strong> A maximum of 500 entries are stored. When the limit is reached, the least-recently-used entries are evicted first (LRU).</li>
+      <li><strong>Activity log:</strong> Up to 500 lookup history entries are kept, with oldest entries removed first (FIFO).</li>
+    </ul>
+
+    <h2>4. External API Calls</h2>
+    <p>When you request a lookup, PreMeet makes outbound calls to retrieve publicly available professional information:</p>
+    <ul>
+      <li><strong>Professional data APIs</strong> — to retrieve public LinkedIn profiles, company details, and related professional information.</li>
+      <li><strong>Gravatar</strong> — to fetch profile photos using a hashed version of the attendee's email address.</li>
+    </ul>
+    <p>These calls transmit only the minimum data required (name, email, or email hash). No other personal data is sent.</p>
+
+    <h2>5. Data Sharing and Sales</h2>
+    <div class="highlight">
+      <strong>We do not sell, rent, or share your data with any third party.</strong>
+    </div>
+    <ul>
+      <li>Data is <strong>not</strong> sold to third parties, outside of the approved use cases.</li>
+      <li>Data is <strong>not</strong> used or transferred for purposes unrelated to the extension's core functionality.</li>
+      <li>Data is <strong>not</strong> used or transferred to determine creditworthiness or for lending purposes.</li>
+    </ul>
+
+    <h2>6. Permissions Explained</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Permission</th>
+          <th>Why It's Needed</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>storage</code></td>
+          <td>To cache profile data and lookup history locally in your browser</td>
+        </tr>
+        <tr>
+          <td><code>identity</code></td>
+          <td>To authenticate your PreMeet account via Google OAuth</td>
+        </tr>
+        <tr>
+          <td><code>sidePanel</code></td>
+          <td>To display attendee briefs in the Chrome side panel</td>
+        </tr>
+        <tr>
+          <td>Host access: <code>calendar.google.com</code></td>
+          <td>To read attendee names from calendar event pages — the only site PreMeet runs on</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>7. Your Control</h2>
+    <p>You are in full control of your data at all times:</p>
+    <ul>
+      <li><strong>Clear cache:</strong> You can clear all cached profiles at any time from the extension popup.</li>
+      <li><strong>Uninstall:</strong> Removing the extension deletes all locally stored data immediately.</li>
+      <li><strong>No account required:</strong> Core lookup functionality works without creating an account.</li>
+    </ul>
+
+    <h2>8. Data Security</h2>
+    <p>PreMeet stores all data within Chrome's built-in sandboxed storage, which is isolated per-extension and inaccessible to other extensions or websites. All external API calls are made over HTTPS.</p>
+
+    <h2>9. Children's Privacy</h2>
+    <p>PreMeet is not intended for use by individuals under the age of 13. We do not knowingly collect personal information from children.</p>
+
+    <h2>10. Changes to This Policy</h2>
+    <p>We may update this privacy policy from time to time. Changes will be posted on this page with an updated effective date. Continued use of the extension after changes constitutes acceptance of the updated policy.</p>
+
+    <h2>11. Contact Us</h2>
+    <p>If you have questions or concerns about this privacy policy or PreMeet's data practices, please contact us:</p>
+    <ul>
+      <li>Email: <a href="mailto:privacy@premeet.co">privacy@premeet.co</a></li>
+      <li>Website: <a href="https://premeet.co">https://premeet.co</a></li>
+    </ul>
+  </div>
+</body>
+</html>
