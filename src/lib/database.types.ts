@@ -147,6 +147,47 @@ export interface Database {
           completed_at?: string | null;
         };
       };
+      cache_stats: {
+        Row: {
+          id: string;
+          date: string;
+          entity_type: EntityType;
+          hits: number;
+          misses: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          date: string;
+          entity_type: EntityType;
+          hits?: number;
+          misses?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          date?: string;
+          entity_type?: EntityType;
+          hits?: number;
+          misses?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+    };
+    Views: Record<string, never>;
+    Functions: {
+      upsert_cache_stat: {
+        Args: {
+          p_date: string;
+          p_entity_type: EntityType;
+          p_hits?: number;
+          p_misses?: number;
+        };
+        Returns: undefined;
+      };
     };
     Enums: {
       subscription_tier: SubscriptionTier;
@@ -154,5 +195,6 @@ export interface Database {
       enrichment_status: EnrichmentStatus;
       confidence_level: ConfidenceLevel;
     };
+    CompositeTypes: Record<string, never>;
   };
 }

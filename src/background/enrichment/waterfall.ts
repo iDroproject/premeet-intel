@@ -7,6 +7,7 @@ import { serpFindLinkedInUrl, serpSearchCompanyInfo } from './serp-api';
 import { filterByLinkedInId } from './data-filter';
 import { pickBestProfile, mergeBusinessEnrichedData, deriveIcpProfile } from './response-normalizer';
 import type { CacheManager } from './cache-manager';
+import { EnrichmentCacheService } from '../../lib/enrichment-cache';
 import type { PersonData, ProgressPayload, StepState, WaterfallPayload, CompanyInfo, ExperienceEntry, EducationEntry } from './types';
 
 const LOG_PREFIX = '[PreMeet][Waterfall]';
@@ -116,6 +117,7 @@ interface LogBuffer {
 
 export class WaterfallOrchestrator {
   private _cache: CacheManager;
+  private _supabaseCache: EnrichmentCacheService;
   private _apiToken: string;
   private _logBuffer: LogBuffer | null;
   private _personName: string = '';
@@ -126,6 +128,7 @@ export class WaterfallOrchestrator {
 
   constructor(cacheManager: CacheManager, apiToken: string, logBuffer?: LogBuffer | null) {
     this._cache = cacheManager;
+    this._supabaseCache = new EnrichmentCacheService();
     this._apiToken = apiToken;
     this._logBuffer = logBuffer || null;
     this._stepsState = PIPELINE_STEPS.map((s) => ({ ...s, status: 'pending' as const }));
@@ -187,8 +190,27 @@ export class WaterfallOrchestrator {
   // ── Layer implementations ──────────────────────────────────────────────────
 
   private async _layerCache(cacheKey: string): Promise<CacheLayerResult> {
-    const cached = await this._cache.get<PersonData>(cacheKey);
-    if (cached) return { success: true, _cachedData: cached };
+    // Check Chrome local storage first (fastest, same-device)
+    const localCached = await this._cache.get<PersonData>(cacheKey);
+    if (localCached) {
+      console.log(LOG_PREFIX, 'Local cache hit for:', cacheKey);
+      return { success: true, _cachedData: localCached };
+    }
+
+    // Fall back to Supabase server cache (shared across devices, deduped)
+    try {
+      const sbResult = await this._supabaseCache.get('person', cacheKey);
+      if (sbResult.hit && sbResult.data) {
+        const personData = sbResult.data as unknown as PersonData;
+        // Backfill local cache so next lookup is instant
+        await this._cache.set(cacheKey, personData, CACHE_TTL_MS).catch(() => {});
+        console.log(LOG_PREFIX, 'Supabase cache hit for:', cacheKey);
+        return { success: true, _cachedData: personData };
+      }
+    } catch (err) {
+      console.warn(LOG_PREFIX, 'Supabase cache lookup failed (non-fatal):', (err as Error).message);
+    }
+
     return { success: false };
   }
 
@@ -543,10 +565,24 @@ export class WaterfallOrchestrator {
       personData.email = email;
     }
 
+    // Write to both local Chrome cache and Supabase server cache
     try {
       await this._cache.set(cacheKey, personData, CACHE_TTL_MS);
     } catch (err) {
-      console.warn(LOG_PREFIX, `Cache write failed for "${identifier}":`, (err as Error).message);
+      console.warn(LOG_PREFIX, `Local cache write failed for "${identifier}":`, (err as Error).message);
+    }
+
+    try {
+      await this._supabaseCache.put({
+        entityType: 'person',
+        entityKey: cacheKey,
+        enrichmentData: personData as unknown as Record<string, unknown>,
+        confidence: personData._confidence ?? null,
+        confidenceScore: personData._confidenceScore ?? null,
+        source: personData._source ?? null,
+      });
+    } catch (err) {
+      console.warn(LOG_PREFIX, `Supabase cache write failed for "${identifier}":`, (err as Error).message);
     }
 
     console.log(
