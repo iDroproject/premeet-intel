@@ -122,4 +122,8 @@ export type PopupToBackground =
   | { type: 'GET_CACHE_STATS' }
   | { type: 'CLEAR_CACHE' }
   | { type: 'GET_ACTIVITY_LOG' }
+  | { type: 'AUTH_SIGN_IN' }
+  | { type: 'AUTH_SIGN_OUT' }
+  | { type: 'AUTH_GET_STATE' }
+  | { type: 'AUTH_GET_USER' }
   | { type: 'PING' };

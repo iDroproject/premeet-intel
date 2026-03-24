@@ -10,6 +10,7 @@ import { WaterfallOrchestrator, CacheManager } from './enrichment/index';
 import type { PersonData, ProgressPayload } from './enrichment/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
+import { signInWithGoogle, signOut, getAuthState, getCurrentUser } from '../lib/auth';
 
 const LOG = '[PreMeet][SW]';
 
@@ -87,6 +88,35 @@ chrome.runtime.onMessage.addListener(
 
     if (msg.type === 'GET_ACTIVITY_LOG') {
       getActivityLog().then((entries) => sendResponse({ ok: true, entries })).catch(() => sendResponse({ ok: false }));
+      return true;
+    }
+
+    // ─── Auth Messages ────────────────────────────────────────────────────
+    if (msg.type === 'AUTH_SIGN_IN') {
+      signInWithGoogle()
+        .then((state) => sendResponse({ ok: true, ...state }))
+        .catch((err) => sendResponse({ ok: false, error: (err as Error).message }));
+      return true;
+    }
+
+    if (msg.type === 'AUTH_SIGN_OUT') {
+      signOut()
+        .then(() => sendResponse({ ok: true }))
+        .catch((err) => sendResponse({ ok: false, error: (err as Error).message }));
+      return true;
+    }
+
+    if (msg.type === 'AUTH_GET_STATE') {
+      getAuthState()
+        .then((state) => sendResponse({ ok: true, ...state }))
+        .catch(() => sendResponse({ ok: false }));
+      return true;
+    }
+
+    if (msg.type === 'AUTH_GET_USER') {
+      getCurrentUser()
+        .then((user) => sendResponse({ ok: true, user }))
+        .catch(() => sendResponse({ ok: false }));
       return true;
     }
 
