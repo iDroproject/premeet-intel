@@ -502,6 +502,33 @@ body {
   margin-top: 2px;
 }
 
+.bp-footer__links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.bp-footer__link {
+  font-size: var(--pm-fs-xs);
+  color: var(--pm-text-secondary);
+  text-decoration: none;
+  letter-spacing: 0.01em;
+  transition: color 150ms var(--pm-ease);
+}
+
+.bp-footer__link:hover {
+  color: var(--pm-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bp-footer__sep {
+  color: var(--pm-text-tertiary);
+  font-size: var(--pm-fs-xs);
+}
+
 .bp-footer__text {
   font-size: var(--pm-fs-xs);
   color: var(--pm-text-tertiary);
