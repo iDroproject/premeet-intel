@@ -31,7 +31,7 @@ import { serpFindLinkedInUrl, serpSearchCompanyInfo } from './serp-api.js';
 
 import { filterByLinkedInId } from './data-filter.js';
 
-import { pickBestProfile, mergeBusinessEnrichedData } from './response-normalizer.js';
+import { pickBestProfile, mergeBusinessEnrichedData, deriveIcpProfile } from './response-normalizer.js';
 
 const LOG_PREFIX = '[PreMeet][Waterfall]';
 
@@ -639,7 +639,6 @@ export class WaterfallOrchestrator {
     }
 
     // Re-derive ICP after all merges so badges reflect final data.
-    const { deriveIcpProfile } = await import('./response-normalizer.js');
     personData.icp = deriveIcpProfile(personData);
 
     // Gravatar avatar fallback — computed in the service worker so the sidepanel
