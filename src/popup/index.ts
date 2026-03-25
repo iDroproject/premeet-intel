@@ -14,6 +14,7 @@ import { getSettings, saveSettings } from '../utils/settings';
 import { getActivityLog } from '../utils/activityLog';
 import { getDebugLog, clearDebugLog } from '../utils/logger';
 import type { LogEntry } from '../utils/logger';
+import { initMixpanel, identifyUser, resetUser, track } from '../lib/mixpanel';
 
 const LOG = '[PreMeet][Popup]';
 
@@ -126,6 +127,7 @@ async function checkAuthState(): Promise<boolean> {
       }
       if (response.isAuthenticated && response.user) {
         currentUser = { email: response.user.email, name: response.user.name };
+        identifyUser(response.user);
       }
       resolve(response.isAuthenticated === true);
     });
@@ -179,6 +181,8 @@ async function handleSignIn(): Promise<void> {
       isAuthenticated = true;
       if (response.user) {
         currentUser = { email: response.user.email, name: response.user.name };
+        identifyUser(response.user);
+        track('Sign In', { login_method: 'google' });
       }
 
       updateAuthUI();
@@ -203,6 +207,7 @@ async function handleSignOut(): Promise<void> {
 
       isAuthenticated = false;
       currentUser = null;
+      resetUser();
       updateAuthUI();
 
       // Show CTA banner if attendees are visible
@@ -813,6 +818,7 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
   }
   if (msg.type === 'CREDITS_EXHAUSTED') {
     const { meeting, resetDate } = msg.payload;
+    track('credits_exhausted');
     if (Els.meetingTitle) {
       Els.meetingTitle.textContent = meeting.title;
       Els.meetingTitle.title = meeting.title;
@@ -883,6 +889,8 @@ function wireEvents(): void {
 
 document.addEventListener('DOMContentLoaded', async () => {
   if (Els.year) Els.year.textContent = String(new Date().getFullYear());
+
+  initMixpanel();
 
   // Check auth state for freemium preview mode
   isAuthenticated = await checkAuthState();

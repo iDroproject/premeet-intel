@@ -6,6 +6,7 @@ import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup
 import type { PersonData, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo } from '../background/enrichment/types';
 import { getCredits, remainingCredits } from '../utils/credits';
 import { maskPersonData, skillsPreviewCount } from '../utils/masking';
+import { initMixpanel, identifyUser, resetUser, track } from '../lib/mixpanel';
 
 const LOG = '[PreMeet][SidePanel]';
 
@@ -196,6 +197,9 @@ async function checkAuthState(): Promise<boolean> {
       if (chrome.runtime.lastError || !response?.ok) {
         resolve(false);
         return;
+      }
+      if (response.isAuthenticated && response.user) {
+        identifyUser(response.user);
       }
       resolve(response.isAuthenticated === true);
     });
@@ -907,6 +911,7 @@ function attachCardListeners(card: HTMLElement, key: string): void {
       // Re-render card to show skeleton
       updateCardContent(card, attendee);
 
+      track('company_intel_requested');
       chrome.runtime.sendMessage({
         type: 'FETCH_COMPANY_INTEL',
         payload: {
@@ -931,6 +936,7 @@ function attachCardListeners(card: HTMLElement, key: string): void {
       // Re-render card to show skeleton
       updateCardContent(card, attendee);
 
+      track('contact_info_requested');
       chrome.runtime.sendMessage({
         type: 'FETCH_CONTACT_INFO',
         payload: {
@@ -957,6 +963,7 @@ function attachCardListeners(card: HTMLElement, key: string): void {
   const customLockedBtn = card.querySelector<HTMLButtonElement>(`[data-custom-enrich-locked="${CSS.escape(key)}"]`);
   if (customLockedBtn) {
     customLockedBtn.addEventListener('click', () => {
+      track('upgrade_prompt_shown', { feature: 'custom_enrichment' });
       customEnrichState.set(key, { error: 'Pro subscription required' });
       const attendee = attendeeMap.get(key);
       if (attendee) updateCardContent(card, attendee);
@@ -981,6 +988,7 @@ function attachCardListeners(card: HTMLElement, key: string): void {
       expandedSections.set(key, sections);
       updateCardContent(card, attendee);
 
+      track('custom_enrichment_requested', { prompt_length: prompt.length });
       chrome.runtime.sendMessage({
         type: 'CUSTOM_ENRICHMENT',
         payload: {
@@ -1112,12 +1120,19 @@ function updateSingleAttendee(email: string, attendee: EnrichedAttendee): void {
 chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
   if (msg.type === 'MEETING_UPDATE') {
     const { meeting, attendees } = msg.payload;
+    track('meeting_detected', { attendee_count: attendees.length });
     renderAllAttendees(meeting, attendees);
     refreshCredits();
   }
 
   if (msg.type === 'ATTENDEE_UPDATE') {
     const { email, attendee } = msg.payload;
+    if (attendee.status === 'done' && attendee.personData) {
+      track('brief_completed', {
+        from_cache: attendee.fromCache ?? false,
+        has_linkedin: !!attendee.hasLinkedIn,
+      });
+    }
     updateSingleAttendee(email, attendee);
     refreshCredits();
   }
@@ -1127,8 +1142,10 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
     const key = payload.email.toLowerCase();
     if ('error' in payload && payload.error) {
       companyIntelState.set(key, { error: payload.error });
+      track('company_intel_completed', { success: false });
     } else if (payload.data) {
       companyIntelState.set(key, { data: payload.data });
+      track('company_intel_completed', { success: true, cached: payload.cached ?? false });
     }
     // Re-render the card to show results
     const attendee = attendeeMap.get(key);
@@ -1150,8 +1167,10 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
     const key = payload.email.toLowerCase();
     if ('error' in payload && payload.error) {
       contactInfoState.set(key, { error: payload.error });
+      track('contact_info_completed', { success: false });
     } else if (payload.data) {
       contactInfoState.set(key, { data: payload.data });
+      track('contact_info_completed', { success: true, cached: payload.cached ?? false });
     }
     // Re-render the card to show results
     const attendee = attendeeMap.get(key);
@@ -1173,7 +1192,9 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
     const key = payload.email.toLowerCase();
     if ('error' in payload && payload.error) {
       customEnrichState.set(key, { error: payload.error });
+      track('custom_enrichment_completed', { success: false });
     } else if (payload.data) {
+      track('custom_enrichment_completed', { success: true, cached: payload.cached ?? false });
       // Recover the prompt from the loading state or use a fallback
       const prevState = customEnrichState.get(key);
       const prompt = (prevState && typeof prevState === 'object' && 'prompt' in prevState && typeof prevState.prompt === 'string') ? prevState.prompt : 'Custom search';
@@ -1199,9 +1220,13 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
 document.addEventListener('DOMContentLoaded', async () => {
   if (Els.year) Els.year.textContent = String(new Date().getFullYear());
 
+  initMixpanel();
+
   // Check auth state for freemium preview mode
   isAuthenticated = await checkAuthState();
   updateCtaBanner();
+
+  track('sidepanel_opened');
 
   // CTA sign-in button
   Els.ctaSignin?.addEventListener('click', () => {
@@ -1212,6 +1237,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (response?.ok) {
         isAuthenticated = true;
+        if (response.user) {
+          identifyUser(response.user);
+          track('Sign In', { login_method: 'google' });
+        }
         updateCtaBanner();
         // Re-render all attendees with full data
         if (currentMeeting) {

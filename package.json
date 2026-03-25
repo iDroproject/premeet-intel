@@ -8,6 +8,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:integration": "vitest run tests/integration/",
     "test:watch": "vitest",
     "precommit": "npm run typecheck && npm run test",
     "version:patch": "npm version patch --no-git-tag-version && npm run version:sync",
@@ -17,6 +18,8 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
+    "@types/mixpanel-browser": "^2.60.0",
+    "puppeteer": "^24.40.0",
     "typescript": "^5.4.5",
     "vite": "^5.2.11",
     "vite-plugin-web-extension": "^4.1.1",
@@ -24,6 +27,8 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
-    "@supabase/supabase-js": "^2.100.0"
+    "@neondatabase/serverless": "^1.0.2",
+    "@supabase/supabase-js": "^2.100.0",
+    "mixpanel-browser": "^2.77.0"
   }
 }
