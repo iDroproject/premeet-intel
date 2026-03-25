@@ -6,7 +6,7 @@
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, ContentToBackground, PopupToBackground } from '../types';
 import { enrichAttendee } from './enrichment';
 import { hasCredit, useCredit, getCredits } from '../utils/credits';
-import { WaterfallOrchestrator, CacheManager } from './enrichment/index';
+import { WaterfallOrchestrator, CacheManager, normaliseCacheKey, EnrichmentCacheService } from './enrichment/index';
 import type { PersonData, ProgressPayload, SearchResult, CompanyData, ContactInfo } from './enrichment/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
@@ -31,8 +31,11 @@ function friendlyErrorMessage(rawMsg: string): string {
     return 'Data provider temporarily unavailable. Please try again shortly.';
   if (/all discovery layers failed/i.test(rawMsg))
     return 'Could not find this person online. Check the name and email.';
-  if (/all enrichment layers failed/i.test(rawMsg))
+  if (/all enrichment layers failed/i.test(rawMsg)) {
+    if (/timed out/i.test(rawMsg)) return 'Profile data took too long to load. Please try again.';
+    if (/HTTP 429/i.test(rawMsg)) return 'Rate limit reached on data provider. Please wait and try again.';
     return 'Could not retrieve profile data. Please try again.';
+  }
   if (/could not determine linkedin id/i.test(rawMsg))
     return 'Found a LinkedIn profile but could not extract data. Please try again.';
   if (/credit limit/i.test(rawMsg))
@@ -341,6 +344,9 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
     });
   }
 
+  // Pre-warm: eagerly check cache for all attendees before auto-search
+  await preWarmAttendeeCache(meeting);
+
   // Auto-search all attendees if setting is enabled
   try {
     const settings = await getSettings();
@@ -349,6 +355,72 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
     }
   } catch (err) {
     console.warn(LOG, 'Failed to check autoSearchAttendees setting:', err);
+  }
+}
+
+/**
+ * Pre-warm: check local + server cache for all attendees in parallel.
+ * If cached data exists, immediately mark the attendee as "searched" (or "done"
+ * if full PersonData is available), so auto-search skips them entirely.
+ * This avoids redundant SERP/deep-lookup calls for repeat attendees.
+ */
+async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
+  const serverCache = new EnrichmentCacheService();
+  let warmed = 0;
+
+  const checks = meeting.attendees.map(async (attendee, idx) => {
+    const cacheKey = `person_${normaliseCacheKey(attendee.email || attendee.name || 'unknown')}`;
+
+    // Check local Chrome cache first
+    let personData = await cache.get<PersonData>(cacheKey);
+
+    // Fall back to server cache
+    if (!personData) {
+      try {
+        const serverResult = await serverCache.get('person', cacheKey);
+        if (serverResult.hit && serverResult.data) {
+          personData = serverResult.data as unknown as PersonData;
+          // Backfill local cache
+          await cache.set(cacheKey, personData).catch(() => {});
+        }
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    if (!personData) return;
+
+    warmed++;
+    // Mark as searched with cached search result so auto-search skips this attendee
+    currentEnriched[idx] = {
+      ...currentEnriched[idx],
+      status: 'searched',
+      stage: 'searching',
+      searchResult: {
+        name: personData.name,
+        firstName: personData.firstName,
+        lastName: personData.lastName,
+        avatarUrl: personData.avatarUrl,
+        currentTitle: personData.currentTitle,
+        currentCompany: personData.currentCompany,
+        location: personData.location,
+        connections: personData.connections,
+        followers: personData.followers,
+        linkedinUrl: personData.linkedinUrl,
+        confidence: personData._confidence,
+        confidenceScore: personData._confidenceScore,
+      },
+      hasLinkedIn: !!personData.linkedinUrl,
+      personData,
+    };
+
+    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email: attendee.email, attendee: currentEnriched[idx] } });
+  });
+
+  await Promise.all(checks);
+
+  if (warmed > 0) {
+    console.log(LOG, `Pre-warmed ${warmed}/${meeting.attendees.length} attendees from cache`);
   }
 }
 

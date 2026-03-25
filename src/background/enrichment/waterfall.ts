@@ -1,7 +1,7 @@
 // PreMeet – Waterfall Fetch Orchestrator
 // Executes a deterministic multi-layer lookup cascade for a given person.
 
-import { scrapeByLinkedInUrl, pollSnapshotUntilReady, downloadSnapshot, extractLinkedInId } from './data-scraper';
+import { scrapeByLinkedInUrl, pollSnapshotUntilReady, downloadSnapshot, extractLinkedInId, extractLinkedInIdFromUrl } from './data-scraper';
 import { deepLookupFindLinkedIn, deepLookupEnrich, deepLookupCompanyIntel } from './deep-lookup';
 import { serpFindLinkedInUrl, serpSearchCompanyInfo } from './serp-api';
 import { filterByLinkedInId } from './data-filter';
@@ -12,7 +12,7 @@ import type { PersonData, ProgressPayload, StepState, WaterfallPayload, SearchRe
 
 const LOG_PREFIX = '[PreMeet][Waterfall]';
 
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days — profile data changes infrequently
 
 const PIPELINE_STEPS: Array<Omit<StepState, 'status'>> = [
   { id: 'cache', label: 'Checking cache...', icon: 'cache', percent: 5 },
@@ -58,12 +58,25 @@ async function gravatarAvatarUrl(email: string): Promise<string | null> {
   }
 }
 
-function normaliseCacheKey(value: string): string {
+export function normaliseCacheKey(value: string): string {
   return (value || 'unknown')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '_')
     .replace(/_+/g, '_');
+}
+
+/** Extract LinkedIn username slug from a full URL for use as a canonical cache key. */
+function linkedInSlug(url: string): string | null {
+  if (!url) return null;
+  const match = url.match(/linkedin\.com\/in\/([^/?#]+)/i);
+  return match ? match[1].toLowerCase().replace(/\/$/, '') : null;
+}
+
+/** Build the canonical LinkedIn alias cache key. */
+function linkedInAliasKey(url: string): string | null {
+  const slug = linkedInSlug(url);
+  return slug ? `person_li_${slug}` : null;
 }
 
 function splitName(fullName: string): { firstName: string; lastName: string } {
@@ -224,7 +237,7 @@ export class WaterfallOrchestrator {
 
   // ── Layer implementations ──────────────────────────────────────────────────
 
-  private async _layerCache(cacheKey: string): Promise<CacheLayerResult> {
+  private async _layerCache(cacheKey: string, knownLinkedInUrl?: string): Promise<CacheLayerResult> {
     // Check Chrome local storage first (fastest, same-device)
     const localCached = await this._cache.get<PersonData>(cacheKey);
     if (localCached) {
@@ -232,18 +245,33 @@ export class WaterfallOrchestrator {
       return { success: true, _cachedData: localCached };
     }
 
-    // Fall back to server cache (shared across devices, deduped)
-    try {
-      const serverResult = await this._serverCache.get('person', cacheKey);
-      if (serverResult.hit && serverResult.data) {
-        const personData = serverResult.data as unknown as PersonData;
-        // Backfill local cache so next lookup is instant
-        await this._cache.set(cacheKey, personData, CACHE_TTL_MS).catch(() => {});
-        console.log(LOG_PREFIX, 'Server cache hit for:', cacheKey);
-        return { success: true, _cachedData: personData };
+    // Also check LinkedIn alias key locally (catches same person looked up via different email/name)
+    const aliasKey = knownLinkedInUrl ? linkedInAliasKey(knownLinkedInUrl) : null;
+    if (aliasKey) {
+      const aliasCached = await this._cache.get<PersonData>(aliasKey);
+      if (aliasCached) {
+        // Backfill primary key so future lookups are instant
+        await this._cache.set(cacheKey, aliasCached, CACHE_TTL_MS).catch(() => {});
+        console.log(LOG_PREFIX, 'Local alias cache hit for:', aliasKey);
+        return { success: true, _cachedData: aliasCached };
       }
-    } catch (err) {
-      console.warn(LOG_PREFIX, 'Server cache lookup failed (non-fatal):', (err as Error).message);
+    }
+
+    // Fall back to server cache (shared across devices, deduped)
+    const keysToCheck = aliasKey ? [cacheKey, aliasKey] : [cacheKey];
+    for (const key of keysToCheck) {
+      try {
+        const serverResult = await this._serverCache.get('person', key);
+        if (serverResult.hit && serverResult.data) {
+          const personData = serverResult.data as unknown as PersonData;
+          // Backfill local cache so next lookup is instant
+          await this._cache.set(cacheKey, personData, CACHE_TTL_MS).catch(() => {});
+          console.log(LOG_PREFIX, `Server cache hit for: ${key}${key !== cacheKey ? ' (alias)' : ''}`);
+          return { success: true, _cachedData: personData };
+        }
+      } catch (err) {
+        console.warn(LOG_PREFIX, `Server cache lookup failed for ${key} (non-fatal):`, (err as Error).message);
+      }
     }
 
     return { success: false };
@@ -465,7 +493,9 @@ export class WaterfallOrchestrator {
 
   /**
    * Phase B — Full enrichment from a known LinkedIn URL.
-   * Runs LinkedIn scraper + filter API + company intel.
+   * Runs LinkedIn scraper + filter API + company intel ALL in parallel.
+   * The LinkedIn ID is extracted directly from the URL so filter can start
+   * immediately without waiting for the scraper to finish.
    * Consumes 1 credit (caller is responsible for credit deduction).
    */
   async enrich(payload: WaterfallPayload & { linkedInUrl: string }): Promise<PersonData> {
@@ -478,81 +508,89 @@ export class WaterfallOrchestrator {
 
     console.log(LOG_PREFIX, `Enrich started for: "${identifier}" (LinkedIn: ${linkedInUrl})`);
 
-    // Layer 4: LinkedIn Scraper
-    let linkedInId: string | null = null;
-    let scraperProfiles: Array<Record<string, unknown>> | null = null;
+    // Extract LinkedIn ID from URL upfront so filter can run in parallel with scraper
+    const urlLinkedInId = extractLinkedInIdFromUrl(linkedInUrl);
+    if (!urlLinkedInId) {
+      console.warn(LOG_PREFIX, `Could not extract LinkedIn ID from URL: ${linkedInUrl}`);
+    }
 
-    {
-      const scraperResult = await this._runLayer(
-        'linkedin-scraper',
-        'linkedin-scraper',
-        () => this._layerLinkedInScraper(linkedInUrl),
-        LAYER_TIMEOUTS.linkedInScraper,
+    // Run scraper + filter + company intel ALL in parallel
+    const enrichStart = Date.now();
+
+    const scraperPromise = this._runLayer(
+      'linkedin-scraper',
+      'linkedin-scraper',
+      () => this._layerLinkedInScraper(linkedInUrl),
+      LAYER_TIMEOUTS.linkedInScraper,
+    );
+
+    const filterPromise = urlLinkedInId
+      ? this._runLayer('filter-enrich', 'filter-enrich', () => this._layerFilterEnrich(urlLinkedInId), LAYER_TIMEOUTS.filterEnrich)
+      : Promise.resolve({ success: false, error: 'No LinkedIn ID extractable from URL', elapsedMs: 0 } as FilterLayerResult & { elapsedMs: number });
+
+    const companyIntelPromise = deepLookupCompanyIntel(
+      String(company || ''),
+      name,
+      null,
+      linkedInUrl,
+    ).catch((err) => {
+      console.warn(LOG_PREFIX, 'Company intel failed (non-fatal):', (err as Error).message);
+      this._logBuffer?.warn('Waterfall', 'Company intel failed: ' + (err as Error).message);
+      return null;
+    });
+
+    const serpCompanyPromise = serpSearchCompanyInfo(String(company || '')).catch((err) => {
+      console.warn(LOG_PREFIX, 'SERP company search failed (non-fatal):', (err as Error).message);
+      return null;
+    });
+
+    // Fire interim result from scraper as soon as it arrives (don't wait for filter)
+    const scraperSettled = scraperPromise.then((result) => {
+      const sr = result as ScraperLayerResult & { elapsedMs: number };
+      if (sr.success && sr.profiles?.length) {
+        const interimData = pickBestProfile(sr.profiles, name, 'scraper', { email, serpVerified: false });
+        if (interimData && typeof this.onInterimResult === 'function') {
+          try { this.onInterimResult(interimData); } catch { /* swallow */ }
+        }
+      }
+      return sr;
+    });
+
+    // Wait for all layers to complete
+    const [scraperResult, filterResult, companyIntel, serpCompanyInfo] = await Promise.all([
+      scraperSettled,
+      filterPromise,
+      companyIntelPromise,
+      serpCompanyPromise,
+    ]);
+
+    const sr = scraperResult as ScraperLayerResult & { elapsedMs: number };
+    const fr = filterResult as FilterLayerResult & { elapsedMs: number };
+    const scraperProfiles = sr.success ? (sr.profiles || null) : null;
+
+    const totalMs = Date.now() - enrichStart;
+    console.log(LOG_PREFIX, `All enrichment layers completed in ${totalMs}ms (scraper: ${sr.elapsedMs}ms, filter: ${fr.elapsedMs}ms)`);
+
+    // If filter couldn't start because no URL-based ID, try with scraper-extracted ID
+    if (!fr.success && !urlLinkedInId && sr.success && sr.linkedInId) {
+      console.log(LOG_PREFIX, 'Retrying filter with scraper-extracted LinkedIn ID:', sr.linkedInId);
+      const retryFilter = await this._runLayer(
+        'filter-enrich',
+        'filter-enrich',
+        () => this._layerFilterEnrich(sr.linkedInId!),
+        LAYER_TIMEOUTS.filterEnrich,
       );
-
-      const sr = scraperResult as ScraperLayerResult & { elapsedMs: number };
-
-      if (sr.success && sr.linkedInId) {
-        linkedInId = sr.linkedInId;
-        scraperProfiles = sr.profiles || null;
-
-        if (sr.profiles?.length) {
-          const interimData = pickBestProfile(sr.profiles, name, 'scraper', { email, serpVerified: false });
-          if (interimData && typeof this.onInterimResult === 'function') {
-            try {
-              this.onInterimResult(interimData);
-            } catch {
-              // swallow
-            }
-          }
-        }
-      } else {
-        this._notifyProgress('filter-enrich', 'skipped');
-
-        if (sr.success && sr.profiles?.length) {
-          const data = await this._finalise(
-            { profiles: sr.profiles, source: 'scraper' as const },
-            name,
-            email,
-            cacheKey,
-            identifier,
-            { serpVerified: false },
-          );
-          if (data) return data;
-        }
-
-        throw new Error(`Could not determine LinkedIn ID for "${identifier}"`);
+      const retryFr = retryFilter as FilterLayerResult & { elapsedMs: number };
+      if (retryFr.success && retryFr.profiles?.length) {
+        const data = await this._finalise(
+          { profiles: retryFr.profiles, scraperProfiles: scraperProfiles || undefined, companyIntel, serpCompanyInfo, source: 'filter' as const },
+          name, email, cacheKey, identifier, { serpVerified: false },
+        );
+        if (data) return data;
       }
     }
 
-    // Layer 5: Filter API + Company Intel (parallel)
-    const interimCompany =
-      (scraperProfiles?.[0]?.current_company as Record<string, unknown>)?.name ??
-      scraperProfiles?.[0]?.current_company_name ??
-      company;
-    const interimTitle =
-      (scraperProfiles?.[0]?.current_company as Record<string, unknown>)?.title ?? scraperProfiles?.[0]?.position ?? null;
-
-    const [filterResult, companyIntel, serpCompanyInfo] = await Promise.all([
-      this._runLayer('filter-enrich', 'filter-enrich', () => this._layerFilterEnrich(linkedInId), LAYER_TIMEOUTS.filterEnrich),
-      deepLookupCompanyIntel(
-        String(interimCompany || ''),
-        name,
-        interimTitle ? String(interimTitle) : null,
-        linkedInUrl,
-      ).catch((err) => {
-        console.warn(LOG_PREFIX, 'Company intel failed (non-fatal):', (err as Error).message);
-        this._logBuffer?.warn('Waterfall', 'Company intel failed: ' + (err as Error).message);
-        return null;
-      }),
-      serpSearchCompanyInfo(String(interimCompany || '')).catch((err) => {
-        console.warn(LOG_PREFIX, 'SERP company search failed (non-fatal):', (err as Error).message);
-        return null;
-      }),
-    ]);
-
-    const fr = filterResult as FilterLayerResult & { elapsedMs: number };
-
+    // Prefer filter data (richer), fall back to scraper
     if (fr.success && fr.profiles?.length) {
       const data = await this._finalise(
         {
@@ -584,7 +622,11 @@ export class WaterfallOrchestrator {
       if (data) return data;
     }
 
-    throw new Error(`All enrichment layers failed for "${identifier}" (LinkedIn URL: ${linkedInUrl})`);
+    // Build detailed error message showing which layers failed
+    const layerErrors: string[] = [];
+    if (!sr.success) layerErrors.push(`scraper: ${sr.error || 'unknown error'}`);
+    if (!fr.success) layerErrors.push(`filter: ${fr.error || 'unknown error'}`);
+    throw new Error(`All enrichment layers failed for "${identifier}" [${layerErrors.join('; ')}]`);
   }
 
   async fetch(payload: WaterfallPayload): Promise<PersonData> {
@@ -617,80 +659,78 @@ export class WaterfallOrchestrator {
       throw new Error(`All discovery layers failed for "${identifier}". Errors: ${discoveryErrors.join('; ')}`);
     }
 
-    // Layer 4: LinkedIn Scraper
-    let linkedInId: string | null = null;
-    let scraperProfiles: Array<Record<string, unknown>> | null = null;
+    // Layers 4+5: Scraper + Filter + Company Intel (all parallel)
+    // Extract LinkedIn ID from URL so filter can start immediately
+    const urlLinkedInId = extractLinkedInIdFromUrl(linkedInUrl);
 
-    {
-      const scraperResult = await this._runLayer(
-        'linkedin-scraper',
-        'linkedin-scraper',
-        () => this._layerLinkedInScraper(linkedInUrl),
-        LAYER_TIMEOUTS.linkedInScraper,
-      );
+    const scraperPromise = this._runLayer(
+      'linkedin-scraper',
+      'linkedin-scraper',
+      () => this._layerLinkedInScraper(linkedInUrl),
+      LAYER_TIMEOUTS.linkedInScraper,
+    );
 
-      const sr = scraperResult as ScraperLayerResult & { elapsedMs: number };
+    const filterPromise = urlLinkedInId
+      ? this._runLayer('filter-enrich', 'filter-enrich', () => this._layerFilterEnrich(urlLinkedInId), LAYER_TIMEOUTS.filterEnrich)
+      : Promise.resolve({ success: false, error: 'No LinkedIn ID from URL', elapsedMs: 0 } as FilterLayerResult & { elapsedMs: number });
 
-      if (sr.success && sr.linkedInId) {
-        linkedInId = sr.linkedInId;
-        scraperProfiles = sr.profiles || null;
+    const companyIntelPromise = deepLookupCompanyIntel(
+      String(company || ''),
+      name,
+      null,
+      linkedInUrl,
+    ).catch((err) => {
+      console.warn(LOG_PREFIX, 'Company intel failed (non-fatal):', (err as Error).message);
+      this._logBuffer?.warn('Waterfall', 'Company intel failed: ' + (err as Error).message);
+      return null;
+    });
 
-        if (sr.profiles?.length) {
-          const interimData = pickBestProfile(sr.profiles, name, 'scraper', { email, serpVerified });
-          if (interimData && typeof this.onInterimResult === 'function') {
-            try {
-              this.onInterimResult(interimData);
-            } catch {
-              // swallow
-            }
-          }
+    const serpCompanyPromise = serpSearchCompanyInfo(String(company || '')).catch((err) => {
+      console.warn(LOG_PREFIX, 'SERP company search failed (non-fatal):', (err as Error).message);
+      return null;
+    });
+
+    // Fire interim result from scraper as soon as it arrives
+    const scraperSettled = scraperPromise.then((result) => {
+      const sr = result as ScraperLayerResult & { elapsedMs: number };
+      if (sr.success && sr.profiles?.length) {
+        const interimData = pickBestProfile(sr.profiles, name, 'scraper', { email, serpVerified });
+        if (interimData && typeof this.onInterimResult === 'function') {
+          try { this.onInterimResult(interimData); } catch { /* swallow */ }
         }
-      } else {
-        this._notifyProgress('filter-enrich', 'skipped');
-
-        if (sr.success && sr.profiles?.length) {
-          const data = await this._finalise(
-            { profiles: sr.profiles, source: 'scraper' as const },
-            name,
-            email,
-            cacheKey,
-            identifier,
-            { serpVerified },
-          );
-          if (data) return data;
-        }
-
-        throw new Error(`Could not determine LinkedIn ID for "${identifier}"`);
       }
-    }
+      return sr;
+    });
 
-    // Layer 5: Filter API + Company Intel (parallel)
-    const interimCompany =
-      (scraperProfiles?.[0]?.current_company as Record<string, unknown>)?.name ??
-      scraperProfiles?.[0]?.current_company_name ??
-      company;
-    const interimTitle =
-      (scraperProfiles?.[0]?.current_company as Record<string, unknown>)?.title ?? scraperProfiles?.[0]?.position ?? null;
-
-    const [filterResult, companyIntel, serpCompanyInfo] = await Promise.all([
-      this._runLayer('filter-enrich', 'filter-enrich', () => this._layerFilterEnrich(linkedInId), LAYER_TIMEOUTS.filterEnrich),
-      deepLookupCompanyIntel(
-        String(interimCompany || ''),
-        name,
-        interimTitle ? String(interimTitle) : null,
-        linkedInUrl,
-      ).catch((err) => {
-        console.warn(LOG_PREFIX, 'Company intel failed (non-fatal):', (err as Error).message);
-        this._logBuffer?.warn('Waterfall', 'Company intel failed: ' + (err as Error).message);
-        return null;
-      }),
-      serpSearchCompanyInfo(String(interimCompany || '')).catch((err) => {
-        console.warn(LOG_PREFIX, 'SERP company search failed (non-fatal):', (err as Error).message);
-        return null;
-      }),
+    const [scraperResult, filterResult, companyIntel, serpCompanyInfo] = await Promise.all([
+      scraperSettled,
+      filterPromise,
+      companyIntelPromise,
+      serpCompanyPromise,
     ]);
 
+    const sr = scraperResult as ScraperLayerResult & { elapsedMs: number };
     const fr = filterResult as FilterLayerResult & { elapsedMs: number };
+    const scraperProfiles = sr.success ? (sr.profiles || null) : null;
+
+    // If filter couldn't start because no URL-based ID, try with scraper-extracted ID
+    if (!fr.success && !urlLinkedInId && sr.success && sr.linkedInId) {
+      console.log(LOG_PREFIX, 'Retrying filter with scraper-extracted LinkedIn ID:', sr.linkedInId);
+      const retryFilter = await this._runLayer(
+        'filter-enrich',
+        'filter-enrich',
+        () => this._layerFilterEnrich(sr.linkedInId!),
+        LAYER_TIMEOUTS.filterEnrich,
+      );
+      const retryFr = retryFilter as FilterLayerResult & { elapsedMs: number };
+      if (retryFr.success && retryFr.profiles?.length) {
+        const data = await this._finalise(
+          { profiles: retryFr.profiles, scraperProfiles: scraperProfiles || undefined, companyIntel, serpCompanyInfo, source: 'filter' as const },
+          name, email, cacheKey, identifier, { serpVerified },
+        );
+        if (data) return data;
+      }
+    }
 
     if (fr.success && fr.profiles?.length) {
       const data = await this._finalise(
@@ -723,7 +763,10 @@ export class WaterfallOrchestrator {
       if (data) return data;
     }
 
-    throw new Error(`All enrichment layers failed for "${identifier}" (LinkedIn URL: ${linkedInUrl})`);
+    const layerErrors: string[] = [];
+    if (!sr.success) layerErrors.push(`scraper: ${sr.error || 'unknown'}`);
+    if (!fr.success) layerErrors.push(`filter: ${fr.error || 'unknown'}`);
+    throw new Error(`All enrichment layers failed for "${identifier}" [${layerErrors.join('; ')}]`);
   }
 
   private async _finalise(
@@ -796,24 +839,35 @@ export class WaterfallOrchestrator {
       personData.email = email;
     }
 
-    // Write to both local Chrome cache and server cache
-    try {
-      await this._cache.set(cacheKey, personData, CACHE_TTL_MS);
-    } catch (err) {
-      console.warn(LOG_PREFIX, `Local cache write failed for "${identifier}":`, (err as Error).message);
+    // Write to both local Chrome cache and server cache (primary key + LinkedIn alias)
+    const aliasKey = personData.linkedinUrl ? linkedInAliasKey(personData.linkedinUrl) : null;
+    const cacheKeysToWrite = aliasKey && aliasKey !== cacheKey ? [cacheKey, aliasKey] : [cacheKey];
+
+    for (const key of cacheKeysToWrite) {
+      try {
+        await this._cache.set(key, personData, CACHE_TTL_MS);
+      } catch (err) {
+        console.warn(LOG_PREFIX, `Local cache write failed for "${key}":`, (err as Error).message);
+      }
     }
 
-    try {
-      await this._serverCache.put({
-        entityType: 'person',
-        entityKey: cacheKey,
-        enrichmentData: personData as unknown as Record<string, unknown>,
-        confidence: personData._confidence ?? null,
-        confidenceScore: personData._confidenceScore ?? null,
-        source: personData._source ?? null,
-      });
-    } catch (err) {
-      console.warn(LOG_PREFIX, `Server cache write failed for "${identifier}":`, (err as Error).message);
+    for (const key of cacheKeysToWrite) {
+      try {
+        await this._serverCache.put({
+          entityType: 'person',
+          entityKey: key,
+          enrichmentData: personData as unknown as Record<string, unknown>,
+          confidence: personData._confidence ?? null,
+          confidenceScore: personData._confidenceScore ?? null,
+          source: personData._source ?? null,
+        });
+      } catch (err) {
+        console.warn(LOG_PREFIX, `Server cache write failed for "${key}":`, (err as Error).message);
+      }
+    }
+
+    if (aliasKey && aliasKey !== cacheKey) {
+      console.log(LOG_PREFIX, `Wrote LinkedIn alias cache key: ${aliasKey}`);
     }
 
     console.log(
