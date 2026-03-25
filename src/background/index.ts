@@ -11,6 +11,7 @@ import type { PersonData, ProgressPayload } from './enrichment/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
 import { signInWithGoogle, signOut, getAuthState, getCurrentUser } from '../lib/auth';
+import { getSettings } from '../utils/settings';
 
 const LOG = '[PreMeet][SW]';
 
@@ -217,6 +218,72 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
       console.warn(LOG, 'Could not auto-open side panel:', err);
     });
   }
+
+  // Auto-search all attendees if setting is enabled
+  try {
+    const settings = await getSettings();
+    if (settings.autoSearchAttendees) {
+      autoSearchAllAttendees(senderTabId);
+    }
+  } catch (err) {
+    console.warn(LOG, 'Failed to check autoSearchAttendees setting:', err);
+  }
+}
+
+/**
+ * Auto-enrich all attendees sequentially, skipping the current user.
+ * Stops early if credits run out.
+ */
+async function autoSearchAllAttendees(senderTabId?: number): Promise<void> {
+  if (!currentMeeting) return;
+
+  // Get current user email to exclude from auto-search
+  let currentUserEmail: string | null = null;
+  try {
+    const user = await getCurrentUser();
+    currentUserEmail = user?.email?.toLowerCase() ?? null;
+  } catch {
+    console.warn(LOG, 'Could not get current user for auto-search filter');
+  }
+
+  const attendees = currentMeeting.attendees;
+  console.log(LOG, `Auto-searching ${attendees.length} attendees (excluding ${currentUserEmail ?? 'unknown user'})`);
+
+  for (const attendee of attendees) {
+    // Skip the current user
+    if (currentUserEmail && attendee.email.toLowerCase() === currentUserEmail) {
+      console.log(LOG, `Auto-search: skipping current user ${attendee.email}`);
+      continue;
+    }
+
+    // Skip already enriched/pending attendees
+    const existing = currentEnriched.find((a) => a.email.toLowerCase() === attendee.email.toLowerCase());
+    if (existing && (existing.status === 'done' || existing.status === 'pending')) {
+      continue;
+    }
+
+    // Check credits before each enrichment
+    try {
+      const creditAvailable = await hasCredit();
+      if (!creditAvailable) {
+        console.warn(LOG, 'Auto-search: credits exhausted, stopping batch.');
+        const credits = await getCredits();
+        const [y, m] = credits.resetMonth.split('-').map(Number);
+        const nextReset = new Date(y, m, 1);
+        const resetDate = nextReset.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        broadcastToPopups({ type: 'CREDITS_EXHAUSTED', payload: { meeting: currentMeeting!, resetDate } });
+        return;
+      }
+    } catch (err) {
+      console.error(LOG, 'Auto-search: credit check failed, stopping batch:', err);
+      return;
+    }
+
+    // Trigger enrichment for this attendee (reuses existing single-attendee flow)
+    await handleEnrichSingleAttendee(attendee.email, senderTabId);
+  }
+
+  console.log(LOG, `Auto-search complete for "${currentMeeting?.title}"`);
 }
 
 // ─── Single-Attendee On-Demand Enrichment ──────────────────────────────────

@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS: Settings = {
   showConfidenceScores: true,
   compactMode: false,
   apiToken: '',
+  autoSearchAttendees: false,
 };
 
 export function getDefaultSettings(): Settings {

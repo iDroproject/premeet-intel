@@ -57,6 +57,8 @@ export interface Settings {
   showConfidenceScores: boolean;
   compactMode: boolean;
   apiToken: string;
+  /** Auto-search all attendees when a calendar event is clicked */
+  autoSearchAttendees: boolean;
 }
 
 // ─── Credits ─────────────────────────────────────────────────────────────────
