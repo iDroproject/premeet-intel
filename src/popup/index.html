@@ -67,6 +67,25 @@
         font-size: 12px; opacity: 0.85; margin-top: 2px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;
       }
+      .pm-plan-badge {
+        font-size: 10px;
+        font-weight: 700;
+        border-radius: 10px;
+        padding: 2px 8px;
+        white-space: nowrap;
+        flex-shrink: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        line-height: 1;
+      }
+      .pm-plan-badge--free {
+        background: rgba(255,255,255,0.18);
+        color: rgba(255,255,255,0.9);
+      }
+      .pm-plan-badge--pro {
+        background: rgba(251,191,36,0.35);
+        color: #FDE68A;
+      }
       .pm-credits {
         font-size: 11px;
         background: rgba(255,255,255,0.18);
@@ -484,6 +503,7 @@
         <div class="pm-header__title">PreMeet</div>
         <div class="pm-header__meeting" id="pm-meeting-title"></div>
       </div>
+      <span class="pm-plan-badge pm-hidden" id="pm-plan-badge"></span>
       <div class="pm-credits pm-hidden" id="pm-credits"></div>
       <button class="pm-gear" id="pm-gear" title="Settings">
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">

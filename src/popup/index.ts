@@ -29,6 +29,7 @@ const Els = {
   list:           $('pm-list'),
   footer:         $('pm-footer'),
   year:           $('pm-year'),
+  planBadge:      $('pm-plan-badge'),
   credits:        $('pm-credits'),
   // Tabs
   tabAttendees:   $('pm-tab-attendees'),
@@ -85,29 +86,39 @@ function nextResetLabel(resetMonth: string): string {
 }
 
 async function refreshCredits(): Promise<void> {
-  if (!Els.credits) return;
   const credits = await getCredits();
   const remaining = remainingCredits(credits);
-  if (credits.plan === 'pro') {
-    Els.credits.textContent = 'Pro';
-    Els.credits.classList.remove('pm-hidden', 'pm-credits--low', 'pm-credits--warn', 'pm-credits--expandable');
+  const isPro = credits.plan === 'pro';
+
+  // Plan badge
+  if (Els.planBadge) {
+    Els.planBadge.textContent = isPro ? 'Pro' : 'Free';
+    Els.planBadge.classList.remove('pm-hidden', 'pm-plan-badge--free', 'pm-plan-badge--pro');
+    Els.planBadge.classList.add(isPro ? 'pm-plan-badge--pro' : 'pm-plan-badge--free');
+  }
+
+  // Credits counter (only shown for free plan)
+  if (!Els.credits) return;
+  if (isPro) {
+    Els.credits.classList.add('pm-hidden');
+    return;
+  }
+
+  const resetLabel = nextResetLabel(credits.resetMonth);
+  const isExhausted = remaining === 0;
+  Els.credits.innerHTML = isExhausted
+    ? `0/${credits.limit} — Upgrade`
+    : `${remaining}/${credits.limit} briefs left<span class="pm-credits__reset">Resets ${escapeHtml(resetLabel)}</span>`;
+  Els.credits.classList.remove('pm-hidden');
+  Els.credits.classList.toggle('pm-credits--warn', remaining <= 3 && remaining > 1);
+  Els.credits.classList.toggle('pm-credits--low', remaining <= 1 || isExhausted);
+  Els.credits.classList.toggle('pm-credits--expandable', isExhausted);
+  if (isExhausted) {
+    Els.credits.title = 'Upgrade to Pro for unlimited briefs';
+    Els.credits.onclick = () => window.open('https://premeet.co/pricing', '_blank');
   } else {
-    const resetLabel = nextResetLabel(credits.resetMonth);
-    const isExhausted = remaining === 0;
-    Els.credits.innerHTML = isExhausted
-      ? `0/${credits.limit} — Upgrade`
-      : `${remaining}/${credits.limit} briefs left<span class="pm-credits__reset">Resets ${escapeHtml(resetLabel)}</span>`;
-    Els.credits.classList.remove('pm-hidden');
-    Els.credits.classList.toggle('pm-credits--warn', remaining <= 3 && remaining > 1);
-    Els.credits.classList.toggle('pm-credits--low', remaining <= 1 || isExhausted);
-    Els.credits.classList.toggle('pm-credits--expandable', isExhausted);
-    if (isExhausted) {
-      Els.credits.title = 'Upgrade to Pro for unlimited briefs';
-      Els.credits.onclick = () => window.open('https://premeet.co/pricing', '_blank');
-    } else {
-      Els.credits.title = '';
-      Els.credits.onclick = null;
-    }
+    Els.credits.title = '';
+    Els.credits.onclick = null;
   }
 }
 
