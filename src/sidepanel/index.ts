@@ -416,8 +416,9 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   const hasRichData = !!pd;
 
   // Build class list
+  const isError = attendee.status === 'error';
   const classes = ['pm-card'];
-  if (isIdle) classes.push('pm-card--idle');
+  if (isIdle || isError) classes.push('pm-card--idle');
   if (isPending) classes.push('pm-card--pending');
   if (attendee.fromCache) classes.push('pm-card--cache-hit');
   if (attendee.hasLinkedIn && !isDone) classes.push('pm-card--usable');
@@ -495,6 +496,11 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
     ? `<div class="pm-card__company${fadeClass}">\uD83C\uDFE2 ${escapeHtml(company)}</div>`
     : isPending ? '<div class="pm-card__company">&nbsp;</div>' : '';
 
+  // Error message for failed enrichment
+  const errorHtml = attendee.status === 'error' && attendee.error
+    ? `<div style="margin-top:8px;padding:8px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;font-size:12px;color:#991B1B;line-height:1.5;">${escapeHtml(attendee.error)}</div>`
+    : '';
+
   card.innerHTML = `
     <div class="pm-card__header">
       <div class="pm-avatar">${renderAvatar(name, pd)}</div>
@@ -509,6 +515,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
       </div>
       ${confidenceHtml}
     </div>
+    ${errorHtml}
     ${companySectionHtml}
     ${bioHtml}
     ${expandableSectionsHtml}
@@ -530,7 +537,14 @@ function attachCardListeners(card: HTMLElement, key: string): void {
       if (target.closest('a') || target.closest('[data-confidence-click]')) return;
 
       const attendee = attendeeMap.get(key);
-      if (attendee?.status !== 'idle') return;
+      if (!attendee || (attendee.status !== 'idle' && attendee.status !== 'error')) return;
+
+      // Reset error state to idle before retrying
+      if (attendee.status === 'error') {
+        attendee.status = 'idle';
+        attendee.error = undefined;
+        attendeeMap.set(key, attendee);
+      }
 
       chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: attendee.email } });
     });

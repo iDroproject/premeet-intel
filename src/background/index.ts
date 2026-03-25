@@ -292,14 +292,23 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
         company: attendee.company || '',
       });
     } catch (waterfallErr) {
-      console.warn(LOG, `Waterfall failed for ${email}, falling back to basic:`, (waterfallErr as Error).message);
+      const errMsg = (waterfallErr as Error).message;
+      console.error(LOG, `Waterfall failed for ${email}:`, errMsg);
+
+      // Mark as error with descriptive message instead of silently falling back
+      currentEnriched[idx] = {
+        ...currentEnriched[idx],
+        status: 'error',
+        stage: 'complete',
+        error: errMsg.includes('VITE_SUPABASE_URL')
+          ? 'Enrichment backend not configured. Check extension settings.'
+          : errMsg.includes('Not authenticated')
+            ? 'Please sign in to use enrichment.'
+            : `Enrichment failed: ${errMsg}`,
+      };
     }
 
-    if (!personData) {
-      const enriched = await enrichAttendee(attendee);
-      const fromCache = enriched.person !== null && (Date.now() - enriched.enrichedAt) < 100;
-      currentEnriched[idx] = { ...enriched, stage: 'complete', fromCache, hasLinkedIn: enriched.person !== null };
-    } else {
+    if (personData) {
       currentEnriched[idx] = {
         ...currentEnriched[idx],
         status: 'done',
