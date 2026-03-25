@@ -55,6 +55,7 @@ const Els = {
   setCache:       $<HTMLSelectElement>('pm-set-cache'),
   setConfidence:  $<HTMLInputElement>('pm-set-confidence'),
   setCompact:     $<HTMLInputElement>('pm-set-compact'),
+  setAutoSearch:  $<HTMLInputElement>('pm-set-auto-search'),
   setToken:       $<HTMLInputElement>('pm-set-token'),
   tokenEye:       $('pm-token-eye'),
   saveToken:      $('pm-save-token'),
@@ -367,6 +368,9 @@ function applySettingsToUI(s: Settings): void {
   if (Els.setCompact) {
     (Els.setCompact as HTMLInputElement).checked = s.compactMode;
   }
+  if (Els.setAutoSearch) {
+    (Els.setAutoSearch as HTMLInputElement).checked = s.autoSearchAttendees;
+  }
   if (Els.setToken) {
     (Els.setToken as HTMLInputElement).value = s.apiToken;
   }
@@ -410,6 +414,11 @@ function wireSettingsEvents(): void {
   // Compact mode
   Els.setCompact?.addEventListener('change', async () => {
     await saveSettings({ compactMode: (Els.setCompact as HTMLInputElement).checked });
+  });
+
+  // Auto-search attendees
+  Els.setAutoSearch?.addEventListener('change', async () => {
+    await saveSettings({ autoSearchAttendees: (Els.setAutoSearch as HTMLInputElement).checked });
   });
 
   // Token show/hide
