@@ -60,6 +60,18 @@ const Els = {
   setAutoSearch:  $<HTMLInputElement>('pm-set-auto-search'),
   ctaBanner:      $('pm-cta-banner'),
   ctaSignin:      $('pm-cta-signin'),
+  // Auth UI
+  headerSignin:   $('pm-header-signin'),
+  headerUser:     $('pm-header-user'),
+  headerUserAvatar: $('pm-header-user-avatar'),
+  authSigninSection: $('pm-auth-signin-section'),
+  authUserSection: $('pm-auth-user-section'),
+  authSigninBtn:  $('pm-auth-signin-btn'),
+  authSignoutBtn: $('pm-auth-signout-btn'),
+  authAvatar:     $('pm-auth-avatar'),
+  authName:       $('pm-auth-name'),
+  authEmail:      $('pm-auth-email'),
+  authError:      $('pm-auth-error'),
 };
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -67,6 +79,12 @@ const Els = {
 let currentAttendees: EnrichedAttendee[] = [];
 let currentMeeting: MeetingEvent | null = null;
 let isAuthenticated = false;
+
+interface AuthUserInfo {
+  email: string;
+  name: string | null;
+}
+let currentUser: AuthUserInfo | null = null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -91,9 +109,106 @@ async function checkAuthState(): Promise<boolean> {
         resolve(false);
         return;
       }
+      if (response.isAuthenticated && response.user) {
+        currentUser = { email: response.user.email, name: response.user.name };
+      }
       resolve(response.isAuthenticated === true);
     });
   });
+}
+
+function updateAuthUI(): void {
+  const hidden = 'pm-hidden';
+
+  // Header controls
+  Els.headerSignin?.classList.toggle(hidden, isAuthenticated);
+  Els.headerUser?.classList.toggle(hidden, !isAuthenticated);
+
+  if (isAuthenticated && currentUser) {
+    const avi = initials(currentUser.name || currentUser.email);
+    if (Els.headerUserAvatar) Els.headerUserAvatar.textContent = avi;
+
+    // Settings panel
+    if (Els.authAvatar) Els.authAvatar.textContent = avi;
+    if (Els.authName) Els.authName.textContent = currentUser.name || 'PreMeet User';
+    if (Els.authEmail) Els.authEmail.textContent = currentUser.email;
+  }
+
+  Els.authSigninSection?.classList.toggle(hidden, isAuthenticated);
+  Els.authUserSection?.classList.toggle(hidden, !isAuthenticated);
+  Els.authError?.classList.add(hidden);
+}
+
+async function handleSignIn(): Promise<void> {
+  Els.authError?.classList.add('pm-hidden');
+
+  // Disable buttons during sign-in
+  const btns = [Els.headerSignin, Els.authSigninBtn, Els.ctaSignin].filter(Boolean) as HTMLButtonElement[];
+  btns.forEach((b) => { b.disabled = true; });
+
+  return new Promise<void>((resolve) => {
+    chrome.runtime.sendMessage({ type: 'AUTH_SIGN_IN' }, (response) => {
+      btns.forEach((b) => { b.disabled = false; });
+
+      if (chrome.runtime.lastError) {
+        showAuthError(chrome.runtime.lastError.message || 'Sign-in failed');
+        resolve();
+        return;
+      }
+      if (!response?.ok) {
+        showAuthError(response?.error || 'Sign-in failed. Please try again.');
+        resolve();
+        return;
+      }
+
+      isAuthenticated = true;
+      if (response.user) {
+        currentUser = { email: response.user.email, name: response.user.name };
+      }
+
+      updateAuthUI();
+      Els.ctaBanner?.classList.add('pm-hidden');
+
+      // Re-render attendees to unmask preview data
+      if (currentMeeting && currentAttendees.length > 0) {
+        renderAttendees(currentMeeting, currentAttendees);
+      }
+      refreshCredits();
+      resolve();
+    });
+  });
+}
+
+async function handleSignOut(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    chrome.runtime.sendMessage({ type: 'AUTH_SIGN_OUT' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn(LOG, 'Sign-out error:', chrome.runtime.lastError.message);
+      }
+
+      isAuthenticated = false;
+      currentUser = null;
+      updateAuthUI();
+
+      // Show CTA banner if attendees are visible
+      if (currentAttendees.length > 0) {
+        Els.ctaBanner?.classList.remove('pm-hidden');
+      }
+
+      // Re-render attendees with masked data
+      if (currentMeeting && currentAttendees.length > 0) {
+        renderAttendees(currentMeeting, currentAttendees);
+      }
+      refreshCredits();
+      resolve();
+    });
+  });
+}
+
+function showAuthError(msg: string): void {
+  if (!Els.authError) return;
+  Els.authError.textContent = msg;
+  Els.authError.classList.remove('pm-hidden');
 }
 
 // ─── Credits Display ──────────────────────────────────────────────────────────
@@ -537,26 +652,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Check auth state for freemium preview mode
   isAuthenticated = await checkAuthState();
+  updateAuthUI();
   Els.ctaBanner?.classList.toggle('pm-hidden', isAuthenticated);
 
-  // CTA sign-in button
-  Els.ctaSignin?.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'AUTH_SIGN_IN' }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.warn(LOG, 'Sign-in failed:', chrome.runtime.lastError.message);
-        return;
-      }
-      if (response?.ok) {
-        isAuthenticated = true;
-        Els.ctaBanner?.classList.add('pm-hidden');
-        // Re-render attendees with full data
-        if (currentMeeting && currentAttendees.length > 0) {
-          renderAttendees(currentMeeting, currentAttendees);
-        }
-        refreshCredits();
-      }
-    });
+  // Auth event handlers — header, settings panel, and CTA banner sign-in buttons
+  Els.headerSignin?.addEventListener('click', () => handleSignIn());
+  Els.authSigninBtn?.addEventListener('click', () => handleSignIn());
+  Els.ctaSignin?.addEventListener('click', () => handleSignIn());
+
+  // Header user avatar opens settings
+  Els.headerUser?.addEventListener('click', () => {
+    loadSettingsUI();
+    openSettings();
   });
+
+  // Sign out
+  Els.authSignoutBtn?.addEventListener('click', () => handleSignOut());
 
   wireEvents();
   wireSettingsEvents();
