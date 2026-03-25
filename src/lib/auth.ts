@@ -31,9 +31,9 @@ export interface AuthState {
 }
 
 function getApiBaseUrl(): string {
-  // Supabase Edge Functions URL, injected at build time
-  const url = import.meta.env.VITE_SUPABASE_URL as string;
-  return url ? `${url}/functions/v1` : '';
+  // API base URL for PreMeet edge functions, injected at build time
+  const url = import.meta.env.VITE_API_BASE_URL as string;
+  return url || '';
 }
 
 // ── Token Storage ─────────────────────────────────────────────────────────

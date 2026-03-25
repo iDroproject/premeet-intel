@@ -135,7 +135,7 @@ interface LogBuffer {
 
 export class WaterfallOrchestrator {
   private _cache: CacheManager;
-  private _supabaseCache: EnrichmentCacheService;
+  private _serverCache: EnrichmentCacheService;
   private _logBuffer: LogBuffer | null;
   private _personName: string = '';
   private _stepsState: StepState[];
@@ -145,7 +145,7 @@ export class WaterfallOrchestrator {
 
   constructor(cacheManager: CacheManager, logBuffer?: LogBuffer | null) {
     this._cache = cacheManager;
-    this._supabaseCache = new EnrichmentCacheService();
+    this._serverCache = new EnrichmentCacheService();
     this._logBuffer = logBuffer || null;
     this._stepsState = PIPELINE_STEPS.map((s) => ({ ...s, status: 'pending' as const }));
   }
@@ -232,18 +232,18 @@ export class WaterfallOrchestrator {
       return { success: true, _cachedData: localCached };
     }
 
-    // Fall back to Supabase server cache (shared across devices, deduped)
+    // Fall back to server cache (shared across devices, deduped)
     try {
-      const sbResult = await this._supabaseCache.get('person', cacheKey);
-      if (sbResult.hit && sbResult.data) {
-        const personData = sbResult.data as unknown as PersonData;
+      const serverResult = await this._serverCache.get('person', cacheKey);
+      if (serverResult.hit && serverResult.data) {
+        const personData = serverResult.data as unknown as PersonData;
         // Backfill local cache so next lookup is instant
         await this._cache.set(cacheKey, personData, CACHE_TTL_MS).catch(() => {});
-        console.log(LOG_PREFIX, 'Supabase cache hit for:', cacheKey);
+        console.log(LOG_PREFIX, 'Server cache hit for:', cacheKey);
         return { success: true, _cachedData: personData };
       }
     } catch (err) {
-      console.warn(LOG_PREFIX, 'Supabase cache lookup failed (non-fatal):', (err as Error).message);
+      console.warn(LOG_PREFIX, 'Server cache lookup failed (non-fatal):', (err as Error).message);
     }
 
     return { success: false };
@@ -277,8 +277,12 @@ export class WaterfallOrchestrator {
     try {
       const linkedInUrl = await Promise.any(promises);
       return { success: true, linkedInUrl, source: 'serp' };
-    } catch {
-      return { success: false, error: 'SERP found no LinkedIn URL from any query' };
+    } catch (aggErr) {
+      const details = (aggErr as AggregateError).errors
+        ? (aggErr as AggregateError).errors.map((e: unknown) => (e as Error)?.message || String(e)).join('; ')
+        : (aggErr as Error).message;
+      console.warn(LOG_PREFIX, 'SERP all queries failed:', details);
+      return { success: false, error: `SERP found no LinkedIn URL from any query: ${details}` };
     }
   }
 
@@ -792,7 +796,7 @@ export class WaterfallOrchestrator {
       personData.email = email;
     }
 
-    // Write to both local Chrome cache and Supabase server cache
+    // Write to both local Chrome cache and server cache
     try {
       await this._cache.set(cacheKey, personData, CACHE_TTL_MS);
     } catch (err) {
@@ -800,7 +804,7 @@ export class WaterfallOrchestrator {
     }
 
     try {
-      await this._supabaseCache.put({
+      await this._serverCache.put({
         entityType: 'person',
         entityKey: cacheKey,
         enrichmentData: personData as unknown as Record<string, unknown>,
@@ -809,7 +813,7 @@ export class WaterfallOrchestrator {
         source: personData._source ?? null,
       });
     } catch (err) {
-      console.warn(LOG_PREFIX, `Supabase cache write failed for "${identifier}":`, (err as Error).message);
+      console.warn(LOG_PREFIX, `Server cache write failed for "${identifier}":`, (err as Error).message);
     }
 
     console.log(

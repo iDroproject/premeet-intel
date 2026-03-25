@@ -586,13 +586,13 @@ async function handleFetchCompanyIntel(
   const { email, companyName, linkedinUrl, website } = payload;
   console.log(LOG, `Company intel fetch for: "${companyName}" (attendee: ${email})`);
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-  if (!supabaseUrl) {
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+  if (!apiBase) {
     broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: 'API not configured' } });
     return;
   }
 
-  const url = `${supabaseUrl}/functions/v1/enrichment-company`;
+  const url = `${apiBase}/enrichment-company`;
   const body: Record<string, string> = { companyName };
   if (linkedinUrl) body.linkedinUrl = linkedinUrl;
   if (website) body.website = website;
@@ -630,13 +630,13 @@ async function handleFetchContactInfo(
   const { email, linkedinUrl, fullName, companyName } = payload;
   console.log(LOG, `Contact info fetch for: "${fullName}" (attendee: ${email})`);
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-  if (!supabaseUrl) {
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+  if (!apiBase) {
     broadcastToPopups({ type: 'CONTACT_INFO_RESULT', payload: { email, error: 'API not configured' } });
     return;
   }
 
-  const url = `${supabaseUrl}/functions/v1/enrichment-contact`;
+  const url = `${apiBase}/enrichment-contact`;
   const body: Record<string, string> = { linkedinUrl, fullName };
   if (companyName) body.companyName = companyName;
 
@@ -675,13 +675,13 @@ async function handleCustomEnrichment(
   const { email, linkedinUrl, fullName, prompt } = payload;
   console.log(LOG, `Custom enrichment for: "${fullName}" (attendee: ${email}) prompt: "${prompt}"`);
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-  if (!supabaseUrl) {
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+  if (!apiBase) {
     broadcastToPopups({ type: 'CUSTOM_ENRICHMENT_RESULT', payload: { email, error: 'API not configured' } });
     return;
   }
 
-  const url = `${supabaseUrl}/functions/v1/enrichment-custom`;
+  const url = `${apiBase}/enrichment-custom`;
   const body = { linkedinUrl, fullName, prompt };
 
   try {

@@ -1,22 +1,18 @@
-// PreMeet – Supabase Enrichment Cache Service
-// Server-side caching layer for enrichment results.
+// PreMeet – Enrichment Cache Service (Neon-backed via Edge Function)
+// Client-side caching layer that calls the enrichment-cache edge function
+// for all server-side cache operations against the Neon database.
 // Provides cache-first lookup, TTL-based expiry, manual invalidation,
 // in-flight deduplication, and hit/miss tracking.
 
-import { supabase } from './supabase';
-import type { Database, EntityType, ConfidenceLevel } from './database.types';
+import { authFetch } from './auth';
+import type { EntityType, ConfidenceLevel } from './database.types';
 
-const LOG_PREFIX = '[PreMeet][SupabaseCache]';
+const LOG_PREFIX = '[PreMeet][ServerCache]';
 
-const TTL_DEFAULTS: Record<EntityType, number> = {
-  person: 7 * 24 * 60 * 60 * 1000,   // 7 days
-  company: 30 * 24 * 60 * 60 * 1000,  // 30 days
-};
-
-// Row types extracted from Database for explicit annotations
-type EnrichmentCacheRow = Database['public']['Tables']['enrichment_cache']['Row'];
-type EnrichmentCacheInsert = Database['public']['Tables']['enrichment_cache']['Insert'];
-type CacheStatsRow = Database['public']['Tables']['cache_stats']['Row'];
+function getApiBaseUrl(): string {
+  const url = import.meta.env.VITE_API_BASE_URL as string;
+  return url || '';
+}
 
 export interface CacheLookupResult {
   hit: boolean;
@@ -46,15 +42,35 @@ function inflightKey(entityType: EntityType, entityKey: string): string {
   return `${entityType}:${entityKey.trim().toLowerCase()}`;
 }
 
-function normalizeKey(key: string): string {
-  return key.trim().toLowerCase();
-}
+const CACHE_ENDPOINT = 'enrichment-cache';
 
 export class EnrichmentCacheService {
+  private _baseUrl: string;
+
+  constructor() {
+    this._baseUrl = getApiBaseUrl();
+  }
+
+  private async _call(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const url = `${this._baseUrl}/${CACHE_ENDPOINT}`;
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Cache edge function error (${res.status}): ${errText.slice(0, 200)}`);
+    }
+
+    return res.json();
+  }
+
   // ── Cache Lookup (cache-first) ──────────────────────────────────────────
 
   async get(entityType: EntityType, entityKey: string): Promise<CacheLookupResult> {
-    const key = normalizeKey(entityKey);
+    const key = entityKey.trim().toLowerCase();
     const dedup = inflightKey(entityType, key);
 
     // Deduplication: if an identical lookup is already in-flight, await it
@@ -68,8 +84,7 @@ export class EnrichmentCacheService {
     inflight.set(dedup, promise);
 
     try {
-      const result = await promise;
-      return result;
+      return await promise;
     } finally {
       inflight.delete(dedup);
     }
@@ -87,42 +102,29 @@ export class EnrichmentCacheService {
     };
 
     try {
-      const { data, error } = await supabase
-        .from('enrichment_cache')
-        .select('enrichment_data, confidence, confidence_score, source, fetched_at, expires_at')
-        .eq('entity_type', entityType)
-        .eq('entity_key', entityKey)
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle();
+      const result = await this._call({
+        action: 'get',
+        entityType,
+        entityKey,
+      });
 
-      if (error) {
-        console.error(LOG_PREFIX, 'Lookup error:', error.message);
-        await this._recordStat(entityType, false);
-        return miss;
-      }
-
-      if (!data) {
+      if (!result.hit) {
         console.log(LOG_PREFIX, `Cache miss: ${entityType}/${entityKey}`);
-        await this._recordStat(entityType, false);
         return miss;
       }
 
       console.log(LOG_PREFIX, `Cache hit: ${entityType}/${entityKey}`);
-      await this._recordStat(entityType, true);
-
-      const row = data as unknown as Pick<EnrichmentCacheRow, 'enrichment_data' | 'confidence' | 'confidence_score' | 'source' | 'fetched_at' | 'expires_at'>;
       return {
         hit: true,
-        data: row.enrichment_data as Record<string, unknown>,
-        confidence: row.confidence,
-        confidenceScore: row.confidence_score,
-        source: row.source,
-        fetchedAt: row.fetched_at,
-        expiresAt: row.expires_at,
+        data: result.data as Record<string, unknown>,
+        confidence: (result.confidence as ConfidenceLevel) ?? null,
+        confidenceScore: (result.confidenceScore as number) ?? null,
+        source: (result.source as string) ?? null,
+        fetchedAt: (result.fetchedAt as string) ?? null,
+        expiresAt: (result.expiresAt as string) ?? null,
       };
     } catch (err) {
-      console.error(LOG_PREFIX, 'Unexpected lookup error:', (err as Error).message);
-      await this._recordStat(entityType, false);
+      console.error(LOG_PREFIX, 'Lookup error:', (err as Error).message);
       return miss;
     }
   }
@@ -130,45 +132,22 @@ export class EnrichmentCacheService {
   // ── Store ───────────────────────────────────────────────────────────────
 
   async put(params: CacheStoreParams): Promise<boolean> {
-    const {
-      entityType,
-      entityKey,
-      enrichmentData,
-      confidence = null,
-      confidenceScore = null,
-      source = null,
-      ttlMs,
-    } = params;
-
-    const key = normalizeKey(entityKey);
-    const ttl = ttlMs ?? TTL_DEFAULTS[entityType];
-    const expiresAt = new Date(Date.now() + ttl).toISOString();
-
-    const row: EnrichmentCacheInsert = {
-      entity_type: entityType,
-      entity_key: key,
-      enrichment_data: enrichmentData,
-      confidence,
-      confidence_score: confidenceScore,
-      source,
-      fetched_at: new Date().toISOString(),
-      expires_at: expiresAt,
-    };
-
     try {
-      const { error } = await supabase
-        .from('enrichment_cache')
-        .upsert(row as never, { onConflict: 'entity_type,entity_key' });
+      await this._call({
+        action: 'put',
+        entityType: params.entityType,
+        entityKey: params.entityKey,
+        enrichmentData: params.enrichmentData,
+        confidence: params.confidence ?? null,
+        confidenceScore: params.confidenceScore ?? null,
+        source: params.source ?? null,
+        ttlMs: params.ttlMs,
+      });
 
-      if (error) {
-        console.error(LOG_PREFIX, 'Store error:', error.message);
-        return false;
-      }
-
-      console.log(LOG_PREFIX, `Stored ${entityType}/${key} (expires: ${expiresAt})`);
+      console.log(LOG_PREFIX, `Stored ${params.entityType}/${params.entityKey}`);
       return true;
     } catch (err) {
-      console.error(LOG_PREFIX, 'Unexpected store error:', (err as Error).message);
+      console.error(LOG_PREFIX, 'Store error:', (err as Error).message);
       return false;
     }
   }
@@ -176,46 +155,18 @@ export class EnrichmentCacheService {
   // ── Invalidate ──────────────────────────────────────────────────────────
 
   async invalidate(entityType: EntityType, entityKey: string): Promise<boolean> {
-    const key = normalizeKey(entityKey);
-
     try {
-      const { error } = await supabase
-        .from('enrichment_cache')
-        .delete()
-        .eq('entity_type', entityType as never)
-        .eq('entity_key', key as never);
+      await this._call({
+        action: 'invalidate',
+        entityType,
+        entityKey,
+      });
 
-      if (error) {
-        console.error(LOG_PREFIX, 'Invalidate error:', error.message);
-        return false;
-      }
-
-      console.log(LOG_PREFIX, `Invalidated ${entityType}/${key}`);
+      console.log(LOG_PREFIX, `Invalidated ${entityType}/${entityKey}`);
       return true;
     } catch (err) {
-      console.error(LOG_PREFIX, 'Unexpected invalidate error:', (err as Error).message);
+      console.error(LOG_PREFIX, 'Invalidate error:', (err as Error).message);
       return false;
-    }
-  }
-
-  // ── Stats Recording ─────────────────────────────────────────────────────
-
-  private async _recordStat(entityType: EntityType, hit: boolean): Promise<void> {
-    const dateKey = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-
-    try {
-      const { error } = await supabase.rpc('upsert_cache_stat' as never, {
-        p_date: dateKey,
-        p_entity_type: entityType,
-        p_hits: hit ? 1 : 0,
-        p_misses: hit ? 0 : 1,
-      } as never);
-
-      if (error) {
-        console.warn(LOG_PREFIX, 'Stats record failed:', (error as { message: string }).message);
-      }
-    } catch {
-      // Silently ignore stats failures — they must never block lookups
     }
   }
 
@@ -227,37 +178,13 @@ export class EnrichmentCacheService {
     hitRate: number;
     daily: Array<{ date: string; entityType: EntityType; hits: number; misses: number }>;
   }> {
-    const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-
     try {
-      const { data, error } = await supabase
-        .from('cache_stats')
-        .select('date, entity_type, hits, misses')
-        .gte('date', sinceDate as never)
-        .order('date', { ascending: false });
-
-      if (error || !data) {
-        console.warn(LOG_PREFIX, 'Stats fetch failed:', error?.message);
-        return { totalHits: 0, totalMisses: 0, hitRate: 0, daily: [] };
-      }
-
-      const rows = data as unknown as Array<Pick<CacheStatsRow, 'date' | 'entity_type' | 'hits' | 'misses'>>;
-      const totalHits = rows.reduce((sum, r) => sum + (r.hits ?? 0), 0);
-      const totalMisses = rows.reduce((sum, r) => sum + (r.misses ?? 0), 0);
-      const total = totalHits + totalMisses;
-
+      const result = await this._call({ action: 'stats', days });
       return {
-        totalHits,
-        totalMisses,
-        hitRate: total > 0 ? totalHits / total : 0,
-        daily: rows.map((r) => ({
-          date: r.date,
-          entityType: r.entity_type,
-          hits: r.hits ?? 0,
-          misses: r.misses ?? 0,
-        })),
+        totalHits: (result.totalHits as number) ?? 0,
+        totalMisses: (result.totalMisses as number) ?? 0,
+        hitRate: (result.hitRate as number) ?? 0,
+        daily: (result.daily as Array<{ date: string; entityType: EntityType; hits: number; misses: number }>) ?? [],
       };
     } catch (err) {
       console.warn(LOG_PREFIX, 'Stats fetch error:', (err as Error).message);
