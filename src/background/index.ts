@@ -7,7 +7,7 @@ import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, ContentToBackgrou
 import { enrichAttendee } from './enrichment';
 import { hasCredit, useCredit, getCredits } from '../utils/credits';
 import { WaterfallOrchestrator, CacheManager } from './enrichment/index';
-import type { PersonData, ProgressPayload, SearchResult, CompanyData } from './enrichment/types';
+import type { PersonData, ProgressPayload, SearchResult, CompanyData, ContactInfo } from './enrichment/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
 import { signInWithGoogle, signOut, getAuthState, getCurrentUser, authFetch } from '../lib/auth';
@@ -88,6 +88,18 @@ chrome.runtime.onMessage.addListener(
 
     if (msg.type === 'FETCH_COMPANY_INTEL') {
       handleFetchCompanyIntel(msg.payload);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'FETCH_CONTACT_INFO') {
+      handleFetchContactInfo(msg.payload);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'CUSTOM_ENRICHMENT') {
+      handleCustomEnrichment(msg.payload);
       sendResponse({ ok: true });
       return false;
     }
@@ -607,6 +619,95 @@ async function handleFetchCompanyIntel(
     const errMsg = (err as Error).message;
     console.error(LOG, `Company intel fetch failed for "${companyName}":`, errMsg);
     broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
+  }
+}
+
+// ─── Contact Info (on-demand, Pro-gated, 1 credit) ────────────────────────────
+
+async function handleFetchContactInfo(
+  payload: { email: string; linkedinUrl: string; fullName: string; companyName?: string },
+): Promise<void> {
+  const { email, linkedinUrl, fullName, companyName } = payload;
+  console.log(LOG, `Contact info fetch for: "${fullName}" (attendee: ${email})`);
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  if (!supabaseUrl) {
+    broadcastToPopups({ type: 'CONTACT_INFO_RESULT', payload: { email, error: 'API not configured' } });
+    return;
+  }
+
+  const url = `${supabaseUrl}/functions/v1/enrichment-contact`;
+  const body: Record<string, string> = { linkedinUrl, fullName };
+  if (companyName) body.companyName = companyName;
+
+  try {
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errMsg = (errBody as { error?: string; message?: string }).message
+        || (errBody as { error?: string }).error
+        || `HTTP ${res.status}`;
+      console.error(LOG, `Contact info error for "${fullName}":`, errMsg);
+      broadcastToPopups({ type: 'CONTACT_INFO_RESULT', payload: { email, error: errMsg } });
+      return;
+    }
+
+    const json = await res.json() as { data: ContactInfo; cached: boolean };
+    console.log(LOG, `Contact info complete for "${fullName}" (cached: ${json.cached})`);
+    broadcastToPopups({ type: 'CONTACT_INFO_RESULT', payload: { email, data: json.data, cached: json.cached } });
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(LOG, `Contact info fetch failed for "${fullName}":`, errMsg);
+    broadcastToPopups({ type: 'CONTACT_INFO_RESULT', payload: { email, error: errMsg } });
+  }
+}
+
+// ─── Custom Enrichment (on-demand, Pro-gated, 2 credits) ─────────────────────
+
+async function handleCustomEnrichment(
+  payload: { email: string; linkedinUrl: string; fullName: string; prompt: string },
+): Promise<void> {
+  const { email, linkedinUrl, fullName, prompt } = payload;
+  console.log(LOG, `Custom enrichment for: "${fullName}" (attendee: ${email}) prompt: "${prompt}"`);
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  if (!supabaseUrl) {
+    broadcastToPopups({ type: 'CUSTOM_ENRICHMENT_RESULT', payload: { email, error: 'API not configured' } });
+    return;
+  }
+
+  const url = `${supabaseUrl}/functions/v1/enrichment-custom`;
+  const body = { linkedinUrl, fullName, prompt };
+
+  try {
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errMsg = (errBody as { message?: string; error?: string }).message
+        || (errBody as { error?: string }).error
+        || `HTTP ${res.status}`;
+      console.error(LOG, `Custom enrichment error for "${fullName}":`, errMsg);
+      broadcastToPopups({ type: 'CUSTOM_ENRICHMENT_RESULT', payload: { email, error: errMsg } });
+      return;
+    }
+
+    const json = await res.json() as { data: { results: unknown[]; summary: string }; cached: boolean };
+    console.log(LOG, `Custom enrichment complete for "${fullName}" (cached: ${json.cached})`);
+    broadcastToPopups({ type: 'CUSTOM_ENRICHMENT_RESULT', payload: { email, data: json.data, cached: json.cached } });
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(LOG, `Custom enrichment fetch failed for "${fullName}":`, errMsg);
+    broadcastToPopups({ type: 'CUSTOM_ENRICHMENT_RESULT', payload: { email, error: errMsg } });
   }
 }
 

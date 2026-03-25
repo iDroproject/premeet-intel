@@ -2,8 +2,8 @@
 // Shows enriched meeting attendees with rich profile cards and progressive data fill.
 // Communicates with the background service worker via chrome.runtime messaging.
 
-import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup } from '../types';
-import type { PersonData, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData } from '../background/enrichment/types';
+import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup, CustomEnrichmentResult } from '../types';
+import type { PersonData, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo } from '../background/enrichment/types';
 import { getCredits, remainingCredits } from '../utils/credits';
 import { maskPersonData, skillsPreviewCount } from '../utils/masking';
 
@@ -41,6 +41,28 @@ const expandedSections = new Map<string, Set<string>>();
 
 // Track company intel state per attendee: 'idle' | 'loading' | CompanyData | error string
 const companyIntelState = new Map<string, 'idle' | 'loading' | { data: CompanyData } | { error: string }>();
+
+// Track contact info state per attendee: 'idle' | 'loading' | ContactInfo | error string
+const contactInfoState = new Map<string, 'idle' | 'loading' | { data: ContactInfo } | { error: string }>();
+
+// Track custom enrichment state per attendee
+type CustomEnrichState =
+  | 'idle'
+  | 'input'
+  | { loading: true; prompt: string }
+  | { data: CustomEnrichmentResult; prompt: string }
+  | { error: string };
+const customEnrichState = new Map<string, CustomEnrichState>();
+
+// Suggestion prompts for custom enrichment
+const CUSTOM_ENRICH_SUGGESTIONS = [
+  'Recent speaking engagements',
+  'Published articles or blog posts',
+  'Open source contributions',
+  'Board memberships',
+  'Awards and recognition',
+  'Mutual connections',
+];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -473,6 +495,191 @@ function renderCompanyIntelSection(key: string, pd: PersonData): string {
     </div>`;
 }
 
+// ─── Contact Info Section ───────────────────────────────────────────────────
+
+function renderContactInfoFromData(ci: ContactInfo): string {
+  const rows: string[] = [];
+  if (ci.phone) {
+    rows.push(`<div class="pm-contact-info__row">
+      <span class="pm-contact-info__label">Phone</span>
+      <span class="pm-contact-info__value"><a href="tel:${escapeHtml(ci.phone)}">${escapeHtml(ci.phone)}</a></span>
+    </div>`);
+  }
+  if (ci.email) {
+    rows.push(`<div class="pm-contact-info__row">
+      <span class="pm-contact-info__label">Email</span>
+      <span class="pm-contact-info__value"><a href="mailto:${escapeHtml(ci.email)}">${escapeHtml(ci.email)}</a></span>
+    </div>`);
+  }
+  if (rows.length === 0) {
+    return '<div style="font-size:12px;color:#9ca3af;">No direct contact info found</div>';
+  }
+  return `<div class="pm-contact-info">${rows.join('')}</div>`;
+}
+
+function renderContactInfoSection(key: string, pd: PersonData): string {
+  if (!pd.linkedinUrl) return '';
+
+  const state = contactInfoState.get(key) || 'idle';
+
+  if (state === 'loading') {
+    return `
+      <div class="pm-section" data-section="contact" data-attendee="${escapeHtml(key)}">
+        <div class="pm-intel-skeleton" style="padding:10px 12px;">
+          <div class="pm-skeleton-row pm-skeleton-row--medium"></div>
+          <div class="pm-skeleton-row pm-skeleton-row--short"></div>
+        </div>
+      </div>`;
+  }
+
+  if (typeof state === 'object' && 'data' in state) {
+    return renderExpandableSection(key, 'contact', 'Contact Info', renderContactInfoFromData(state.data));
+  }
+
+  if (typeof state === 'object' && 'error' in state) {
+    // Show upgrade prompt for Pro-gated errors
+    if (state.error.includes('Pro subscription required') || state.error.includes('Pro plan')) {
+      return `
+        <div class="pm-section" data-section="contact" data-attendee="${escapeHtml(key)}">
+          <div style="padding:10px 12px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;font-size:12px;color:#9A3412;line-height:1.5;">
+            <strong>Pro feature</strong> — Upgrade to access direct phone and email.
+          </div>
+        </div>`;
+    }
+    return renderExpandableSection(key, 'contact', 'Contact Info',
+      `<div style="font-size:12px;color:#991B1B;">${escapeHtml(state.error)}</div>`);
+  }
+
+  // idle — show fetch button (locked for free users)
+  const isLocked = !isAuthenticated;
+  const lockedClass = isLocked ? ' pm-contact-btn--locked' : '';
+  const lockIcon = isLocked ? '\uD83D\uDD12' : '\uD83D\uDCDE';
+  return `
+    <div class="pm-section" data-section="contact" data-attendee="${escapeHtml(key)}">
+      <button class="pm-contact-btn${lockedClass}" data-fetch-contact="${escapeHtml(key)}">
+        <span class="pm-contact-btn__icon">${lockIcon}</span>
+        Get Contact Info
+        <span class="pm-contact-btn__arrow">\u2192</span>
+      </button>
+    </div>`;
+}
+
+// ─── Custom Enrichment Section ───────────────────────────────────────────────
+
+function renderCustomEnrichResultsContent(data: CustomEnrichmentResult, prompt: string): string {
+  if (data.results.length === 0) {
+    return `<div style="font-size:12px;color:#9ca3af;">No results found for "${escapeHtml(prompt)}"</div>`;
+  }
+  const items = data.results.slice(0, 8).map((r) => {
+    const titleHtml = r.url
+      ? `<a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>`
+      : escapeHtml(r.title);
+    const dateHtml = r.date ? `<div class="pm-custom-results__date">${escapeHtml(r.date)}</div>` : '';
+    return `
+      <li class="pm-custom-results__item">
+        <div class="pm-custom-results__title">${titleHtml}</div>
+        ${r.snippet ? `<div class="pm-custom-results__snippet">${escapeHtml(r.snippet)}</div>` : ''}
+        ${dateHtml}
+      </li>`;
+  }).join('');
+  return `
+    <div class="pm-custom-results__prompt-label">${escapeHtml(prompt)}</div>
+    ${data.summary ? `<div class="pm-custom-results__summary">${escapeHtml(data.summary)}</div>` : ''}
+    <ul class="pm-custom-results__list">${items}</ul>`;
+}
+
+function renderCustomEnrichSection(key: string, pd: PersonData): string {
+  if (!pd.linkedinUrl) return '';
+
+  const state = customEnrichState.get(key) || 'idle';
+
+  // Pro-gated: free users see locked button
+  const isPro = isAuthenticated; // TODO: check actual subscription tier
+
+  if (typeof state === 'object' && 'loading' in state) {
+    return renderExpandableSection(key, 'custom', 'Custom Research', `
+      <div class="pm-intel-skeleton">
+        <div class="pm-skeleton-row pm-skeleton-row--wide"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--medium"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--wide"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--short"></div>
+      </div>
+    `);
+  }
+
+  if (typeof state === 'object' && 'data' in state) {
+    const resultContent = renderCustomEnrichResultsContent(state.data, state.prompt);
+    // Also show the form again for follow-up queries
+    const formHtml = `
+      <div class="pm-custom-enrich__form" style="margin-top:12px;border-top:1px solid var(--pm-border-light);padding-top:8px;">
+        <div class="pm-custom-enrich__input-row">
+          <textarea class="pm-custom-enrich__input" data-custom-input="${escapeHtml(key)}" placeholder="Ask another question..." rows="1"></textarea>
+          <button class="pm-custom-enrich__submit" data-custom-submit="${escapeHtml(key)}">Search</button>
+        </div>
+        <div class="pm-custom-enrich__cost">2 credits per search</div>
+      </div>`;
+    return renderExpandableSection(key, 'custom', 'Custom Research',
+      `<div class="pm-custom-results">${resultContent}</div>${formHtml}`);
+  }
+
+  if (typeof state === 'object' && 'error' in state) {
+    if (state.error.includes('Pro subscription required') || state.error.includes('Pro plan')) {
+      return `
+        <div class="pm-custom-enrich">
+          <div class="pm-pro-prompt">
+            <strong>Pro feature</strong> — Upgrade to access custom research queries.
+          </div>
+        </div>`;
+    }
+    return renderExpandableSection(key, 'custom', 'Custom Research',
+      `<div style="font-size:12px;color:#991B1B;">${escapeHtml(state.error)}</div>`);
+  }
+
+  if (state === 'input') {
+    const suggestionsItems = CUSTOM_ENRICH_SUGGESTIONS.map(
+      (s) => `<li class="pm-suggestions__item" data-suggestion="${escapeHtml(s)}" data-suggestion-key="${escapeHtml(key)}">${escapeHtml(s)}</li>`
+    ).join('');
+
+    return `
+      <div class="pm-custom-enrich">
+        <div class="pm-custom-enrich__form">
+          <div class="pm-custom-enrich__input-row">
+            <textarea class="pm-custom-enrich__input" data-custom-input="${escapeHtml(key)}" placeholder="e.g. Find their recent podcast appearances" rows="1"></textarea>
+            <button class="pm-custom-enrich__submit" data-custom-submit="${escapeHtml(key)}">Search</button>
+          </div>
+          <div class="pm-custom-enrich__cost">2 credits per search</div>
+          <div class="pm-suggestions" data-suggestions-key="${escapeHtml(key)}">
+            <button class="pm-suggestions__toggle" data-suggestions-toggle="${escapeHtml(key)}">
+              Suggestions <span class="pm-suggestions__arrow">&#9660;</span>
+            </button>
+            <ul class="pm-suggestions__list">${suggestionsItems}</ul>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // idle — show "Enrich" button
+  if (!isPro) {
+    return `
+      <div class="pm-custom-enrich">
+        <button class="pm-custom-enrich__btn pm-custom-enrich__btn--locked" data-custom-enrich-locked="${escapeHtml(key)}">
+          <span class="pm-custom-enrich__icon">&#128274;</span>
+          Custom Research
+          <span class="pm-custom-enrich__arrow">&#8594;</span>
+        </button>
+      </div>`;
+  }
+
+  return `
+    <div class="pm-custom-enrich">
+      <button class="pm-custom-enrich__btn" data-custom-enrich="${escapeHtml(key)}">
+        <span class="pm-custom-enrich__icon">&#128269;</span>
+        Custom Research
+        <span class="pm-custom-enrich__arrow">&#8594;</span>
+      </button>
+    </div>`;
+}
+
 function renderRecentPosts(pd: PersonData): string {
   if (!pd.recentPosts || pd.recentPosts.length === 0) return '<div style="font-size:12px;color:#9ca3af;">No recent posts</div>';
   return pd.recentPosts.map((p) => {
@@ -579,6 +786,12 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
     }
     if (pd.currentCompany) {
       sections.push(renderCompanyIntelSection(key, pd));
+    }
+    if (pd.linkedinUrl) {
+      sections.push(renderContactInfoSection(key, pd));
+    }
+    if (pd.linkedinUrl) {
+      sections.push(renderCustomEnrichSection(key, pd));
     }
     if (pd.recentPosts && pd.recentPosts.length > 0) {
       sections.push(renderExpandableSection(key, 'posts', 'Recent Posts', renderRecentPosts(pd)));
@@ -706,6 +919,114 @@ function attachCardListeners(card: HTMLElement, key: string): void {
     });
   }
 
+  // Contact Info fetch button
+  const contactBtn = card.querySelector<HTMLButtonElement>(`[data-fetch-contact="${CSS.escape(key)}"]`);
+  if (contactBtn) {
+    contactBtn.addEventListener('click', () => {
+      const attendee = attendeeMap.get(key);
+      if (!attendee?.personData?.linkedinUrl) return;
+      const pd = attendee.personData;
+
+      contactInfoState.set(key, 'loading');
+      // Re-render card to show skeleton
+      updateCardContent(card, attendee);
+
+      chrome.runtime.sendMessage({
+        type: 'FETCH_CONTACT_INFO',
+        payload: {
+          email: attendee.email,
+          linkedinUrl: pd.linkedinUrl!,
+          fullName: pd.name,
+          companyName: pd.currentCompany || undefined,
+        },
+      });
+    });
+  }
+
+  // Custom Enrichment: open input button
+  const customEnrichBtn = card.querySelector<HTMLButtonElement>(`[data-custom-enrich="${CSS.escape(key)}"]`);
+  if (customEnrichBtn) {
+    customEnrichBtn.addEventListener('click', () => {
+      customEnrichState.set(key, 'input');
+      const attendee = attendeeMap.get(key);
+      if (attendee) updateCardContent(card, attendee);
+    });
+  }
+
+  // Custom Enrichment: locked button (show Pro upgrade prompt)
+  const customLockedBtn = card.querySelector<HTMLButtonElement>(`[data-custom-enrich-locked="${CSS.escape(key)}"]`);
+  if (customLockedBtn) {
+    customLockedBtn.addEventListener('click', () => {
+      customEnrichState.set(key, { error: 'Pro subscription required' });
+      const attendee = attendeeMap.get(key);
+      if (attendee) updateCardContent(card, attendee);
+    });
+  }
+
+  // Custom Enrichment: submit button
+  const customSubmitBtn = card.querySelector<HTMLButtonElement>(`[data-custom-submit="${CSS.escape(key)}"]`);
+  const customInput = card.querySelector<HTMLTextAreaElement>(`[data-custom-input="${CSS.escape(key)}"]`);
+  if (customSubmitBtn && customInput) {
+    const submitCustom = () => {
+      const prompt = customInput.value.trim();
+      if (!prompt) return;
+      const attendee = attendeeMap.get(key);
+      if (!attendee?.personData?.linkedinUrl) return;
+      const pd = attendee.personData;
+
+      // Store prompt so we can recover it when result arrives
+      customEnrichState.set(key, { loading: true, prompt });
+      const sections = expandedSections.get(key) || new Set();
+      sections.add('custom');
+      expandedSections.set(key, sections);
+      updateCardContent(card, attendee);
+
+      chrome.runtime.sendMessage({
+        type: 'CUSTOM_ENRICHMENT',
+        payload: {
+          email: attendee.email,
+          linkedinUrl: pd.linkedinUrl!,
+          fullName: pd.name,
+          prompt,
+        },
+      });
+    };
+
+    customSubmitBtn.addEventListener('click', submitCustom);
+    customInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitCustom();
+      }
+    });
+  }
+
+  // Custom Enrichment: suggestions toggle
+  const suggestionsToggle = card.querySelector<HTMLButtonElement>(`[data-suggestions-toggle="${CSS.escape(key)}"]`);
+  if (suggestionsToggle) {
+    suggestionsToggle.addEventListener('click', () => {
+      const suggestionsContainer = card.querySelector<HTMLElement>(`[data-suggestions-key="${CSS.escape(key)}"]`);
+      suggestionsContainer?.classList.toggle('pm-suggestions--open');
+    });
+  }
+
+  // Custom Enrichment: suggestion items
+  const suggestionItems = card.querySelectorAll<HTMLElement>(`[data-suggestion-key="${CSS.escape(key)}"]`);
+  suggestionItems.forEach((item) => {
+    item.addEventListener('click', () => {
+      const suggestion = item.dataset.suggestion;
+      if (!suggestion) return;
+      const input = card.querySelector<HTMLTextAreaElement>(`[data-custom-input="${CSS.escape(key)}"]`);
+      if (input) {
+        input.value = suggestion;
+        input.focus();
+      }
+      // Close suggestions dropdown
+      const suggestionsContainer = card.querySelector<HTMLElement>(`[data-suggestions-key="${CSS.escape(key)}"]`);
+      suggestionsContainer?.classList.remove('pm-suggestions--open');
+    });
+  });
+
   // Section toggles
   const sectionToggles = card.querySelectorAll<HTMLButtonElement>('[data-toggle-section]');
   sectionToggles.forEach((toggle) => {
@@ -817,6 +1138,54 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
         // Auto-expand intel section
         const sections = expandedSections.get(key) || new Set();
         sections.add('intel');
+        expandedSections.set(key, sections);
+        updateCardContent(existingCard, attendee);
+      }
+    }
+    refreshCredits();
+  }
+
+  if (msg.type === 'CONTACT_INFO_RESULT') {
+    const payload = msg.payload as { email: string; data?: ContactInfo; cached?: boolean; error?: string };
+    const key = payload.email.toLowerCase();
+    if ('error' in payload && payload.error) {
+      contactInfoState.set(key, { error: payload.error });
+    } else if (payload.data) {
+      contactInfoState.set(key, { data: payload.data });
+    }
+    // Re-render the card to show results
+    const attendee = attendeeMap.get(key);
+    if (attendee && Els.list) {
+      const existingCard = Els.list.querySelector<HTMLElement>(`[data-attendee-key="${CSS.escape(key)}"]`);
+      if (existingCard) {
+        // Auto-expand contact section
+        const sections = expandedSections.get(key) || new Set();
+        sections.add('contact');
+        expandedSections.set(key, sections);
+        updateCardContent(existingCard, attendee);
+      }
+    }
+    refreshCredits();
+  }
+
+  if (msg.type === 'CUSTOM_ENRICHMENT_RESULT') {
+    const payload = msg.payload as { email: string; data?: CustomEnrichmentResult; cached?: boolean; error?: string; prompt?: string };
+    const key = payload.email.toLowerCase();
+    if ('error' in payload && payload.error) {
+      customEnrichState.set(key, { error: payload.error });
+    } else if (payload.data) {
+      // Recover the prompt from the loading state or use a fallback
+      const prevState = customEnrichState.get(key);
+      const prompt = (prevState && typeof prevState === 'object' && 'prompt' in prevState && typeof prevState.prompt === 'string') ? prevState.prompt : 'Custom search';
+      customEnrichState.set(key, { data: payload.data, prompt });
+    }
+    // Re-render the card to show results
+    const attendee = attendeeMap.get(key);
+    if (attendee && Els.list) {
+      const existingCard = Els.list.querySelector<HTMLElement>(`[data-attendee-key="${CSS.escape(key)}"]`);
+      if (existingCard) {
+        const sections = expandedSections.get(key) || new Set();
+        sections.add('custom');
         expandedSections.set(key, sections);
         updateCardContent(existingCard, attendee);
       }
