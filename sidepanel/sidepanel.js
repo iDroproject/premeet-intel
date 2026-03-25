@@ -751,9 +751,33 @@ function wireEnrichButtons(cardEl, refs, data) {
   });
 }
 
+/**
+ * Map raw technical error messages to user-friendly text.
+ * @param {string} raw
+ * @returns {string}
+ */
+function friendlyErrorMessage(raw) {
+  if (!raw) return 'Could not load background information. Please try again.';
+
+  if (/all discovery layers failed/i.test(raw)) {
+    return 'We couldn\u2019t find a LinkedIn profile for this person. They may not have a public profile.';
+  }
+  if (/timed out/i.test(raw)) {
+    return 'The lookup took too long. Please try again in a moment.';
+  }
+  if (/network|fetch|failed to fetch/i.test(raw)) {
+    return 'Network error \u2014 please check your connection and try again.';
+  }
+  if (/not a person name/i.test(raw)) {
+    return 'This doesn\u2019t appear to be a person \u2014 it may be a room or system entry.';
+  }
+
+  return 'Something went wrong. Please try again.';
+}
+
 function showError(message) {
   if (El.errorMessage) {
-    El.errorMessage.textContent = message || 'Could not load background information. Please try again.';
+    El.errorMessage.textContent = friendlyErrorMessage(message);
   }
   showView('error');
 }

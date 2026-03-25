@@ -35,6 +35,27 @@ import { trackEvent, markInstalled, getAnalytics, AnalyticsEvent } from './analy
 
 const LOG_PREFIX = '[PreMeet][SW]';
 
+/**
+ * Lightweight duplicate of the content-script's non-person filter so the
+ * service worker can reject bogus names even if the content script missed them.
+ */
+const SW_NON_PERSON_NAMES = new Set([
+  'transferred from', 'forwarded invitation', 'no organizer',
+  'unknown organizer', 'room', 'conference room', 'meeting room',
+  'guest', 'group', 'team', 'everyone', 'all', 'calendar',
+  'no reply', 'noreply', 'do not reply', 'mailer-daemon', 'postmaster',
+]);
+const SW_NON_PERSON_PATTERNS = [
+  /^\d+\s+more$/i, /^\+?\d+$/, /^[\W_]+$/, /^.{0,1}$/,
+  /^(transferred|forwarded)\s/i,
+];
+
+function isLikelyPersonName(name) {
+  if (!name) return false;
+  if (SW_NON_PERSON_NAMES.has(name.toLowerCase().trim())) return false;
+  return !SW_NON_PERSON_PATTERNS.some(re => re.test(name.trim()));
+}
+
 /** API token (internal). */
 const API_TOKEN = '30728b24f3b8fa70b816bb2936d5451c19941d910a6d330a2b7f04b19cf4b1d9';
 
@@ -304,6 +325,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!payload || (!payload.email && !payload.name)) {
         console.warn(LOG_PREFIX, 'FETCH_PERSON_BACKGROUND missing payload');
         sendResponse({ ok: false, error: 'Missing payload' });
+        return false;
+      }
+
+      // Reject non-person names early to avoid wasting API calls.
+      // If we have an email we proceed regardless — the email is the real identifier.
+      if (!payload.email && payload.name && !isLikelyPersonName(payload.name)) {
+        console.warn(LOG_PREFIX, `Skipping non-person name: "${payload.name}"`);
+        sendResponse({ ok: false, error: 'Not a person name' });
         return false;
       }
 

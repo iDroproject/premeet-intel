@@ -30,6 +30,55 @@
   const GCAL_STATUS_SUFFIXES = /,?\s*\b(Attending|Organizer|Maybe|Tentative|Declined|Awaiting|Not responded|Accepted|No|Yes|Optional|Required|Creator|organizer|accepted|declined|tentative|needsAction)\b/gi;
 
   /**
+   * Strings that appear as attendee names in Google Calendar but are not
+   * real people. Case-insensitive exact match after trimming.
+   */
+  const NON_PERSON_NAMES = new Set([
+    'transferred from',
+    'forwarded invitation',
+    'no organizer',
+    'unknown organizer',
+    'room',
+    'conference room',
+    'meeting room',
+    'guest',
+    'group',
+    'team',
+    'everyone',
+    'all',
+    'calendar',
+    'no reply',
+    'noreply',
+    'do not reply',
+    'mailer-daemon',
+    'postmaster',
+  ]);
+
+  /**
+   * Patterns that indicate a non-person name (checked after cleaning).
+   */
+  const NON_PERSON_PATTERNS = [
+    /^\d+\s+more$/i,           // "+3 more", "3 more"
+    /^\+?\d+$/,                // Pure numbers like "+3"
+    /^[\W_]+$/,                // Only punctuation/symbols
+    /^.{0,1}$/,                // Single char or empty
+    /^(transferred|forwarded)\s/i, // "Transferred from …", "Forwarded …"
+  ];
+
+  /**
+   * Returns true if the cleaned name looks like a real person rather than
+   * a system string, room, or placeholder.
+   *
+   * @param {string} name - Already cleaned name.
+   * @returns {boolean}
+   */
+  function isLikelyPersonName(name) {
+    if (!name) return false;
+    if (NON_PERSON_NAMES.has(name.toLowerCase())) return false;
+    return !NON_PERSON_PATTERNS.some(re => re.test(name));
+  }
+
+  /**
    * Strip Google Calendar attendance-status and role suffixes from a name.
    *
    * @param {string} raw
@@ -528,8 +577,21 @@
       });
 
       const deduped = deduplicateAttendees(all);
-      console.log(LOG_PREFIX, `Extracted ${deduped.length} unique attendee(s) from popup`);
-      return deduped;
+
+      // Filter out non-person names (system strings, rooms, placeholders).
+      const filtered = deduped.filter((a) => {
+        // If the attendee has an email, they're likely real even with an odd name.
+        if (a.email && a.email.includes('@')) return true;
+        // Name-only attendees must pass the person-name check.
+        if (!isLikelyPersonName(a.name)) {
+          console.log(LOG_PREFIX, `Filtered non-person name: "${a.name}"`);
+          return false;
+        }
+        return true;
+      });
+
+      console.log(LOG_PREFIX, `Extracted ${filtered.length} unique attendee(s) from popup (${deduped.length - filtered.length} filtered)`);
+      return filtered;
     }
   }
 
@@ -539,4 +601,5 @@
   window.PreMeet.nameFromEmail = nameFromEmail;
   window.PreMeet.deriveCompanyFromEmail = deriveCompanyFromEmail;
   window.PreMeet.cleanAttendeeName = cleanAttendeeName;
+  window.PreMeet.isLikelyPersonName = isLikelyPersonName;
 })();
