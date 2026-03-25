@@ -17,6 +17,29 @@ import { createLogBuffer, log as debugLog } from '../utils/logger';
 const LOG = '[PreMeet][SW]';
 const waterfallLogBuffer = createLogBuffer('Enrichment');
 
+/** Maps raw pipeline errors to user-friendly messages. */
+function friendlyErrorMessage(rawMsg: string): string {
+  if (rawMsg.includes('VITE_BRIGHTDATA_API_KEY'))
+    return 'BrightData API key not configured. Set VITE_BRIGHTDATA_API_KEY in .env';
+  if (rawMsg.includes('Not authenticated'))
+    return 'Please sign in to use enrichment.';
+  if (/timed out/i.test(rawMsg))
+    return 'The lookup took too long. Please try again in a moment.';
+  if (/HTTP 429/i.test(rawMsg))
+    return 'Rate limit reached. Please wait a moment and try again.';
+  if (/HTTP 5\d\d/i.test(rawMsg) || /network error/i.test(rawMsg) || /upstream error/i.test(rawMsg))
+    return 'Data provider temporarily unavailable. Please try again shortly.';
+  if (/all discovery layers failed/i.test(rawMsg))
+    return 'Could not find this person online. Check the name and email.';
+  if (/all enrichment layers failed/i.test(rawMsg))
+    return 'Could not retrieve profile data. Please try again.';
+  if (/could not determine linkedin id/i.test(rawMsg))
+    return 'Found a LinkedIn profile but could not extract data. Please try again.';
+  if (/credit limit/i.test(rawMsg))
+    return 'Credit limit reached. Upgrade your plan or wait for monthly reset.';
+  return rawMsg;
+}
+
 // ─── Module-level Singletons ─────────────────────────────────────────────────
 
 const cache = new CacheManager();
@@ -63,7 +86,13 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (msg.type === 'ENRICH_ATTENDEE') {
-      handleEnrichSingleAttendee(msg.payload.email, sender.tab?.id);
+      handleSearchSingleAttendee(msg.payload.email, sender.tab?.id);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'GENERATE_BRIEF') {
+      handleGenerateBrief(msg.payload.email, sender.tab?.id);
       sendResponse({ ok: true });
       return false;
     }
@@ -225,7 +254,7 @@ async function handleFetchPersonBackground(
     console.error(LOG, 'Waterfall pipeline error:', err);
     broadcastToPopups({
       type: 'PERSON_BACKGROUND_RESULT',
-      payload: { error: (err as Error).message },
+      payload: { error: friendlyErrorMessage((err as Error).message) },
     });
   }
 }
@@ -253,7 +282,7 @@ async function handleSearchPerson(
     console.error(LOG, 'Search pipeline error:', err);
     broadcastToPopups({
       type: 'SEARCH_PERSON_RESULT',
-      payload: { error: (err as Error).message },
+      payload: { error: friendlyErrorMessage((err as Error).message) },
     });
   }
 }
@@ -285,7 +314,7 @@ async function handleEnrichPerson(
     console.error(LOG, 'Enrich pipeline error:', err);
     broadcastToPopups({
       type: 'ENRICH_PERSON_RESULT',
-      payload: { error: (err as Error).message },
+      payload: { error: friendlyErrorMessage((err as Error).message) },
     });
   }
 }
@@ -355,39 +384,12 @@ async function autoSearchAllAttendees(senderTabId?: number): Promise<void> {
     return;
   }
 
-  // Check credits upfront
-  try {
-    const creditAvailable = await hasCredit();
-    if (!creditAvailable) {
-      console.warn(LOG, 'Auto-search: no credits available.');
-      const credits = await getCredits();
-      const [y, m] = credits.resetMonth.split('-').map(Number);
-      const nextReset = new Date(y, m, 1);
-      const resetDate = nextReset.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      broadcastToPopups({ type: 'CREDITS_EXHAUSTED', payload: { meeting: currentMeeting!, resetDate } });
-      return;
-    }
-  } catch (err) {
-    console.error(LOG, 'Auto-search: credit check failed, stopping batch:', err);
-    return;
-  }
-
-  // Enrich attendees in parallel with concurrency limit
+  // Search is free (no credits) — run in parallel
   const CONCURRENCY = 3;
-  console.log(LOG, `Auto-search: enriching ${eligible.length} attendees (concurrency=${CONCURRENCY})`);
+  console.log(LOG, `Auto-search: searching ${eligible.length} attendees (concurrency=${CONCURRENCY})`);
 
-  const enrichOne = async (attendee: typeof eligible[0]): Promise<void> => {
-    // Re-check credits before each enrichment
-    try {
-      const creditAvailable = await hasCredit();
-      if (!creditAvailable) {
-        console.warn(LOG, 'Auto-search: credits exhausted mid-batch.');
-        return;
-      }
-    } catch {
-      return;
-    }
-    await handleEnrichSingleAttendee(attendee.email, senderTabId);
+  const searchOne = async (attendee: typeof eligible[0]): Promise<void> => {
+    await handleSearchSingleAttendee(attendee.email, senderTabId);
   };
 
   // Simple concurrency pool
@@ -395,7 +397,7 @@ async function autoSearchAllAttendees(senderTabId?: number): Promise<void> {
   const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
     while (queue.length > 0) {
       const attendee = queue.shift();
-      if (attendee) await enrichOne(attendee);
+      if (attendee) await searchOne(attendee);
     }
   });
 
@@ -404,20 +406,21 @@ async function autoSearchAllAttendees(senderTabId?: number): Promise<void> {
   console.log(LOG, `Auto-search complete for "${currentMeeting?.title}"`);
 }
 
-// ─── Single-Attendee On-Demand Enrichment ──────────────────────────────────
+// ─── Phase A: Search Only (free, no credits) ───────────────────────────────
 
-async function handleEnrichSingleAttendee(email: string, _senderTabId?: number): Promise<void> {
+async function handleSearchSingleAttendee(email: string, _senderTabId?: number): Promise<void> {
   if (!currentMeeting) return;
 
   const idx = currentEnriched.findIndex((a) => a.email.toLowerCase() === email.toLowerCase());
   if (idx === -1) return;
 
-  // Skip if already enriching or done
-  if (currentEnriched[idx].status === 'pending' || currentEnriched[idx].status === 'done') return;
+  // Skip if already searching, searched, enriching, or done
+  const s = currentEnriched[idx].status;
+  if (s === 'pending' || s === 'searched' || s === 'enriching' || s === 'done') return;
 
   const attendee = currentMeeting.attendees[idx];
-  console.log(LOG, `On-demand enrich for: "${attendee.name}" <${attendee.email}>`);
-  debugLog('Background', 'info', `Enrichment started for "${attendee.name}" <${attendee.email}>`);
+  console.log(LOG, `Search for: "${attendee.name}" <${attendee.email}>`);
+  debugLog('Background', 'info', `Search started for "${attendee.name}" <${attendee.email}>`);
 
   // Mark as pending/searching
   currentEnriched[idx] = { ...currentEnriched[idx], status: 'pending', stage: 'searching' };
@@ -425,7 +428,6 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
 
   const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
 
-  // ── Phase A: Lightweight search (free, no credits) ──────────────────────
   let searchResult: SearchResult | null = null;
   try {
     searchResult = await orchestrator.search({
@@ -434,9 +436,11 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
       company: attendee.company || '',
     });
 
+    // Stop at "searched" — user must click "Generate Brief" to continue
     currentEnriched[idx] = {
       ...currentEnriched[idx],
-      stage: 'fetching',
+      status: 'searched',
+      stage: 'searching',
       searchResult,
       hasLinkedIn: !!searchResult.linkedinUrl,
     };
@@ -449,34 +453,31 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
       ...currentEnriched[idx],
       status: 'error',
       stage: 'complete',
-      error: errMsg.includes('VITE_BRIGHTDATA_API_KEY')
-        ? 'BrightData API key not configured. Set VITE_BRIGHTDATA_API_KEY in .env'
-        : errMsg.includes('Not authenticated')
-          ? 'Please sign in to use enrichment.'
-          : `Search failed: ${errMsg}`,
+      error: `Search failed: ${friendlyErrorMessage(errMsg)}`,
     };
     broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
 
     const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, 'error', null, false);
     addLogEntry(logEntry).catch((e) => console.warn(LOG, 'Failed to write activity log:', e));
-    return;
   }
+}
 
-  if (!searchResult.linkedinUrl) {
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
-      status: 'error',
-      stage: 'complete',
-      error: 'Could not find LinkedIn profile.',
-    };
-    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+// ─── Phase B: Generate Brief (1 credit) ────────────────────────────────────
 
-    const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, 'error', null, false);
-    addLogEntry(logEntry).catch((e) => console.warn(LOG, 'Failed to write activity log:', e));
-    return;
-  }
+async function handleGenerateBrief(email: string, _senderTabId?: number): Promise<void> {
+  if (!currentMeeting) return;
 
-  // ── Phase B: Full enrichment (1 credit) ─────────────────────────────────
+  const idx = currentEnriched.findIndex((a) => a.email.toLowerCase() === email.toLowerCase());
+  if (idx === -1) return;
+
+  const ea = currentEnriched[idx];
+  // Only allow from searched state with a LinkedIn URL
+  if (ea.status !== 'searched' || !ea.searchResult?.linkedinUrl) return;
+
+  const attendee = currentMeeting.attendees[idx];
+  const linkedInUrl = ea.searchResult.linkedinUrl;
+  console.log(LOG, `Generate brief for: "${attendee.name}" <${attendee.email}>`);
+  debugLog('Background', 'info', `Brief generation started for "${attendee.name}" <${attendee.email}>`);
 
   // Check credits before enrichment
   try {
@@ -495,7 +496,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
     return;
   }
 
-  currentEnriched[idx] = { ...currentEnriched[idx], stage: 'fetching' };
+  currentEnriched[idx] = { ...currentEnriched[idx], status: 'enriching', stage: 'fetching' };
   broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
 
   let personData: PersonData | null = null;
@@ -524,7 +525,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
       name: attendee.name,
       email: attendee.email,
       company: attendee.company || '',
-      linkedInUrl: searchResult.linkedinUrl,
+      linkedInUrl,
     });
   } catch (enrichErr) {
     const errMsg = (enrichErr as Error).message;
@@ -534,7 +535,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
       ...currentEnriched[idx],
       status: 'error',
       stage: 'complete',
-      error: `Enrichment failed: ${errMsg}`,
+      error: `Enrichment failed: ${friendlyErrorMessage(errMsg)}`,
     };
   }
 
@@ -563,8 +564,8 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
   broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
 
   // Log and consume credit
-  const ea = currentEnriched[idx];
-  const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, ea.status === 'error' ? 'error' : 'done', ea.personData ?? null, ea.fromCache ?? false);
+  const logEa = currentEnriched[idx];
+  const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, logEa.status === 'error' ? 'error' : 'done', logEa.personData ?? null, logEa.fromCache ?? false);
   addLogEntry(logEntry).catch((e) => console.warn(LOG, 'Failed to write activity log:', e));
 
   await useCredit().catch((e) => console.warn(LOG, 'Failed to use credit:', e));

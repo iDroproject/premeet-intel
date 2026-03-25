@@ -594,6 +594,56 @@
         box-shadow: 0 2px 12px rgba(79,70,229,0.12);
       }
 
+      /* ── Searched state: preview card with indigo left border ── */
+      .pm-card--searched {
+        border-left: 3px solid var(--pm-primary);
+      }
+
+      /* ── Enriching state: shimmer for skeleton blocks ── */
+      .pm-card--enriching {
+        border-left: 3px solid var(--pm-primary);
+      }
+      .pm-skeleton-shimmer {
+        background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%) !important;
+        background-size: 400px 100% !important;
+        color: transparent !important;
+        border-radius: 4px;
+        animation: pm-shimmer 1.5s ease-in-out infinite;
+      }
+      .pm-skeleton-sections {
+        display: flex; flex-direction: column; gap: 8px;
+        padding: 12px 16px;
+      }
+      .pm-skeleton-block {
+        border-radius: 6px;
+      }
+
+      /* ── Generate Brief button ── */
+      .pm-generate-brief {
+        display: flex; flex-direction: column; align-items: center;
+        padding: 16px 16px 12px;
+        gap: 6px;
+      }
+      .pm-generate-brief__btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        padding: 10px 24px;
+        background: var(--pm-primary);
+        color: #fff;
+        font-size: 14px; font-weight: 600;
+        border: none; border-radius: 8px;
+        cursor: pointer;
+        transition: background var(--pm-transition), box-shadow var(--pm-transition);
+        width: 100%;
+      }
+      .pm-generate-brief__btn:hover {
+        background: var(--pm-primary-hover);
+        box-shadow: 0 2px 8px rgba(79,70,229,0.25);
+      }
+      .pm-generate-brief__hint {
+        font-size: 11px;
+        color: var(--pm-text-tertiary);
+      }
+
       /* ── Tab switch animation ── */
       @keyframes pm-slideIn {
         from { opacity: 0; transform: translateX(8px); }

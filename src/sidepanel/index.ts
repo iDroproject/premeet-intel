@@ -3,7 +3,7 @@
 // Communicates with the background service worker via chrome.runtime messaging.
 
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup, CustomEnrichmentResult } from '../types';
-import type { PersonData, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo } from '../background/enrichment/types';
+import type { PersonData, SearchResult, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo } from '../background/enrichment/types';
 import { getCredits, remainingCredits } from '../utils/credits';
 import { maskPersonData, skillsPreviewCount } from '../utils/masking';
 import { initMixpanel, identifyUser, resetUser, track } from '../lib/mixpanel';
@@ -254,19 +254,20 @@ function updateStepper(): void {
   if (!Els.stepper) return;
 
   // Hide stepper entirely if no attendee has started enrichment
-  const anyEnriching = [...attendeeMap.values()].some((a) => a.status === 'pending' || a.status === 'done' || a.status === 'error');
-  Els.stepper.classList.toggle('pm-hidden', !anyEnriching);
-  if (!anyEnriching) return;
+  const anyActive = [...attendeeMap.values()].some((a) =>
+    a.status === 'pending' || a.status === 'searched' || a.status === 'enriching' || a.status === 'done' || a.status === 'error');
+  Els.stepper.classList.toggle('pm-hidden', !anyActive);
+  if (!anyActive) return;
 
   let highestIdx = -1;
   let allDone = true;
   for (const a of attendeeMap.values()) {
-    if (a.status === 'pending') allDone = false;
+    if (a.status === 'pending' || a.status === 'enriching') allDone = false;
     if (a.status === 'idle') continue; // idle attendees don't affect stepper
-    const stage = a.stage || (a.status === 'done' ? 'complete' : 'searching');
+    const stage = a.stage || (a.status === 'done' ? 'complete' : a.status === 'searched' ? 'searching' : 'searching');
     const idx = STAGE_ORDER.indexOf(stage);
     if (idx > highestIdx) highestIdx = idx;
-    if (a.status !== 'done' && a.status !== 'error') allDone = false;
+    if (a.status !== 'done' && a.status !== 'error' && a.status !== 'searched') allDone = false;
   }
 
   const steps = Els.stepper.querySelectorAll<HTMLElement>('.pm-step');
@@ -294,23 +295,31 @@ function updateStepper(): void {
 function updateCounter(): void {
   if (!Els.counter) return;
   const total = attendeeMap.size;
-  const enriched = [...attendeeMap.values()].filter((a) => a.status === 'done' || a.status === 'error').length;
-  const enriching = [...attendeeMap.values()].filter((a) => a.status === 'pending').length;
+  const vals = [...attendeeMap.values()];
+  const enriched = vals.filter((a) => a.status === 'done' || a.status === 'error').length;
+  const searching = vals.filter((a) => a.status === 'pending').length;
+  const enriching = vals.filter((a) => a.status === 'enriching').length;
+  const searched = vals.filter((a) => a.status === 'searched').length;
 
-  if (enriching > 0) {
-    Els.counter.textContent = `Fetching\u2026 ${enriched} of ${total} attendees`;
+  if (searching > 0) {
+    Els.counter.textContent = `Searching\u2026 ${searched + enriched} of ${total} attendees`;
+  } else if (enriching > 0) {
+    Els.counter.textContent = `Generating brief\u2026 ${enriched} of ${total} attendees`;
+  } else if (searched > 0 && enriched === 0) {
+    Els.counter.textContent = `${searched} of ${total} found \u2014 click "Generate Brief" to enrich`;
   } else if (enriched > 0) {
     Els.counter.textContent = `${enriched} of ${total} attendee${total !== 1 ? 's' : ''} enriched`;
   } else {
-    Els.counter.textContent = `${total} attendee${total !== 1 ? 's' : ''} \u2014 click a card to enrich`;
+    Els.counter.textContent = `${total} attendee${total !== 1 ? 's' : ''}`;
   }
 }
 
 // ─── Avatar Rendering ────────────────────────────────────────────────────────
 
-function renderAvatar(name: string, pd: PersonData | undefined): string {
-  if (pd?.avatarUrl) {
-    return `<img src="${escapeHtml(pd.avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" onerror="this.replaceWith(document.createTextNode('${escapeHtml(initials(name))}'))">`;
+function renderAvatar(name: string, pd: PersonData | undefined, sr?: SearchResult | null): string {
+  const avatarUrl = pd?.avatarUrl || sr?.avatarUrl;
+  if (avatarUrl) {
+    return `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" onerror="this.replaceWith(document.createTextNode('${escapeHtml(initials(name))}'))">`;
   }
   return escapeHtml(initials(name || '?'));
 }
@@ -326,6 +335,18 @@ function renderConfidenceBadge(pd: PersonData): string {
       ${confidenceRingSvg(score, color)}
       <div class="pm-confidence__tooltip">${tooltip}</div>
     </div>`;
+}
+
+function renderSearchConfidenceBadge(score: number, label: string): string {
+  const color = confidenceColor(score);
+  return `
+    <div class="pm-confidence" title="${score}% match (${escapeHtml(label)})">
+      ${confidenceRingSvg(score, color)}
+    </div>`;
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
 }
 
 // ─── Company Section ─────────────────────────────────────────────────────────
@@ -709,13 +730,16 @@ function createCardElement(attendee: EnrichedAttendee): HTMLElement {
 function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void {
   const isIdle = attendee.status === 'idle';
   const isPending = attendee.status === 'pending';
+  const isSearched = attendee.status === 'searched';
+  const isEnriching = attendee.status === 'enriching';
   const isDone = attendee.status === 'done';
   const isPreview = !isAuthenticated && !!attendee.personData;
   const pd = isPreview && attendee.personData ? maskPersonData(attendee.personData) : attendee.personData;
   const originalPd = attendee.personData; // keep ref for skill count in preview
-  const name = pd?.name || attendee.person?.name || attendee.name;
-  const title = pd?.currentTitle || attendee.person?.title || '';
-  const company = pd?.currentCompany || attendee.person?.company?.name || attendee.company || '';
+  const sr = attendee.searchResult; // search-phase preview data
+  const name = pd?.name || sr?.name || attendee.person?.name || attendee.name;
+  const title = pd?.currentTitle || sr?.currentTitle || attendee.person?.title || '';
+  const company = pd?.currentCompany || sr?.currentCompany || attendee.person?.company?.name || attendee.company || '';
   const email = attendee.email;
   const key = attendeeKey(attendee);
   const hasRichData = !!pd;
@@ -725,6 +749,8 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   const classes = ['pm-card'];
   if (isIdle || isError) classes.push('pm-card--idle');
   if (isPending) classes.push('pm-card--pending');
+  if (isSearched) classes.push('pm-card--searched');
+  if (isEnriching) classes.push('pm-card--enriching');
   if (attendee.fromCache) classes.push('pm-card--cache-hit');
   if (attendee.hasLinkedIn && !isDone) classes.push('pm-card--usable');
   if (isDone && !attendee.error) classes.push('pm-card--complete');
@@ -732,42 +758,79 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
 
   card.className = classes.join(' ');
 
-  const fadeClass = !isPending ? ' pm-fadein' : '';
+  const fadeClass = (!isPending && !isEnriching) ? ' pm-fadein' : '';
 
   // ── Build the always-visible header ──
-  const linkedinUrl = pd?.linkedinUrl;
+  const linkedinUrl = pd?.linkedinUrl || sr?.linkedinUrl;
   const nameHtml = linkedinUrl
     ? `<a href="${escapeHtml(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
     : escapeHtml(name);
 
-  const location = pd?.location;
+  const location = pd?.location || sr?.location;
   const locationHtml = location ? `<div class="pm-card__location${fadeClass}">${escapeHtml(location)}</div>` : '';
 
-  // Quick stats
+  // Quick stats — show from search result or full data
   let statsHtml = '';
-  if (hasRichData && (pd.connections != null || pd.followers != null)) {
+  const statsConn = pd?.connections ?? sr?.connections;
+  const statsFoll = pd?.followers ?? sr?.followers;
+  if (statsConn != null || statsFoll != null) {
     const parts: string[] = [];
-    if (pd.connections != null) parts.push(`<span class="pm-card__stat"><strong>${formatNumber(pd.connections)}</strong> connections</span>`);
-    if (pd.followers != null) parts.push(`<span class="pm-card__stat"><strong>${formatNumber(pd.followers)}</strong> followers</span>`);
+    if (statsConn != null) parts.push(`<span class="pm-card__stat"><strong>${formatNumber(statsConn)}</strong> connections</span>`);
+    if (statsFoll != null) parts.push(`<span class="pm-card__stat"><strong>${formatNumber(statsFoll)}</strong> followers</span>`);
     statsHtml = `<div class="pm-card__stats${fadeClass}">${parts.join('')}</div>`;
   }
 
-  // Confidence badge
+  // Confidence badge — show from search result or full data
   let confidenceHtml = '';
   let confidenceWarning = '';
+  const confScore = pd?._confidenceScore ?? sr?.confidenceScore;
   if (hasRichData && pd._confidenceScore != null) {
     confidenceHtml = renderConfidenceBadge(pd);
     if (pd._confidenceScore < 50) {
       confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
     }
+  } else if (isSearched && sr && sr.confidenceScore != null) {
+    confidenceHtml = renderSearchConfidenceBadge(sr.confidenceScore, sr.confidence);
+    if (sr.confidenceScore < 50) {
+      confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
+    }
   }
 
-  // ── Build rich sections (only when data available and not pending) ──
+  // ── "Generate Brief" CTA for searched state ──
+  let generateBriefHtml = '';
+  if (isSearched && sr?.linkedinUrl) {
+    generateBriefHtml = `
+      <div class="pm-generate-brief">
+        <button class="pm-generate-brief__btn" data-generate-brief="${escapeAttr(key)}">
+          Generate Brief
+        </button>
+        <div class="pm-generate-brief__hint">Uses 1 credit</div>
+      </div>`;
+  } else if (isSearched && !sr?.linkedinUrl) {
+    generateBriefHtml = `
+      <div class="pm-generate-brief">
+        <div class="pm-generate-brief__hint" style="color:var(--pm-error)">No LinkedIn profile found</div>
+      </div>`;
+  }
+
+  // ── Skeleton sections for enriching state ──
+  let skeletonHtml = '';
+  if (isEnriching) {
+    skeletonHtml = `
+      <div class="pm-skeleton-sections">
+        <div class="pm-skeleton-block pm-skeleton-shimmer" style="height:60px"></div>
+        <div class="pm-skeleton-block pm-skeleton-shimmer" style="height:40px"></div>
+        <div class="pm-skeleton-block pm-skeleton-shimmer" style="height:80px"></div>
+        <div class="pm-skeleton-block pm-skeleton-shimmer" style="height:40px"></div>
+      </div>`;
+  }
+
+  // ── Build rich sections (only when data available and not pending/enriching) ──
   let companySectionHtml = '';
   let bioHtml = '';
   let expandableSectionsHtml = '';
 
-  if (hasRichData && !isPending) {
+  if (hasRichData && !isPending && !isEnriching) {
     companySectionHtml = renderCompanySection(pd);
 
     if (pd.bio) {
@@ -804,12 +867,13 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   }
 
   // ── Skeleton placeholders for pending state ──
+  const showSkeleton = isPending || isEnriching;
   const titleHtml = title
     ? `<div class="pm-card__title${fadeClass}">${escapeHtml(title)}</div>`
-    : isPending ? '<div class="pm-card__title">&nbsp;</div>' : '';
+    : showSkeleton ? '<div class="pm-card__title pm-skeleton-shimmer">&nbsp;</div>' : '';
   const companyHtml = company
     ? `<div class="pm-card__company${fadeClass}">\uD83C\uDFE2 ${escapeHtml(company)}</div>`
-    : isPending ? '<div class="pm-card__company">&nbsp;</div>' : '';
+    : showSkeleton ? '<div class="pm-card__company pm-skeleton-shimmer">&nbsp;</div>' : '';
 
   // Error message for failed enrichment
   const errorHtml = attendee.status === 'error' && attendee.error
@@ -818,7 +882,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
 
   card.innerHTML = `
     <div class="pm-card__header">
-      <div class="pm-avatar">${renderAvatar(name, pd)}</div>
+      <div class="pm-avatar">${renderAvatar(name, pd, sr)}</div>
       <div class="pm-card__body">
         <div class="pm-card__name${fadeClass}">${nameHtml}</div>
         ${titleHtml}
@@ -831,6 +895,8 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
       ${confidenceHtml}
     </div>
     ${errorHtml}
+    ${generateBriefHtml}
+    ${skeletonHtml}
     ${companySectionHtml}
     ${bioHtml}
     ${expandableSectionsHtml}
@@ -862,6 +928,17 @@ function attachCardListeners(card: HTMLElement, key: string): void {
       }
 
       chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: attendee.email } });
+    });
+  }
+
+  // "Generate Brief" button click
+  const briefBtn = card.querySelector<HTMLButtonElement>(`[data-generate-brief="${CSS.escape(key)}"]`);
+  if (briefBtn) {
+    briefBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const attendee = attendeeMap.get(key);
+      if (!attendee || attendee.status !== 'searched') return;
+      chrome.runtime.sendMessage({ type: 'GENERATE_BRIEF', payload: { email: attendee.email } });
     });
   }
 
@@ -1108,7 +1185,7 @@ function updateSingleAttendee(email: string, attendee: EnrichedAttendee): void {
     Els.list.appendChild(createCardElement(attendee));
   }
 
-  const isAnyPending = [...attendeeMap.values()].some((a) => a.status === 'pending');
+  const isAnyPending = [...attendeeMap.values()].some((a) => a.status === 'pending' || a.status === 'enriching');
   setLoading(isAnyPending);
 
   updateStepper();

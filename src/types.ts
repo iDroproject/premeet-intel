@@ -34,7 +34,7 @@ export type EnrichmentStage = 'searching' | 'fetching' | 'complete';
 export interface EnrichedAttendee extends Attendee {
   person: Person | null;
   enrichedAt: number;
-  status: 'idle' | 'pending' | 'done' | 'error';
+  status: 'idle' | 'pending' | 'searched' | 'enriching' | 'done' | 'error';
   error?: string;
   /** Current enrichment stage for progress display */
   stage?: EnrichmentStage;
@@ -144,6 +144,7 @@ export type BackgroundToPopup =
 export type PopupToBackground =
   | { type: 'GET_CURRENT_MEETING' }
   | { type: 'ENRICH_ATTENDEE'; payload: { email: string } }
+  | { type: 'GENERATE_BRIEF'; payload: { email: string } }
   | { type: 'SEARCH_PERSON'; payload: { name: string; email: string; company: string } }
   | { type: 'ENRICH_PERSON'; payload: { name: string; email: string; company: string; linkedInUrl: string } }
   | { type: 'FETCH_COMPANY_INTEL'; payload: { email: string; companyName: string; linkedinUrl?: string; website?: string } }
