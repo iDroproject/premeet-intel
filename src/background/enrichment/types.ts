@@ -177,3 +177,21 @@ export const MessageType = {
 } as const;
 
 export type MessageTypeKey = keyof typeof MessageType;
+
+// ─── Search Result (lightweight preview before full enrichment) ─────────────
+
+/** Subset of PersonData returned during the search phase — no credits consumed. */
+export interface SearchResult {
+  name: string;
+  firstName: string;
+  lastName: string;
+  avatarUrl: string | null;
+  currentTitle: string | null;
+  currentCompany: string | null;
+  location: string | null;
+  connections: number | null;
+  followers: number | null;
+  linkedinUrl: string | null;
+  confidence: 'high' | 'good' | 'partial' | 'low';
+  confidenceScore: number;
+}

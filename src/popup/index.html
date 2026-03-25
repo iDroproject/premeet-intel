@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; img-src 'self' https://*.licdn.com https://*.gravatar.com https://*.githubusercontent.com data:;" />
     <title>PreMeet</title>
     <style>
       /* ── Inter Font ── */
@@ -232,6 +232,101 @@
         from { opacity: 0; }
         to { opacity: 1; }
       }
+
+      /* ── Profile Photo Avatar ── */
+      .pm-avatar--photo {
+        width: 40px; height: 40px; border-radius: 50%;
+        object-fit: cover; flex-shrink: 0;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px var(--pm-border);
+      }
+      .pm-avatar--initials {
+        width: 40px; height: 40px; border-radius: 50%;
+        background: var(--pm-primary-light); color: var(--pm-primary);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 14px; font-weight: 600; flex-shrink: 0;
+        text-transform: uppercase;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px var(--pm-border);
+      }
+
+      /* ── Card Meta Row ── */
+      .pm-card__meta {
+        display: flex; align-items: center; gap: 8px;
+        margin-top: 4px; flex-wrap: wrap;
+      }
+      .pm-card__location {
+        font-size: 11px; color: var(--pm-text-secondary);
+        display: flex; align-items: center; gap: 3px;
+      }
+      .pm-card__social {
+        font-size: 10px; color: var(--pm-text-tertiary);
+        display: flex; align-items: center; gap: 6px;
+      }
+      .pm-card__social span { display: flex; align-items: center; gap: 2px; }
+
+      /* ── Confidence Badge ── */
+      .pm-confidence {
+        font-size: 10px; font-weight: 600;
+        padding: 2px 8px; border-radius: 10px;
+        text-transform: uppercase; letter-spacing: 0.3px;
+        display: inline-flex; align-items: center;
+        height: 20px; flex-shrink: 0;
+      }
+      .pm-confidence--high    { background: #D1FAE5; color: #065F46; }
+      .pm-confidence--good    { background: #DBEAFE; color: #1E40AF; }
+      .pm-confidence--partial { background: #FEF3C7; color: #92400E; }
+      .pm-confidence--low     { background: #FEE2E2; color: #991B1B; }
+
+      /* ── Brief Button ── */
+      .pm-card__actions {
+        display: flex; align-items: center; gap: 6px;
+        margin-left: auto; flex-shrink: 0;
+      }
+      .pm-btn--brief {
+        padding: 0 12px; height: 28px;
+        font-size: 11px; font-weight: 600;
+        border: 1px solid var(--pm-border);
+        border-radius: 6px; background: none;
+        color: var(--pm-text); cursor: pointer;
+        display: inline-flex; align-items: center; gap: 4px;
+        font-family: var(--pm-font);
+        transition: background var(--pm-transition), border-color var(--pm-transition);
+        flex-shrink: 0;
+      }
+      .pm-btn--brief:hover {
+        background: var(--pm-primary-light);
+        border-color: var(--pm-primary);
+        color: var(--pm-primary);
+      }
+
+      /* ── Search-phase card layout ── */
+      .pm-card--search {
+        padding: 12px 16px;
+        display: flex; gap: 12px; align-items: flex-start;
+      }
+      .pm-card--search .pm-card__body { flex: 1; min-width: 0; }
+      .pm-card--search .pm-card__row {
+        display: flex; align-items: center; gap: 8px;
+      }
+
+      /* ── Skeleton for search loading ── */
+      .pm-card--searching .pm-avatar--initials {
+        background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%);
+        background-size: 400px 100%;
+        animation: pm-shimmer 1.5s ease-in-out infinite;
+        color: transparent;
+      }
+      .pm-card--searching .pm-skel {
+        background: linear-gradient(90deg, #E5E7EB 25%, #F3F4F6 50%, #E5E7EB 75%);
+        background-size: 400px 100%;
+        border-radius: 4px; color: transparent;
+        animation: pm-shimmer 1.5s ease-in-out infinite;
+        display: inline-block;
+      }
+      .pm-skel--name  { width: 120px; height: 14px; }
+      .pm-skel--title { width: 160px; height: 12px; margin-top: 3px; }
+      .pm-skel--meta  { width: 100px; height: 11px; margin-top: 4px; }
 
       /* ── Feature Requests ── */
       .pm-features { padding: 0; }

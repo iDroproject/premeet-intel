@@ -309,10 +309,119 @@ function setLoading(on: boolean): void {
 
 // ─── Attendee Render ──────────────────────────────────────────────────────────
 
+function formatCount(n: number | null): string {
+  if (n == null) return '';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function renderAvatarHtml(avatarUrl: string | null, fallbackName: string): string {
+  if (avatarUrl) {
+    return `<img class="pm-avatar--photo" src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'pm-avatar--initials\\'>${escapeHtml(initials(fallbackName || '?'))}</div>'" />`;
+  }
+  return `<div class="pm-avatar--initials">${escapeHtml(initials(fallbackName || '?'))}</div>`;
+}
+
+function confidenceBadgeHtml(confidence: string | undefined): string {
+  if (!confidence) return '';
+  const labels: Record<string, string> = { high: 'High', good: 'Good', partial: 'Partial', low: 'Low' };
+  const label = labels[confidence] || confidence;
+  return `<span class="pm-confidence pm-confidence--${escapeHtml(confidence)}">${escapeHtml(label)}</span>`;
+}
+
 function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
   const card = document.createElement('div');
-  card.className = `pm-card${attendee.status === 'pending' ? ' pm-card--pending' : ''}`;
   card.dataset.email = attendee.email;
+
+  const sr = attendee.searchResult;
+  const pd = attendee.personData;
+  const isSearching = attendee.stage === 'searching';
+
+  // Skeleton loading state while search is in progress
+  if (isSearching) {
+    card.className = 'pm-card pm-card--search pm-card--searching';
+    card.innerHTML = `
+      <div class="pm-avatar--initials"></div>
+      <div class="pm-card__body">
+        <div class="pm-skel pm-skel--name"></div>
+        <div class="pm-skel pm-skel--title"></div>
+        <div class="pm-skel pm-skel--meta"></div>
+      </div>
+    `;
+    return card;
+  }
+
+  // Search-phase preview: show lightweight data with Brief button
+  if (sr || pd) {
+    card.className = 'pm-card pm-card--search';
+    card.style.cursor = 'default';
+
+    const name = sr?.name || pd?.name || attendee.person?.name || attendee.name;
+    const avatarUrl = sr?.avatarUrl || pd?.avatarUrl || null;
+    const rawTitle = sr?.currentTitle || pd?.currentTitle || attendee.person?.title || '';
+    const title = (!isAuthenticated && rawTitle) ? (maskTitle(rawTitle) || '') : rawTitle;
+    const company = sr?.currentCompany || pd?.currentCompany || attendee.person?.company?.name || attendee.company || '';
+    const location = sr?.location || pd?.location || '';
+    const connections = sr?.connections ?? pd?.connections ?? null;
+    const followers = sr?.followers ?? pd?.followers ?? null;
+    const confidence = sr?.confidence || pd?._confidence;
+
+    const connectionsStr = formatCount(connections);
+    const followersStr = formatCount(followers);
+
+    card.innerHTML = `
+      ${renderAvatarHtml(avatarUrl, name)}
+      <div class="pm-card__body">
+        <div class="pm-card__row">
+          <div class="pm-card__name">${escapeHtml(name)}</div>
+          ${confidenceBadgeHtml(confidence)}
+        </div>
+        ${title || company ? `<div class="pm-card__title">${escapeHtml(title)}${title && company ? ' · ' : ''}${company ? escapeHtml(company) : ''}</div>` : ''}
+        <div class="pm-card__meta">
+          ${location ? `<span class="pm-card__location">${escapeHtml(location)}</span>` : ''}
+          ${connectionsStr || followersStr ? `<span class="pm-card__social">${connectionsStr ? `<span>${escapeHtml(connectionsStr)} connections</span>` : ''}${followersStr ? `<span>${escapeHtml(followersStr)} followers</span>` : ''}</span>` : ''}
+        </div>
+      </div>
+      <div class="pm-card__actions">
+        <button class="pm-btn--brief" data-brief="${escapeHtml(attendee.email)}" title="Get full brief">Brief</button>
+      </div>
+    `;
+
+    // Brief button triggers full enrichment + opens side panel
+    const briefBtn = card.querySelector<HTMLButtonElement>('[data-brief]');
+    briefBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (attendee.status === 'pending') return;
+
+      briefBtn.disabled = true;
+      briefBtn.textContent = '...';
+
+      if (attendee.status !== 'done') {
+        chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: attendee.email } }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn(LOG, 'ENRICH_ATTENDEE failed:', chrome.runtime.lastError.message);
+            briefBtn.disabled = false;
+            briefBtn.textContent = 'Brief';
+          }
+        });
+      }
+
+      chrome.tabs.query({ url: 'https://calendar.google.com/*' }, (tabs) => {
+        const tabId = tabs[0]?.id;
+        if (tabId != null) {
+          chrome.sidePanel.open({ tabId }).catch((err) => {
+            console.warn(LOG, 'Could not open side panel:', err);
+          });
+        }
+      });
+    });
+
+    return card;
+  }
+
+  // Fallback: no search result yet — show basic card (pre-search state)
+  card.className = `pm-card${attendee.status === 'pending' ? ' pm-card--pending' : ''}`;
   card.style.cursor = 'pointer';
 
   const name = attendee.person?.name || attendee.name;
@@ -320,10 +429,9 @@ function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
   const title = (!isAuthenticated && rawTitle) ? (maskTitle(rawTitle) || '') : rawTitle;
   const company = attendee.person?.company?.name || attendee.company || '';
   const email = attendee.email;
-  const avi = initials(name || '?');
 
   card.innerHTML = `
-    <div class="pm-avatar">${escapeHtml(avi)}</div>
+    <div class="pm-avatar--initials">${escapeHtml(initials(name || '?'))}</div>
     <div class="pm-card__body">
       <div class="pm-card__name">${escapeHtml(name)}</div>
       ${title ? `<div class="pm-card__title">${escapeHtml(title)}</div>` : ''}
@@ -333,9 +441,8 @@ function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
   `;
 
   card.addEventListener('click', () => {
-    if (attendee.status === 'pending') return; // already enriching
+    if (attendee.status === 'pending') return;
 
-    // Trigger enrichment if not done yet
     if (attendee.status !== 'done') {
       card.classList.add('pm-card--pending');
       chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: attendee.email } }, () => {
@@ -346,7 +453,6 @@ function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
       });
     }
 
-    // Open the side panel for the active GCal tab
     chrome.tabs.query({ url: 'https://calendar.google.com/*' }, (tabs) => {
       const tabId = tabs[0]?.id;
       if (tabId != null) {

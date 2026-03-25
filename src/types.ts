@@ -1,6 +1,6 @@
 // PreMeet shared TypeScript types
 
-import type { PersonData } from './background/enrichment/types';
+import type { PersonData, SearchResult } from './background/enrichment/types';
 
 export interface Attendee {
   name: string;
@@ -44,6 +44,8 @@ export interface EnrichedAttendee extends Attendee {
   hasLinkedIn?: boolean;
   /** Full enrichment data from the waterfall pipeline */
   personData?: PersonData;
+  /** Lightweight search-phase preview (no credits consumed) */
+  searchResult?: SearchResult;
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
