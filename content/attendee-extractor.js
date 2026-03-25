@@ -65,6 +65,36 @@
     /^(transferred|forwarded)\s/i, // "Transferred from …", "Forwarded …"
   ];
 
+  /** Maximum character length for a plausible person name. */
+  const MAX_NAME_LENGTH = 80;
+
+  /**
+   * Email domains that belong to conferencing / SIP / system services and
+   * should never be treated as personal attendee emails.
+   */
+  const NON_PERSON_EMAIL_DOMAINS = new Set([
+    'zoomcrc.com', 'zoom.us', 'zoomgov.com',
+    'meet.google.com', 'teams.microsoft.com', 'webex.com',
+    'noreply', 'no-reply',
+  ]);
+
+  /**
+   * Returns true if the email looks like a real person email and not a
+   * conference bridge, SIP address, or system service.
+   *
+   * @param {string} email
+   * @returns {boolean}
+   */
+  function isPersonEmail(email) {
+    if (!email || !email.includes('@')) return false;
+    const domain = email.split('@')[1].toLowerCase();
+    if (NON_PERSON_EMAIL_DOMAINS.has(domain)) return false;
+    // SIP-style numeric local parts (e.g. 82483789804@zoomcrc.com)
+    const local = email.split('@')[0];
+    if (/^\d+$/.test(local)) return false;
+    return true;
+  }
+
   /**
    * Returns true if the cleaned name looks like a real person rather than
    * a system string, room, or placeholder.
@@ -74,6 +104,7 @@
    */
   function isLikelyPersonName(name) {
     if (!name) return false;
+    if (name.length > MAX_NAME_LENGTH) return false;
     if (NON_PERSON_NAMES.has(name.toLowerCase())) return false;
     return !NON_PERSON_PATTERNS.some(re => re.test(name));
   }
@@ -242,6 +273,9 @@
       const matches = text.match(emailPattern) || [];
 
       matches.forEach((email) => {
+        // Skip conference / SIP / system emails.
+        if (!isPersonEmail(email)) return;
+
         results.push({
           name: nameFromEmail(email),
           email,
@@ -366,6 +400,19 @@
     const results = [];
     const emailRe = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
 
+    // Selectors for event description / details sections that contain
+    // meeting body text (Zoom invites, dial-in numbers, etc.).
+    // Emails found inside these are almost never real attendee addresses.
+    const DESCRIPTION_SELECTORS =
+      '[data-eventchip] [data-content], ' +
+      '[data-eventid] .NMtib, ' +        // Event detail description area
+      '[jsname="x8hBRd"], ' +             // Description container
+      '.IbTbbe, ' +                        // "Notes" section in event popup
+      '[aria-label*="description" i], ' +
+      '[aria-label*="location" i], ' +
+      '[aria-label*="conference" i], ' +
+      '[aria-label*="join with" i]';
+
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let textNode;
 
@@ -374,8 +421,14 @@
       const matches = text.match(emailRe);
       if (!matches) continue;
 
+      // Skip text nodes inside the event description / meeting body.
+      if (textNode.parentElement?.closest(DESCRIPTION_SELECTORS)) continue;
+
       matches.forEach((email) => {
         if (!email.includes('@')) return;
+
+        // Skip conference / SIP / system emails.
+        if (!isPersonEmail(email)) return;
 
         // Walk up to the nearest block-level or list element that bounds
         // this attendee row, so the button is inserted next to the chip.
@@ -402,6 +455,11 @@
         }
 
         if (!name || name.includes('@')) {
+          name = nameFromEmail(email);
+        }
+
+        // Reject names that are suspiciously long (likely event description text).
+        if (name.length > MAX_NAME_LENGTH) {
           name = nameFromEmail(email);
         }
 
@@ -578,9 +636,14 @@
 
       const deduped = deduplicateAttendees(all);
 
-      // Filter out non-person names (system strings, rooms, placeholders).
+      // Filter out non-person names and non-person emails.
       const filtered = deduped.filter((a) => {
-        // If the attendee has an email, they're likely real even with an odd name.
+        // Reject conference / SIP / system email addresses.
+        if (a.email && !isPersonEmail(a.email)) {
+          console.log(LOG_PREFIX, `Filtered non-person email: "${a.email}"`);
+          return false;
+        }
+        // If the attendee has a valid email, they're likely real even with an odd name.
         if (a.email && a.email.includes('@')) return true;
         // Name-only attendees must pass the person-name check.
         if (!isLikelyPersonName(a.name)) {
@@ -602,4 +665,5 @@
   window.PreMeet.deriveCompanyFromEmail = deriveCompanyFromEmail;
   window.PreMeet.cleanAttendeeName = cleanAttendeeName;
   window.PreMeet.isLikelyPersonName = isLikelyPersonName;
+  window.PreMeet.isPersonEmail = isPersonEmail;
 })();
