@@ -520,6 +520,59 @@
         text-align: center;
         background: var(--pm-surface);
       }
+
+      /* ── Freemium Preview Mode ── */
+      .pm-masked {
+        filter: blur(3px);
+        user-select: none;
+        pointer-events: none;
+      }
+      .pm-locked-overlay {
+        position: relative;
+      }
+      .pm-locked-overlay::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.85) 60%, rgba(255,255,255,0.95) 100%);
+        border-radius: var(--pm-radius);
+        pointer-events: none;
+      }
+      .pm-cta-banner {
+        margin: 12px;
+        padding: 16px 20px;
+        background: linear-gradient(135deg, var(--pm-primary-light), #E0E7FF);
+        border: 1px solid #C7D2FE;
+        border-radius: var(--pm-radius);
+        text-align: center;
+      }
+      .pm-cta-banner__icon { font-size: 24px; margin-bottom: 8px; }
+      .pm-cta-banner__title {
+        font-size: 14px; font-weight: 700; color: var(--pm-text);
+        margin-bottom: 4px;
+      }
+      .pm-cta-banner__body {
+        font-size: 12px; color: var(--pm-text-secondary);
+        line-height: 1.5; margin-bottom: 12px;
+      }
+      .pm-cta-banner__btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 10px 24px;
+        background: var(--pm-primary); color: #fff;
+        border: none; border-radius: var(--pm-radius);
+        font-size: 13px; font-weight: 600;
+        cursor: pointer; font-family: var(--pm-font);
+        transition: background var(--pm-transition);
+      }
+      .pm-cta-banner__btn:hover { background: var(--pm-primary-hover); }
+      .pm-cta-banner__sub {
+        font-size: 11px; color: var(--pm-text-tertiary);
+        margin-top: 8px;
+      }
+      .pm-skills-preview {
+        font-size: 11px; color: var(--pm-text-secondary);
+        font-style: italic; padding: 4px 0;
+      }
     </style>
   </head>
   <body>
@@ -589,6 +642,18 @@
         <button class="pm-modal__close" id="pm-modal-close">&times;</button>
         <div id="pm-modal-body"></div>
       </div>
+    </div>
+
+    <!-- Freemium sign-in CTA -->
+    <div class="pm-cta-banner pm-hidden" id="pm-cta-banner">
+      <div class="pm-cta-banner__icon">&#128274;</div>
+      <div class="pm-cta-banner__title">Unlock full profiles</div>
+      <div class="pm-cta-banner__body">Sign in with Google to see complete job titles, work history, education, skills, and more.</div>
+      <button class="pm-cta-banner__btn" id="pm-cta-signin">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1Z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23Z" fill="#34A853"/><path d="M5.84 14.09A6.97 6.97 0 0 1 5.48 12c0-.72.13-1.43.36-2.09V7.07H2.18A11.96 11.96 0 0 0 0 12c0 1.94.46 3.77 1.28 5.4l3.56-2.77.01-.54Z" fill="#FBBC05"/><path d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 6.07l3.66 2.84c.87-2.6 3.3-4.16 6.16-4.16Z" fill="#EA4335"/></svg>
+        Sign in with Google
+      </button>
+      <div class="pm-cta-banner__sub">5 free briefs/month &mdash; no credit card required</div>
     </div>
 
     <footer class="pm-footer pm-hidden" id="pm-footer">PreMeet &copy; <span id="pm-year"></span></footer>

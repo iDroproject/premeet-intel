@@ -3,6 +3,7 @@
 
 import type { MeetingEvent, EnrichedAttendee, BackgroundToPopup, FeatureRequest, Settings, ActivityLogEntry, DataSourceLabel } from '../types';
 import { getCredits, remainingCredits } from '../utils/credits';
+import { maskTitle } from '../utils/masking';
 import {
   getFeatureRequests,
   upvoteRequest,
@@ -57,11 +58,15 @@ const Els = {
   setConfidence:  $<HTMLInputElement>('pm-set-confidence'),
   setCompact:     $<HTMLInputElement>('pm-set-compact'),
   setAutoSearch:  $<HTMLInputElement>('pm-set-auto-search'),
+  ctaBanner:      $('pm-cta-banner'),
+  ctaSignin:      $('pm-cta-signin'),
 };
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let currentAttendees: EnrichedAttendee[] = [];
+let currentMeeting: MeetingEvent | null = null;
+let isAuthenticated = false;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -75,6 +80,20 @@ function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+// ─── Auth State ──────────────────────────────────────────────────────────────
+
+async function checkAuthState(): Promise<boolean> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: 'AUTH_GET_STATE' }, (response) => {
+      if (chrome.runtime.lastError || !response?.ok) {
+        resolve(false);
+        return;
+      }
+      resolve(response.isAuthenticated === true);
+    });
+  });
 }
 
 // ─── Credits Display ──────────────────────────────────────────────────────────
@@ -164,7 +183,8 @@ function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
   card.style.cursor = 'pointer';
 
   const name = attendee.person?.name || attendee.name;
-  const title = attendee.person?.title || '';
+  const rawTitle = attendee.person?.title || '';
+  const title = (!isAuthenticated && rawTitle) ? (maskTitle(rawTitle) || '') : rawTitle;
   const company = attendee.person?.company?.name || attendee.company || '';
   const email = attendee.email;
   const avi = initials(name || '?');
@@ -211,6 +231,7 @@ function renderAttendees(meeting: MeetingEvent, attendees: EnrichedAttendee[]): 
   if (!Els.list) return;
 
   currentAttendees = attendees;
+  currentMeeting = meeting;
 
   if (Els.meetingTitle) {
     Els.meetingTitle.textContent = meeting.title;
@@ -227,6 +248,9 @@ function renderAttendees(meeting: MeetingEvent, attendees: EnrichedAttendee[]): 
   }
 
   showView('list');
+
+  // Show CTA banner when attendees are visible but user is not authenticated
+  Els.ctaBanner?.classList.toggle('pm-hidden', isAuthenticated);
 
   attendees.forEach((attendee) => {
     Els.list!.appendChild(renderAttendeeCard(attendee));
@@ -508,8 +532,31 @@ function wireEvents(): void {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   if (Els.year) Els.year.textContent = String(new Date().getFullYear());
+
+  // Check auth state for freemium preview mode
+  isAuthenticated = await checkAuthState();
+  Els.ctaBanner?.classList.toggle('pm-hidden', isAuthenticated);
+
+  // CTA sign-in button
+  Els.ctaSignin?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'AUTH_SIGN_IN' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn(LOG, 'Sign-in failed:', chrome.runtime.lastError.message);
+        return;
+      }
+      if (response?.ok) {
+        isAuthenticated = true;
+        Els.ctaBanner?.classList.add('pm-hidden');
+        // Re-render attendees with full data
+        if (currentMeeting && currentAttendees.length > 0) {
+          renderAttendees(currentMeeting, currentAttendees);
+        }
+        refreshCredits();
+      }
+    });
+  });
 
   wireEvents();
   wireSettingsEvents();

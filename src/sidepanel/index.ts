@@ -5,6 +5,7 @@
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup } from '../types';
 import type { PersonData, ExperienceEntry, EducationEntry, ConfidenceCitation } from '../background/enrichment/types';
 import { getCredits, remainingCredits } from '../utils/credits';
+import { maskPersonData, skillsPreviewCount } from '../utils/masking';
 
 const LOG = '[PreMeet][SidePanel]';
 
@@ -25,12 +26,15 @@ const Els = {
   footer:       $('pm-footer'),
   year:         $('pm-year'),
   credits:      $('pm-credits'),
+  ctaBanner:    $('pm-cta-banner'),
+  ctaSignin:    $('pm-cta-signin'),
 };
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
 let currentMeeting: MeetingEvent | null = null;
 let attendeeMap = new Map<string, EnrichedAttendee>();
+let isAuthenticated = false;
 
 // Track which expandable sections are open per attendee
 const expandedSections = new Map<string, Set<string>>();
@@ -157,6 +161,25 @@ function openConfidenceModal(pd: PersonData): void {
 
 function closeConfidenceModal(): void {
   document.getElementById('pm-confidence-modal')?.classList.remove('pm-modal-overlay--open');
+}
+
+// ─── Auth State ──────────────────────────────────────────────────────────────
+
+async function checkAuthState(): Promise<boolean> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: 'AUTH_GET_STATE' }, (response) => {
+      if (chrome.runtime.lastError || !response?.ok) {
+        resolve(false);
+        return;
+      }
+      resolve(response.isAuthenticated === true);
+    });
+  });
+}
+
+function updateCtaBanner(): void {
+  if (!Els.ctaBanner) return;
+  Els.ctaBanner.classList.toggle('pm-hidden', isAuthenticated);
 }
 
 // ─── Credits Display ────────────────────────────────────────────────────────
@@ -407,7 +430,9 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   const isIdle = attendee.status === 'idle';
   const isPending = attendee.status === 'pending';
   const isDone = attendee.status === 'done';
-  const pd = attendee.personData;
+  const isPreview = !isAuthenticated && !!attendee.personData;
+  const pd = isPreview && attendee.personData ? maskPersonData(attendee.personData) : attendee.personData;
+  const originalPd = attendee.personData; // keep ref for skill count in preview
   const name = pd?.name || attendee.person?.name || attendee.name;
   const title = pd?.currentTitle || attendee.person?.title || '';
   const company = pd?.currentCompany || attendee.person?.company?.name || attendee.company || '';
@@ -423,6 +448,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   if (attendee.fromCache) classes.push('pm-card--cache-hit');
   if (attendee.hasLinkedIn && !isDone) classes.push('pm-card--usable');
   if (isDone && !attendee.error) classes.push('pm-card--complete');
+  if (isPreview) classes.push('pm-locked-overlay');
 
   card.className = classes.join(' ');
 
@@ -476,7 +502,10 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
     if (pd.education && pd.education.length > 0) {
       sections.push(renderExpandableSection(key, 'education', 'Education', renderEducation(pd.education)));
     }
-    if (pd.skills && pd.skills.length > 0) {
+    if (isPreview && originalPd && originalPd.skills && originalPd.skills.length > 0) {
+      const count = skillsPreviewCount(originalPd);
+      sections.push(renderExpandableSection(key, 'skills', 'Skills', `<div class="pm-skills-preview">${count} skills &mdash; sign in to view</div>`));
+    } else if (pd.skills && pd.skills.length > 0) {
       sections.push(renderExpandableSection(key, 'skills', 'Skills', renderSkills(pd.skills)));
     }
     if (pd.companyIndustry || pd.companySize || pd.companyFounded || pd.recentNews || pd.companyProducts || pd.companyTechnologies) {
@@ -678,8 +707,32 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   if (Els.year) Els.year.textContent = String(new Date().getFullYear());
+
+  // Check auth state for freemium preview mode
+  isAuthenticated = await checkAuthState();
+  updateCtaBanner();
+
+  // CTA sign-in button
+  Els.ctaSignin?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'AUTH_SIGN_IN' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.warn(LOG, 'Sign-in failed:', chrome.runtime.lastError.message);
+        return;
+      }
+      if (response?.ok) {
+        isAuthenticated = true;
+        updateCtaBanner();
+        // Re-render all attendees with full data
+        if (currentMeeting) {
+          const attendees = [...attendeeMap.values()];
+          renderAllAttendees(currentMeeting, attendees);
+        }
+        refreshCredits();
+      }
+    });
+  });
 
   // Modal close handlers
   document.getElementById('pm-modal-close')?.addEventListener('click', closeConfidenceModal);

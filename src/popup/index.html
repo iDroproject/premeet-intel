@@ -489,6 +489,38 @@
         color: var(--pm-text-tertiary);
         text-align: center;
       }
+
+      /* ── Freemium CTA ── */
+      .pm-cta-banner {
+        margin: 8px 12px;
+        padding: 12px 16px;
+        background: linear-gradient(135deg, var(--pm-primary-light), #E0E7FF);
+        border: 1px solid #C7D2FE;
+        border-radius: var(--pm-radius);
+        text-align: center;
+      }
+      .pm-cta-banner__title {
+        font-size: 12px; font-weight: 700; color: var(--pm-text);
+        margin-bottom: 4px;
+      }
+      .pm-cta-banner__body {
+        font-size: 11px; color: var(--pm-text-secondary);
+        line-height: 1.4; margin-bottom: 8px;
+      }
+      .pm-cta-banner__btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 8px 16px;
+        background: var(--pm-primary); color: #fff;
+        border: none; border-radius: var(--pm-radius);
+        font-size: 12px; font-weight: 600;
+        cursor: pointer; font-family: var(--pm-font);
+        transition: background var(--pm-transition);
+      }
+      .pm-cta-banner__btn:hover { background: var(--pm-primary-hover); }
+      .pm-cta-banner__sub {
+        font-size: 10px; color: var(--pm-text-tertiary);
+        margin-top: 6px;
+      }
     </style>
   </head>
   <body>
@@ -542,6 +574,14 @@
         <div class="pm-state__title">Free briefs used up</div>
         <div class="pm-state__body">You've used all 10 free briefs this month.<br/>Credits reset <strong id="pm-credits-reset-date"></strong>.</div>
         <a href="https://premeet.co/pricing" target="_blank" rel="noopener" class="pm-btn pm-btn--primary pm-btn--upgrade">Upgrade to Pro</a>
+      </div>
+
+      <!-- Freemium sign-in CTA -->
+      <div class="pm-cta-banner pm-hidden" id="pm-cta-banner">
+        <div class="pm-cta-banner__title">&#128274; Unlock full profiles</div>
+        <div class="pm-cta-banner__body">Sign in to see complete titles, work history, and more.</div>
+        <button class="pm-cta-banner__btn" id="pm-cta-signin">Sign in with Google</button>
+        <div class="pm-cta-banner__sub">5 free briefs/month</div>
       </div>
 
       <!-- Attendee list -->
