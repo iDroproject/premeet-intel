@@ -1,6 +1,6 @@
 // PreMeet – SERP API Client (Direct /request endpoint)
 // Uses Bright Data's SERP API with brd_json=1 for structured single-request results.
-// Eliminates send+poll cycle for ~50-70% faster SERP lookups.
+// Returns structured JSON with organic results for reliable LinkedIn URL extraction.
 
 import { proxyFetch } from './brightdata-proxy';
 import type { CompanyInfo } from './types';

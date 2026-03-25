@@ -248,7 +248,7 @@ function setLoading(on: boolean): void {
 
 // ─── Progress Stepper ────────────────────────────────────────────────────────
 
-const STAGE_ORDER: EnrichmentStage[] = ['searching', 'resolving', 'enriching', 'complete'];
+const STAGE_ORDER: EnrichmentStage[] = ['searching', 'fetching', 'complete'];
 
 function updateStepper(): void {
   if (!Els.stepper) return;
@@ -298,7 +298,7 @@ function updateCounter(): void {
   const enriching = [...attendeeMap.values()].filter((a) => a.status === 'pending').length;
 
   if (enriching > 0) {
-    Els.counter.textContent = `Enriching\u2026 ${enriched} of ${total} attendees`;
+    Els.counter.textContent = `Fetching\u2026 ${enriched} of ${total} attendees`;
   } else if (enriched > 0) {
     Els.counter.textContent = `${enriched} of ${total} attendee${total !== 1 ? 's' : ''} enriched`;
   } else {

@@ -29,7 +29,7 @@ export interface Company {
 }
 
 /** Enrichment stage for the progress stepper */
-export type EnrichmentStage = 'searching' | 'resolving' | 'enriching' | 'complete';
+export type EnrichmentStage = 'searching' | 'fetching' | 'complete';
 
 export interface EnrichedAttendee extends Attendee {
   person: Person | null;

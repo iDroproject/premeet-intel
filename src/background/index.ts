@@ -436,7 +436,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
 
     currentEnriched[idx] = {
       ...currentEnriched[idx],
-      stage: 'resolving',
+      stage: 'fetching',
       searchResult,
       hasLinkedIn: !!searchResult.linkedinUrl,
     };
@@ -495,7 +495,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
     return;
   }
 
-  currentEnriched[idx] = { ...currentEnriched[idx], stage: 'enriching' };
+  currentEnriched[idx] = { ...currentEnriched[idx], stage: 'fetching' };
   broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
 
   let personData: PersonData | null = null;
