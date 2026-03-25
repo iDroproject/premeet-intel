@@ -5,3 +5,7 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Legacy / archived directories (not part of active source)
+brd-intel/
+premeet-intel/
