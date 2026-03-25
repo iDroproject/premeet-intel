@@ -10,8 +10,10 @@ const DATASET_ID = 'gd_l1viktl72bvl7bjuj0';
 const SCRAPE_PATH = `/datasets/v3/scrape?dataset_id=${DATASET_ID}&notify=false&include_errors=true`;
 const SNAPSHOT_BASE = '/datasets/snapshots';
 
-const MAX_POLL_ATTEMPTS = 30;
-const POLL_INTERVAL_MS = 2000;
+const POLL_INITIAL_MS = 800;
+const POLL_MAX_MS = 4000;
+const POLL_BACKOFF = 1.5;
+const POLL_TIMEOUT_MS = 60_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,9 +75,13 @@ export async function scrapeByLinkedInUrl(linkedInUrl: string): Promise<ScrapeRe
 
 export async function pollSnapshotUntilReady(snapshotId: string): Promise<void> {
   const statusPath = `${SNAPSHOT_BASE}/${snapshotId}`;
+  const startedAt = Date.now();
+  let pollDelay = POLL_INITIAL_MS;
 
-  for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
-    console.log(LOG_PREFIX, `Polling snapshot ${snapshotId} (attempt ${attempt}/${MAX_POLL_ATTEMPTS})`);
+  while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+    await sleep(pollDelay);
+    const elapsed = Date.now() - startedAt;
+    console.log(LOG_PREFIX, `Polling snapshot ${snapshotId} (${Math.round(elapsed / 1000)}s elapsed)`);
 
     const response = await proxyFetch(statusPath, 'GET');
 
@@ -93,7 +99,7 @@ export async function pollSnapshotUntilReady(snapshotId: string): Promise<void> 
     const status = await response.json();
 
     if (status.status === 'ready') {
-      console.log(LOG_PREFIX, `Snapshot ${snapshotId} is ready`);
+      console.log(LOG_PREFIX, `Snapshot ${snapshotId} is ready (${Math.round(elapsed / 1000)}s)`);
       return;
     }
 
@@ -101,10 +107,10 @@ export async function pollSnapshotUntilReady(snapshotId: string): Promise<void> 
       throw new Error(`Snapshot ${snapshotId} failed`);
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    pollDelay = Math.min(pollDelay * POLL_BACKOFF, POLL_MAX_MS);
   }
 
-  throw new Error(`Snapshot ${snapshotId} did not become ready after ${MAX_POLL_ATTEMPTS} attempts`);
+  throw new Error(`Snapshot ${snapshotId} did not become ready after ${POLL_TIMEOUT_MS / 1000}s`);
 }
 
 export async function downloadSnapshot(snapshotId: string): Promise<Array<Record<string, unknown>>> {

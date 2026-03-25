@@ -23,10 +23,10 @@ const PIPELINE_STEPS: Array<Omit<StepState, 'status'>> = [
 ];
 
 const LAYER_TIMEOUTS = {
-  serpDiscovery: 35_000,
+  serpDiscovery: 30_000,   // Direct SERP API is single-request, no polling
   deepLookup: 90_000,
   linkedInScraper: 60_000,
-  filterEnrich: 130_000,
+  filterEnrich: 100_000,   // Reduced from 130s — adaptive backoff gets results faster
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -213,21 +213,36 @@ export class WaterfallOrchestrator {
   }
 
   private async _layerSerpDiscovery(email: string, name: string, company: string): Promise<DiscoveryLayerResult> {
-    let linkedInUrl: string | null = null;
+    // Fire email and name queries in parallel for faster discovery
+    const queries: Array<{ label: string; query: string }> = [];
 
     if (email && email.includes('@')) {
-      console.log(LOG_PREFIX, 'SERP: searching by email:', email);
-      linkedInUrl = await serpFindLinkedInUrl(email);
+      queries.push({ label: 'email', query: email });
+    }
+    if (name) {
+      queries.push({ label: 'name', query: company ? `${name} ${company}` : name });
     }
 
-    if (!linkedInUrl && name) {
-      const query = company ? `${name} ${company}` : name;
-      console.log(LOG_PREFIX, 'SERP: searching by name:', query);
-      linkedInUrl = await serpFindLinkedInUrl(query);
+    if (queries.length === 0) {
+      return { success: false, error: 'SERP: no email or name to search' };
     }
 
-    if (!linkedInUrl) return { success: false, error: 'SERP found no LinkedIn URL' };
-    return { success: true, linkedInUrl, source: 'serp' };
+    console.log(LOG_PREFIX, `SERP: parallel search with ${queries.length} queries`);
+
+    // Race all queries — first one to find a LinkedIn URL wins
+    const promises = queries.map(({ label, query }) =>
+      serpFindLinkedInUrl(query).then((url) => {
+        if (url) return url;
+        throw new Error(`SERP ${label} query found no LinkedIn URL`);
+      }),
+    );
+
+    try {
+      const linkedInUrl = await Promise.any(promises);
+      return { success: true, linkedInUrl, source: 'serp' };
+    } catch {
+      return { success: false, error: 'SERP found no LinkedIn URL from any query' };
+    }
   }
 
   private async _layerDeepLookup(email: string, name: string, company: string): Promise<DiscoveryLayerResult> {

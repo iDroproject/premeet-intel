@@ -9,9 +9,10 @@ const LOG_PREFIX = '[PreMeet][DeepLookup]';
 
 const BASE_PATH = '/datasets/deep_lookup/v1';
 
-const POLL_INTERVAL_MS = 3000;
-const MAX_POLL_ATTEMPTS = 30;
-const DEEP_LOOKUP_TIMEOUT_MS = 120_000;
+const POLL_INITIAL_MS = 1000;
+const POLL_MAX_MS = 5000;
+const POLL_BACKOFF = 1.5;
+const DEEP_LOOKUP_TIMEOUT_MS = 90_000;
 
 // ─── Spec Definitions ────────────────────────────────────────────────────────
 
@@ -193,19 +194,18 @@ async function triggerAndPoll(
   console.log(LOG_PREFIX, 'Enrichment queued:', requestId, 'status:', triggerData.status, 'max_cost:', triggerData.max_cost);
 
   const startedAt = Date.now();
+  let pollDelay = POLL_INITIAL_MS;
 
-  for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
-    if (Date.now() - startedAt > DEEP_LOOKUP_TIMEOUT_MS) {
-      throw new Error(`Enrichment request ${requestId} timed out after ${DEEP_LOOKUP_TIMEOUT_MS / 1000}s`);
-    }
-
-    await sleep(POLL_INTERVAL_MS);
-    console.log(LOG_PREFIX, `Polling request ${requestId} (attempt ${attempt}/${MAX_POLL_ATTEMPTS})`);
+  while (Date.now() - startedAt < DEEP_LOOKUP_TIMEOUT_MS) {
+    await sleep(pollDelay);
+    const elapsed = Date.now() - startedAt;
+    console.log(LOG_PREFIX, `Polling request ${requestId} (${Math.round(elapsed / 1000)}s elapsed, next delay ${Math.round(pollDelay)}ms)`);
 
     const statusRes = await proxyFetch(`${BASE_PATH}/request/${requestId}/status`, 'GET');
 
     if (!statusRes.ok) {
       console.warn(LOG_PREFIX, `Status poll HTTP ${statusRes.status}`);
+      pollDelay = Math.min(pollDelay * POLL_BACKOFF, POLL_MAX_MS);
       continue;
     }
 
@@ -222,9 +222,11 @@ async function triggerAndPoll(
       throw new Error(`Enrichment request ${requestId} failed: ${errMsg}`);
     }
 
-    if (attempt === MAX_POLL_ATTEMPTS) {
-      throw new Error(`Enrichment request ${requestId} not completed after ${MAX_POLL_ATTEMPTS} attempts`);
-    }
+    pollDelay = Math.min(pollDelay * POLL_BACKOFF, POLL_MAX_MS);
+  }
+
+  if (Date.now() - startedAt >= DEEP_LOOKUP_TIMEOUT_MS) {
+    throw new Error(`Enrichment request ${requestId} timed out after ${DEEP_LOOKUP_TIMEOUT_MS / 1000}s`);
   }
 
   console.log(LOG_PREFIX, 'Downloading results for', requestId);

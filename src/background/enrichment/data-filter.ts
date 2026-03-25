@@ -10,9 +10,10 @@ const FILTER_PATH = '/datasets/filter';
 const SNAPSHOT_BASE = '/datasets/snapshots';
 const DEFAULT_DATASET_ID = 'gd_l1viktl72bvl7bjuj0';
 
-const POLL_INTERVAL_MS = 2000;
-const MAX_POLL_ATTEMPTS = 50;
-const FILTER_TIMEOUT_MS = 120_000;
+const POLL_INITIAL_MS = 800;
+const POLL_MAX_MS = 4000;
+const POLL_BACKOFF = 1.5;
+const FILTER_TIMEOUT_MS = 90_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,21 +52,22 @@ export async function filterByLinkedInId(
 
   console.log(LOG_PREFIX, 'Filter snapshot created:', snapshotId);
 
-  // Step 2: Poll snapshot until ready.
+  // Step 2: Poll snapshot until ready (adaptive backoff).
   const startedAt = Date.now();
+  let pollDelay = POLL_INITIAL_MS;
 
-  for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
-    if (Date.now() - startedAt > FILTER_TIMEOUT_MS) {
-      throw new Error(`Filter snapshot ${snapshotId} timed out after ${FILTER_TIMEOUT_MS / 1000}s`);
-    }
-
-    await sleep(POLL_INTERVAL_MS);
-    console.log(LOG_PREFIX, `Polling snapshot ${snapshotId} (attempt ${attempt}/${MAX_POLL_ATTEMPTS})`);
+  while (Date.now() - startedAt < FILTER_TIMEOUT_MS) {
+    await sleep(pollDelay);
+    const elapsed = Date.now() - startedAt;
+    console.log(LOG_PREFIX, `Polling snapshot ${snapshotId} (${Math.round(elapsed / 1000)}s elapsed)`);
 
     const statusRes = await proxyFetch(`${SNAPSHOT_BASE}/${snapshotId}`, 'GET');
 
     if (!statusRes.ok) {
-      if (statusRes.status === 404) continue; // Snapshot may not yet be registered.
+      if (statusRes.status === 404) {
+        pollDelay = Math.min(pollDelay * POLL_BACKOFF, POLL_MAX_MS);
+        continue; // Snapshot may not yet be registered.
+      }
       const errBody = await statusRes.text().catch(() => '');
       throw new Error(`Snapshot status check HTTP ${statusRes.status}: ${errBody.slice(0, 200)}`);
     }
@@ -74,7 +76,7 @@ export async function filterByLinkedInId(
     const status = statusData?.status;
 
     if (status === 'ready') {
-      console.log(LOG_PREFIX, `Snapshot ${snapshotId} is ready`);
+      console.log(LOG_PREFIX, `Snapshot ${snapshotId} is ready (${Math.round(elapsed / 1000)}s)`);
       break;
     }
 
@@ -84,14 +86,14 @@ export async function filterByLinkedInId(
     }
 
     console.log(LOG_PREFIX, `Snapshot status: ${status}`);
+    pollDelay = Math.min(pollDelay * POLL_BACKOFF, POLL_MAX_MS);
+  }
 
-    if (attempt === MAX_POLL_ATTEMPTS) {
-      throw new Error(`Filter snapshot ${snapshotId} not ready after ${MAX_POLL_ATTEMPTS} attempts`);
-    }
+  if (Date.now() - startedAt >= FILTER_TIMEOUT_MS) {
+    throw new Error(`Filter snapshot ${snapshotId} timed out after ${FILTER_TIMEOUT_MS / 1000}s`);
   }
 
   // Step 3: Download snapshot data.
-  await sleep(1000); // Brief delay — download endpoint can lag behind status.
 
   const downloadPath = `${SNAPSHOT_BASE}/${snapshotId}/download?format=json`;
   console.log(LOG_PREFIX, 'Downloading snapshot:', snapshotId);

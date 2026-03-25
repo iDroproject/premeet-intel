@@ -252,39 +252,64 @@ async function autoSearchAllAttendees(senderTabId?: number): Promise<void> {
   const attendees = currentMeeting.attendees;
   console.log(LOG, `Auto-searching ${attendees.length} attendees (excluding ${currentUserEmail ?? 'unknown user'})`);
 
-  for (const attendee of attendees) {
-    // Skip the current user
-    if (currentUserEmail && attendee.email.toLowerCase() === currentUserEmail) {
-      console.log(LOG, `Auto-search: skipping current user ${attendee.email}`);
-      continue;
-    }
-
-    // Skip already enriched/pending attendees
+  // Filter to eligible attendees first
+  const eligible = attendees.filter((attendee) => {
+    if (currentUserEmail && attendee.email.toLowerCase() === currentUserEmail) return false;
     const existing = currentEnriched.find((a) => a.email.toLowerCase() === attendee.email.toLowerCase());
-    if (existing && (existing.status === 'done' || existing.status === 'pending')) {
-      continue;
-    }
+    if (existing && (existing.status === 'done' || existing.status === 'pending')) return false;
+    return true;
+  });
 
-    // Check credits before each enrichment
+  if (eligible.length === 0) {
+    console.log(LOG, 'Auto-search: no eligible attendees');
+    return;
+  }
+
+  // Check credits upfront
+  try {
+    const creditAvailable = await hasCredit();
+    if (!creditAvailable) {
+      console.warn(LOG, 'Auto-search: no credits available.');
+      const credits = await getCredits();
+      const [y, m] = credits.resetMonth.split('-').map(Number);
+      const nextReset = new Date(y, m, 1);
+      const resetDate = nextReset.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      broadcastToPopups({ type: 'CREDITS_EXHAUSTED', payload: { meeting: currentMeeting!, resetDate } });
+      return;
+    }
+  } catch (err) {
+    console.error(LOG, 'Auto-search: credit check failed, stopping batch:', err);
+    return;
+  }
+
+  // Enrich attendees in parallel with concurrency limit
+  const CONCURRENCY = 3;
+  console.log(LOG, `Auto-search: enriching ${eligible.length} attendees (concurrency=${CONCURRENCY})`);
+
+  const enrichOne = async (attendee: typeof eligible[0]): Promise<void> => {
+    // Re-check credits before each enrichment
     try {
       const creditAvailable = await hasCredit();
       if (!creditAvailable) {
-        console.warn(LOG, 'Auto-search: credits exhausted, stopping batch.');
-        const credits = await getCredits();
-        const [y, m] = credits.resetMonth.split('-').map(Number);
-        const nextReset = new Date(y, m, 1);
-        const resetDate = nextReset.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-        broadcastToPopups({ type: 'CREDITS_EXHAUSTED', payload: { meeting: currentMeeting!, resetDate } });
+        console.warn(LOG, 'Auto-search: credits exhausted mid-batch.');
         return;
       }
-    } catch (err) {
-      console.error(LOG, 'Auto-search: credit check failed, stopping batch:', err);
+    } catch {
       return;
     }
-
-    // Trigger enrichment for this attendee (reuses existing single-attendee flow)
     await handleEnrichSingleAttendee(attendee.email, senderTabId);
-  }
+  };
+
+  // Simple concurrency pool
+  const queue = [...eligible];
+  const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+    while (queue.length > 0) {
+      const attendee = queue.shift();
+      if (attendee) await enrichOne(attendee);
+    }
+  });
+
+  await Promise.all(workers);
 
   console.log(LOG, `Auto-search complete for "${currentMeeting?.title}"`);
 }
