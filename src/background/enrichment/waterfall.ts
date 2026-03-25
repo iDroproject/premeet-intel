@@ -8,7 +8,7 @@ import { filterByLinkedInId } from './data-filter';
 import { pickBestProfile, mergeBusinessEnrichedData, deriveIcpProfile } from './response-normalizer';
 import type { CacheManager } from './cache-manager';
 import { EnrichmentCacheService } from '../../lib/enrichment-cache';
-import type { PersonData, ProgressPayload, StepState, WaterfallPayload, CompanyInfo, ExperienceEntry, EducationEntry } from './types';
+import type { PersonData, ProgressPayload, StepState, WaterfallPayload, SearchResult, CompanyInfo, ExperienceEntry, EducationEntry } from './types';
 
 const LOG_PREFIX = '[PreMeet][Waterfall]';
 
@@ -19,6 +19,17 @@ const PIPELINE_STEPS: Array<Omit<StepState, 'status'>> = [
   { id: 'serp-discovery', label: 'Searching Google for LinkedIn...', icon: 'search', percent: 20 },
   { id: 'deep-lookup', label: 'Deep lookup by email...', icon: 'magnifier', percent: 40 },
   { id: 'linkedin-scraper', label: 'Scraping LinkedIn profile...', icon: 'linkedin', percent: 60 },
+  { id: 'filter-enrich', label: 'Fetching enriched data...', icon: 'filter', percent: 90 },
+];
+
+const SEARCH_STEPS: Array<Omit<StepState, 'status'>> = [
+  { id: 'cache', label: 'Checking cache...', icon: 'cache', percent: 10 },
+  { id: 'serp-discovery', label: 'Searching Google for LinkedIn...', icon: 'search', percent: 50 },
+  { id: 'deep-lookup', label: 'Deep lookup by email...', icon: 'magnifier', percent: 90 },
+];
+
+const ENRICH_STEPS: Array<Omit<StepState, 'status'>> = [
+  { id: 'linkedin-scraper', label: 'Scraping LinkedIn profile...', icon: 'linkedin', percent: 40 },
   { id: 'filter-enrich', label: 'Fetching enriched data...', icon: 'filter', percent: 90 },
 ];
 
@@ -53,6 +64,13 @@ function normaliseCacheKey(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '_')
     .replace(/_+/g, '_');
+}
+
+function splitName(fullName: string): { firstName: string; lastName: string } {
+  if (!fullName || !fullName.trim()) return { firstName: '', lastName: '' };
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, layerName: string): Promise<T> {
@@ -183,6 +201,25 @@ export class WaterfallOrchestrator {
       console.warn(LOG_PREFIX, `Layer ${layerName} failed in ${elapsedMs}ms: ${(err as Error).message}`);
       return { success: false, error: (err as Error).message, elapsedMs } as T & { elapsedMs: number };
     }
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  private _toSearchResult(person: PersonData): SearchResult {
+    return {
+      name: person.name,
+      firstName: person.firstName,
+      lastName: person.lastName,
+      avatarUrl: person.avatarUrl,
+      currentTitle: person.currentTitle,
+      currentCompany: person.currentCompany,
+      location: person.location,
+      connections: person.connections,
+      followers: person.followers,
+      linkedinUrl: person.linkedinUrl,
+      confidence: person._confidence,
+      confidenceScore: person._confidenceScore,
+    };
   }
 
   // ── Layer implementations ──────────────────────────────────────────────────
@@ -367,6 +404,184 @@ export class WaterfallOrchestrator {
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
+
+  /**
+   * Phase A — Lightweight search. Runs cache + SERP/deep-lookup discovery only.
+   * Returns a SearchResult with LinkedIn URL and basic identity info.
+   * Does NOT consume credits.
+   */
+  async search(payload: WaterfallPayload): Promise<SearchResult> {
+    const { name, email, company } = payload;
+    const identifier = name || email || 'unknown';
+    const cacheKey = `person_${normaliseCacheKey(email || name || identifier)}`;
+
+    this._personName = name || email || 'unknown';
+    this._stepsState = SEARCH_STEPS.map((s) => ({ ...s, status: 'pending' as const }));
+
+    console.log(LOG_PREFIX, `Search started for: "${identifier}"`);
+
+    // Layer 1: Cache — if we have full PersonData cached, extract a SearchResult
+    const cacheResult = await this._runLayer('cache', 'cache', () => this._layerCache(cacheKey), 500);
+    if (cacheResult.success && (cacheResult as CacheLayerResult & { elapsedMs: number })._cachedData) {
+      console.log(LOG_PREFIX, `Search cache hit for "${identifier}"`);
+      for (const step of this._stepsState) {
+        if (step.status === 'pending') this._notifyProgress(step.id, 'skipped');
+      }
+      const cached = (cacheResult as CacheLayerResult & { elapsedMs: number })._cachedData!;
+      return this._toSearchResult(cached);
+    }
+
+    // Layers 2+3: Parallel SERP + Deep Lookup discovery
+    const discoveryResult = await this._runParallelDiscovery(email, name, company);
+    const { linkedInUrl, errors: discoveryErrors } = discoveryResult;
+
+    if (!linkedInUrl) {
+      throw new Error(`All discovery layers failed for "${identifier}". Errors: ${discoveryErrors.join('; ')}`);
+    }
+
+    const { firstName, lastName } = splitName(name);
+
+    const gravatarUrl = email ? await gravatarAvatarUrl(email) : null;
+
+    return {
+      name: name || email || 'unknown',
+      firstName,
+      lastName,
+      avatarUrl: gravatarUrl,
+      currentTitle: null,
+      currentCompany: company || null,
+      location: null,
+      connections: null,
+      followers: null,
+      linkedinUrl: linkedInUrl,
+      confidence: 'partial',
+      confidenceScore: linkedInUrl ? 40 : 10,
+    };
+  }
+
+  /**
+   * Phase B — Full enrichment from a known LinkedIn URL.
+   * Runs LinkedIn scraper + filter API + company intel.
+   * Consumes 1 credit (caller is responsible for credit deduction).
+   */
+  async enrich(payload: WaterfallPayload & { linkedInUrl: string }): Promise<PersonData> {
+    const { name, email, company, linkedInUrl } = payload;
+    const identifier = name || email || 'unknown';
+    const cacheKey = `person_${normaliseCacheKey(email || name || identifier)}`;
+
+    this._personName = name || email || 'unknown';
+    this._stepsState = ENRICH_STEPS.map((s) => ({ ...s, status: 'pending' as const }));
+
+    console.log(LOG_PREFIX, `Enrich started for: "${identifier}" (LinkedIn: ${linkedInUrl})`);
+
+    // Layer 4: LinkedIn Scraper
+    let linkedInId: string | null = null;
+    let scraperProfiles: Array<Record<string, unknown>> | null = null;
+
+    {
+      const scraperResult = await this._runLayer(
+        'linkedin-scraper',
+        'linkedin-scraper',
+        () => this._layerLinkedInScraper(linkedInUrl),
+        LAYER_TIMEOUTS.linkedInScraper,
+      );
+
+      const sr = scraperResult as ScraperLayerResult & { elapsedMs: number };
+
+      if (sr.success && sr.linkedInId) {
+        linkedInId = sr.linkedInId;
+        scraperProfiles = sr.profiles || null;
+
+        if (sr.profiles?.length) {
+          const interimData = pickBestProfile(sr.profiles, name, 'scraper', { email, serpVerified: false });
+          if (interimData && typeof this.onInterimResult === 'function') {
+            try {
+              this.onInterimResult(interimData);
+            } catch {
+              // swallow
+            }
+          }
+        }
+      } else {
+        this._notifyProgress('filter-enrich', 'skipped');
+
+        if (sr.success && sr.profiles?.length) {
+          const data = await this._finalise(
+            { profiles: sr.profiles, source: 'scraper' as const },
+            name,
+            email,
+            cacheKey,
+            identifier,
+            { serpVerified: false },
+          );
+          if (data) return data;
+        }
+
+        throw new Error(`Could not determine LinkedIn ID for "${identifier}"`);
+      }
+    }
+
+    // Layer 5: Filter API + Company Intel (parallel)
+    const interimCompany =
+      (scraperProfiles?.[0]?.current_company as Record<string, unknown>)?.name ??
+      scraperProfiles?.[0]?.current_company_name ??
+      company;
+    const interimTitle =
+      (scraperProfiles?.[0]?.current_company as Record<string, unknown>)?.title ?? scraperProfiles?.[0]?.position ?? null;
+
+    const [filterResult, companyIntel, serpCompanyInfo] = await Promise.all([
+      this._runLayer('filter-enrich', 'filter-enrich', () => this._layerFilterEnrich(linkedInId), LAYER_TIMEOUTS.filterEnrich),
+      deepLookupCompanyIntel(
+        String(interimCompany || ''),
+        name,
+        interimTitle ? String(interimTitle) : null,
+        linkedInUrl,
+      ).catch((err) => {
+        console.warn(LOG_PREFIX, 'Company intel failed (non-fatal):', (err as Error).message);
+        this._logBuffer?.warn('Waterfall', 'Company intel failed: ' + (err as Error).message);
+        return null;
+      }),
+      serpSearchCompanyInfo(String(interimCompany || '')).catch((err) => {
+        console.warn(LOG_PREFIX, 'SERP company search failed (non-fatal):', (err as Error).message);
+        return null;
+      }),
+    ]);
+
+    const fr = filterResult as FilterLayerResult & { elapsedMs: number };
+
+    if (fr.success && fr.profiles?.length) {
+      const data = await this._finalise(
+        {
+          profiles: fr.profiles,
+          scraperProfiles: scraperProfiles || undefined,
+          companyIntel,
+          serpCompanyInfo,
+          source: 'filter' as const,
+        },
+        name,
+        email,
+        cacheKey,
+        identifier,
+        { serpVerified: false },
+      );
+      if (data) return data;
+    }
+
+    if (scraperProfiles && scraperProfiles.length) {
+      console.log(LOG_PREFIX, 'Filter failed, falling back to scraper data');
+      const data = await this._finalise(
+        { profiles: scraperProfiles, companyIntel, serpCompanyInfo, source: 'scraper' as const },
+        name,
+        email,
+        cacheKey,
+        identifier,
+        { serpVerified: false },
+      );
+      if (data) return data;
+    }
+
+    throw new Error(`All enrichment layers failed for "${identifier}" (LinkedIn URL: ${linkedInUrl})`);
+  }
 
   async fetch(payload: WaterfallPayload): Promise<PersonData> {
     const { name, email, company } = payload;

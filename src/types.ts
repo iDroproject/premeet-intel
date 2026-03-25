@@ -109,6 +109,8 @@ export interface FeatureRequest {
 export type ContentToBackground =
   | { type: 'MEETING_DETECTED'; payload: MeetingEvent }
   | { type: 'FETCH_PERSON_BACKGROUND'; payload: { name: string; email: string; company: string } }
+  | { type: 'SEARCH_PERSON'; payload: { name: string; email: string; company: string } }
+  | { type: 'ENRICH_PERSON'; payload: { name: string; email: string; company: string; linkedInUrl: string } }
   | { type: 'PING' };
 
 export type BackgroundToPopup =
@@ -118,11 +120,15 @@ export type BackgroundToPopup =
   | { type: 'CREDITS_EXHAUSTED'; payload: { meeting: MeetingEvent; resetDate: string } }
   | { type: 'FETCH_PROGRESS'; payload: unknown }
   | { type: 'INTERIM_PERSON_DATA'; payload: unknown }
-  | { type: 'PERSON_BACKGROUND_RESULT'; payload: unknown };
+  | { type: 'PERSON_BACKGROUND_RESULT'; payload: unknown }
+  | { type: 'SEARCH_PERSON_RESULT'; payload: SearchResult | { error: string } }
+  | { type: 'ENRICH_PERSON_RESULT'; payload: PersonData | { error: string } };
 
 export type PopupToBackground =
   | { type: 'GET_CURRENT_MEETING' }
   | { type: 'ENRICH_ATTENDEE'; payload: { email: string } }
+  | { type: 'SEARCH_PERSON'; payload: { name: string; email: string; company: string } }
+  | { type: 'ENRICH_PERSON'; payload: { name: string; email: string; company: string; linkedInUrl: string } }
   | { type: 'GET_CACHE_STATS' }
   | { type: 'CLEAR_CACHE' }
   | { type: 'GET_ACTIVITY_LOG' }

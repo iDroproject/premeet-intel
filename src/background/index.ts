@@ -7,7 +7,7 @@ import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, ContentToBackgrou
 import { enrichAttendee } from './enrichment';
 import { hasCredit, useCredit, getCredits } from '../utils/credits';
 import { WaterfallOrchestrator, CacheManager } from './enrichment/index';
-import type { PersonData, ProgressPayload } from './enrichment/types';
+import type { PersonData, ProgressPayload, SearchResult } from './enrichment/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
 import { signInWithGoogle, signOut, getAuthState, getCurrentUser } from '../lib/auth';
@@ -70,6 +70,18 @@ chrome.runtime.onMessage.addListener(
 
     if (msg.type === 'FETCH_PERSON_BACKGROUND') {
       handleFetchPersonBackground(msg.payload, sender.tab?.id);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'SEARCH_PERSON') {
+      handleSearchPerson(msg.payload, sender.tab?.id);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'ENRICH_PERSON') {
+      handleEnrichPerson(msg.payload, sender.tab?.id);
       sendResponse({ ok: true });
       return false;
     }
@@ -195,6 +207,66 @@ async function handleFetchPersonBackground(
     console.error(LOG, 'Waterfall pipeline error:', err);
     broadcastToPopups({
       type: 'PERSON_BACKGROUND_RESULT',
+      payload: { error: (err as Error).message },
+    });
+  }
+}
+
+// ─── Phase A: Lightweight Search (no credits) ──────────────────────────────
+
+async function handleSearchPerson(
+  payload: { name: string; email: string; company: string },
+  senderTabId?: number,
+): Promise<void> {
+  console.log(LOG, `Search for: "${payload.name}" <${payload.email}>`);
+  debugLog('Background', 'info', `Search started for "${payload.name}" <${payload.email}>`);
+
+  const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+
+  orchestrator.onProgress = (progress: ProgressPayload) => {
+    broadcastToPopups({ type: 'FETCH_PROGRESS', payload: progress });
+  };
+
+  try {
+    const result = await orchestrator.search(payload);
+    broadcastToPopups({ type: 'SEARCH_PERSON_RESULT', payload: result });
+    console.log(LOG, `Search complete for "${payload.name}" — linkedIn: ${result.linkedinUrl ? 'found' : 'not found'}`);
+  } catch (err) {
+    console.error(LOG, 'Search pipeline error:', err);
+    broadcastToPopups({
+      type: 'SEARCH_PERSON_RESULT',
+      payload: { error: (err as Error).message },
+    });
+  }
+}
+
+// ─── Phase B: Full Enrichment (1 credit) ────────────────────────────────────
+
+async function handleEnrichPerson(
+  payload: { name: string; email: string; company: string; linkedInUrl: string },
+  senderTabId?: number,
+): Promise<void> {
+  console.log(LOG, `Enrich for: "${payload.name}" <${payload.email}> (LinkedIn: ${payload.linkedInUrl})`);
+  debugLog('Background', 'info', `Enrich started for "${payload.name}" <${payload.email}>`);
+
+  const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+
+  orchestrator.onProgress = (progress: ProgressPayload) => {
+    broadcastToPopups({ type: 'FETCH_PROGRESS', payload: progress });
+  };
+
+  orchestrator.onInterimResult = (data: PersonData) => {
+    broadcastToPopups({ type: 'INTERIM_PERSON_DATA', payload: data });
+  };
+
+  try {
+    const result = await orchestrator.enrich(payload);
+    broadcastToPopups({ type: 'ENRICH_PERSON_RESULT', payload: result });
+    console.log(LOG, `Enrich complete for "${payload.name}" — confidence: ${result._confidence}`);
+  } catch (err) {
+    console.error(LOG, 'Enrich pipeline error:', err);
+    broadcastToPopups({
+      type: 'ENRICH_PERSON_RESULT',
       payload: { error: (err as Error).message },
     });
   }
@@ -329,7 +401,66 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
   console.log(LOG, `On-demand enrich for: "${attendee.name}" <${attendee.email}>`);
   debugLog('Background', 'info', `Enrichment started for "${attendee.name}" <${attendee.email}>`);
 
-  // Check credits
+  // Mark as pending/searching
+  currentEnriched[idx] = { ...currentEnriched[idx], status: 'pending', stage: 'searching' };
+  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+
+  const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+
+  // ── Phase A: Lightweight search (free, no credits) ──────────────────────
+  let searchResult: SearchResult | null = null;
+  try {
+    searchResult = await orchestrator.search({
+      name: attendee.name,
+      email: attendee.email,
+      company: attendee.company || '',
+    });
+
+    currentEnriched[idx] = {
+      ...currentEnriched[idx],
+      stage: 'resolving',
+      searchResult,
+      hasLinkedIn: !!searchResult.linkedinUrl,
+    };
+    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+  } catch (searchErr) {
+    const errMsg = (searchErr as Error).message;
+    console.error(LOG, `Search failed for ${email}:`, errMsg);
+    debugLog('Background', 'error', `Search failed for ${email}: ${errMsg}`);
+    currentEnriched[idx] = {
+      ...currentEnriched[idx],
+      status: 'error',
+      stage: 'complete',
+      error: errMsg.includes('VITE_BRIGHTDATA_API_KEY')
+        ? 'BrightData API key not configured. Set VITE_BRIGHTDATA_API_KEY in .env'
+        : errMsg.includes('Not authenticated')
+          ? 'Please sign in to use enrichment.'
+          : `Search failed: ${errMsg}`,
+    };
+    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+
+    const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, 'error', null, false);
+    addLogEntry(logEntry).catch((e) => console.warn(LOG, 'Failed to write activity log:', e));
+    return;
+  }
+
+  if (!searchResult.linkedinUrl) {
+    currentEnriched[idx] = {
+      ...currentEnriched[idx],
+      status: 'error',
+      stage: 'complete',
+      error: 'Could not find LinkedIn profile.',
+    };
+    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+
+    const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, 'error', null, false);
+    addLogEntry(logEntry).catch((e) => console.warn(LOG, 'Failed to write activity log:', e));
+    return;
+  }
+
+  // ── Phase B: Full enrichment (1 credit) ─────────────────────────────────
+
+  // Check credits before enrichment
   try {
     const creditAvailable = await hasCredit();
     if (!creditAvailable) {
@@ -346,90 +477,69 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
     return;
   }
 
-  // Mark as pending/searching
-  currentEnriched[idx] = { ...currentEnriched[idx], status: 'pending', stage: 'searching' };
+  currentEnriched[idx] = { ...currentEnriched[idx], stage: 'enriching' };
   broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
 
-  // Resolving stage
-  currentEnriched[idx] = { ...currentEnriched[idx], stage: 'resolving' };
-  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
-
+  let personData: PersonData | null = null;
   try {
-    // Enriching stage
-    currentEnriched[idx] = { ...currentEnriched[idx], stage: 'enriching' };
-    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
-
-    let personData: PersonData | null = null;
-
-    try {
-      const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
-      orchestrator.onInterimResult = (interim: PersonData) => {
-        currentEnriched[idx] = {
-          ...currentEnriched[idx],
-          personData: interim,
-          hasLinkedIn: !!interim.linkedinUrl,
-          person: {
-            name: interim.name,
-            email: attendee.email,
-            title: interim.currentTitle,
-            company: interim.currentCompany ? {
-              name: interim.currentCompany,
-              domain: '',
-              website: interim.companyWebsite,
-              description: interim.companyDescription,
-            } : null,
-          },
-        };
-        broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
-      };
-      personData = await orchestrator.fetch({
-        name: attendee.name,
-        email: attendee.email,
-        company: attendee.company || '',
-      });
-    } catch (waterfallErr) {
-      const errMsg = (waterfallErr as Error).message;
-      console.error(LOG, `Waterfall failed for ${email}:`, errMsg);
-      debugLog('Background', 'error', `Waterfall failed for ${email}: ${errMsg}`);
-
-      // Mark as error with descriptive message instead of silently falling back
+    const enrichOrchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+    enrichOrchestrator.onInterimResult = (interim: PersonData) => {
       currentEnriched[idx] = {
         ...currentEnriched[idx],
-        status: 'error',
-        stage: 'complete',
-        error: errMsg.includes('VITE_BRIGHTDATA_API_KEY')
-          ? 'BrightData API key not configured. Set VITE_BRIGHTDATA_API_KEY in .env'
-          : errMsg.includes('Not authenticated')
-            ? 'Please sign in to use enrichment.'
-            : `Enrichment failed: ${errMsg}`,
-      };
-    }
-
-    if (personData) {
-      currentEnriched[idx] = {
-        ...currentEnriched[idx],
-        status: 'done',
-        stage: 'complete',
-        personData,
-        hasLinkedIn: !!personData.linkedinUrl,
-        fromCache: false,
+        personData: interim,
+        hasLinkedIn: !!interim.linkedinUrl,
         person: {
-          name: personData.name,
+          name: interim.name,
           email: attendee.email,
-          title: personData.currentTitle,
-          company: personData.currentCompany ? {
-            name: personData.currentCompany,
+          title: interim.currentTitle,
+          company: interim.currentCompany ? {
+            name: interim.currentCompany,
             domain: '',
-            website: personData.companyWebsite,
-            description: personData.companyDescription,
+            website: interim.companyWebsite,
+            description: interim.companyDescription,
           } : null,
         },
       };
-    }
-  } catch (err) {
-    console.error(LOG, `Enrichment failed for ${email}:`, err);
-    debugLog('Background', 'error', `Enrichment failed for ${email}: ${(err as Error).message}`);
-    currentEnriched[idx] = { ...currentEnriched[idx], status: 'error', stage: 'complete', error: (err as Error).message };
+      broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+    };
+    personData = await enrichOrchestrator.enrich({
+      name: attendee.name,
+      email: attendee.email,
+      company: attendee.company || '',
+      linkedInUrl: searchResult.linkedinUrl,
+    });
+  } catch (enrichErr) {
+    const errMsg = (enrichErr as Error).message;
+    console.error(LOG, `Enrich failed for ${email}:`, errMsg);
+    debugLog('Background', 'error', `Enrich failed for ${email}: ${errMsg}`);
+    currentEnriched[idx] = {
+      ...currentEnriched[idx],
+      status: 'error',
+      stage: 'complete',
+      error: `Enrichment failed: ${errMsg}`,
+    };
+  }
+
+  if (personData) {
+    currentEnriched[idx] = {
+      ...currentEnriched[idx],
+      status: 'done',
+      stage: 'complete',
+      personData,
+      hasLinkedIn: !!personData.linkedinUrl,
+      fromCache: false,
+      person: {
+        name: personData.name,
+        email: attendee.email,
+        title: personData.currentTitle,
+        company: personData.currentCompany ? {
+          name: personData.currentCompany,
+          domain: '',
+          website: personData.companyWebsite,
+          description: personData.companyDescription,
+        } : null,
+      },
+    };
   }
 
   broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
