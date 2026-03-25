@@ -56,10 +56,6 @@ const Els = {
   setConfidence:  $<HTMLInputElement>('pm-set-confidence'),
   setCompact:     $<HTMLInputElement>('pm-set-compact'),
   setAutoSearch:  $<HTMLInputElement>('pm-set-auto-search'),
-  setToken:       $<HTMLInputElement>('pm-set-token'),
-  tokenEye:       $('pm-token-eye'),
-  saveToken:      $('pm-save-token'),
-  tokenFeedback:  $('pm-token-feedback'),
 };
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -371,17 +367,6 @@ function applySettingsToUI(s: Settings): void {
   if (Els.setAutoSearch) {
     (Els.setAutoSearch as HTMLInputElement).checked = s.autoSearchAttendees;
   }
-  if (Els.setToken) {
-    (Els.setToken as HTMLInputElement).value = s.apiToken;
-  }
-}
-
-function showTokenFeedback(ok: boolean, msg: string): void {
-  if (!Els.tokenFeedback) return;
-  Els.tokenFeedback.textContent = msg;
-  Els.tokenFeedback.className = `pm-token-feedback ${ok ? 'pm-token-feedback--ok' : 'pm-token-feedback--err'}`;
-  Els.tokenFeedback.classList.remove('pm-hidden');
-  setTimeout(() => Els.tokenFeedback?.classList.add('pm-hidden'), 3000);
 }
 
 function wireSettingsEvents(): void {
@@ -421,23 +406,6 @@ function wireSettingsEvents(): void {
     await saveSettings({ autoSearchAttendees: (Els.setAutoSearch as HTMLInputElement).checked });
   });
 
-  // Token show/hide
-  Els.tokenEye?.addEventListener('click', () => {
-    const input = Els.setToken as HTMLInputElement | null;
-    if (!input) return;
-    input.type = input.type === 'password' ? 'text' : 'password';
-  });
-
-  // Save token
-  Els.saveToken?.addEventListener('click', async () => {
-    const token = (Els.setToken as HTMLInputElement | null)?.value.trim() ?? '';
-    if (!token) {
-      showTokenFeedback(false, 'Please enter a token.');
-      return;
-    }
-    await saveSettings({ apiToken: token });
-    showTokenFeedback(true, 'Token saved successfully.');
-  });
 }
 
 // ─── Background Message Listener ─────────────────────────────────────────────

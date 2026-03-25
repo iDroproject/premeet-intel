@@ -383,20 +383,6 @@
       }
       .pm-select:focus { border-color: var(--pm-primary); box-shadow: 0 0 0 2px rgba(79,70,229,0.1); }
 
-      /* Token row */
-      .pm-token-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
-      .pm-token-input-wrap { flex: 1; position: relative; }
-      .pm-token-input { padding-right: 32px; width: 100%; }
-      .pm-token-eye {
-        position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-        background: none; border: none; cursor: pointer; color: var(--pm-text-tertiary);
-        padding: 2px; display: flex; align-items: center;
-      }
-      .pm-token-eye:hover { color: var(--pm-text-secondary); }
-      .pm-btn--sm { padding: 0 10px; font-size: 11px; height: 32px; }
-      .pm-token-feedback { font-size: 11px; margin-top: 6px; padding: 4px 0; }
-      .pm-token-feedback--ok { color: var(--pm-success); }
-      .pm-token-feedback--err { color: var(--pm-error); }
 
       /* ── Activity Log ── */
       .pm-log { padding: 0; }
@@ -647,28 +633,6 @@
           </label>
         </div>
 
-        <div class="pm-divider"></div>
-
-        <!-- API Token -->
-        <div class="pm-setting pm-setting--col">
-          <div class="pm-setting__info">
-            <div class="pm-setting__label">API token</div>
-            <div class="pm-setting__desc">
-              Required for enrichment.
-              <a href="https://premeet.co/settings" target="_blank" rel="noopener" class="pm-link">Get your token</a>
-            </div>
-          </div>
-          <div class="pm-token-row">
-            <div class="pm-token-input-wrap">
-              <input type="password" class="pm-input pm-token-input" id="pm-set-token" placeholder="Paste token here" autocomplete="off" />
-              <button class="pm-token-eye" id="pm-token-eye" type="button" title="Show/hide token">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3C4.364 3 1.258 5.073.254 8c1.004 2.927 4.11 5 7.746 5s6.742-2.073 7.746-5c-1.004-2.927-4.11-5-7.746-5Zm0 8.333A3.337 3.337 0 0 1 4.667 8 3.337 3.337 0 0 1 8 4.667 3.337 3.337 0 0 1 11.333 8 3.337 3.337 0 0 1 8 11.333ZM8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg>
-              </button>
-            </div>
-            <button class="pm-btn pm-btn--primary pm-btn--sm" id="pm-save-token">Save</button>
-          </div>
-          <div class="pm-token-feedback pm-hidden" id="pm-token-feedback"></div>
-        </div>
       </div>
     </div>
 
