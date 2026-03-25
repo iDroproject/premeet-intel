@@ -13,7 +13,6 @@
   },
   "host_permissions": [
     "https://calendar.google.com/*",
-    "https://api.brightdata.com/*",
     "https://www.gravatar.com/*"
   ],
   "background": {

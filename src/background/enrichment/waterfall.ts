@@ -118,7 +118,6 @@ interface LogBuffer {
 export class WaterfallOrchestrator {
   private _cache: CacheManager;
   private _supabaseCache: EnrichmentCacheService;
-  private _apiToken: string;
   private _logBuffer: LogBuffer | null;
   private _personName: string = '';
   private _stepsState: StepState[];
@@ -126,10 +125,9 @@ export class WaterfallOrchestrator {
   onProgress: ((payload: ProgressPayload) => void) | null = null;
   onInterimResult: ((data: PersonData) => void) | null = null;
 
-  constructor(cacheManager: CacheManager, apiToken: string, logBuffer?: LogBuffer | null) {
+  constructor(cacheManager: CacheManager, logBuffer?: LogBuffer | null) {
     this._cache = cacheManager;
     this._supabaseCache = new EnrichmentCacheService();
-    this._apiToken = apiToken;
     this._logBuffer = logBuffer || null;
     this._stepsState = PIPELINE_STEPS.map((s) => ({ ...s, status: 'pending' as const }));
   }
@@ -219,13 +217,13 @@ export class WaterfallOrchestrator {
 
     if (email && email.includes('@')) {
       console.log(LOG_PREFIX, 'SERP: searching by email:', email);
-      linkedInUrl = await serpFindLinkedInUrl(email, this._apiToken);
+      linkedInUrl = await serpFindLinkedInUrl(email);
     }
 
     if (!linkedInUrl && name) {
       const query = company ? `${name} ${company}` : name;
       console.log(LOG_PREFIX, 'SERP: searching by name:', query);
-      linkedInUrl = await serpFindLinkedInUrl(query, this._apiToken);
+      linkedInUrl = await serpFindLinkedInUrl(query);
     }
 
     if (!linkedInUrl) return { success: false, error: 'SERP found no LinkedIn URL' };
@@ -233,21 +231,21 @@ export class WaterfallOrchestrator {
   }
 
   private async _layerDeepLookup(email: string, name: string, company: string): Promise<DiscoveryLayerResult> {
-    const result = await deepLookupFindLinkedIn(email, name, company, this._apiToken);
+    const result = await deepLookupFindLinkedIn(email, name, company);
     if (!result.linkedInUrl) return { success: false, error: 'Deep Lookup found no LinkedIn URL' };
     return { success: true, linkedInUrl: result.linkedInUrl, source: 'deep-lookup' };
   }
 
   private async _layerLinkedInScraper(linkedInUrl: string): Promise<ScraperLayerResult> {
-    const scrapeResult = await scrapeByLinkedInUrl(linkedInUrl, this._apiToken);
+    const scrapeResult = await scrapeByLinkedInUrl(linkedInUrl);
 
     let profiles: Array<Record<string, unknown>> = [];
 
     if (scrapeResult.mode === 'direct') {
       profiles = scrapeResult.profiles || [];
     } else if (scrapeResult.mode === 'snapshot' && scrapeResult.snapshotId) {
-      await pollSnapshotUntilReady(scrapeResult.snapshotId, this._apiToken);
-      profiles = await downloadSnapshot(scrapeResult.snapshotId, this._apiToken);
+      await pollSnapshotUntilReady(scrapeResult.snapshotId);
+      profiles = await downloadSnapshot(scrapeResult.snapshotId);
     }
 
     if (!profiles.length) return { success: false, error: 'LinkedIn Scraper returned no profiles' };
@@ -268,7 +266,7 @@ export class WaterfallOrchestrator {
 
   private async _layerFilterEnrich(linkedInId: string | null): Promise<FilterLayerResult> {
     if (!linkedInId) return { success: false, error: 'No LinkedIn ID for Filter API' };
-    const profiles = await filterByLinkedInId(linkedInId, this._apiToken);
+    const profiles = await filterByLinkedInId(linkedInId);
     if (!profiles || profiles.length === 0) return { success: false, error: 'Filter API returned no results' };
     return { success: true, profiles, source: 'filter' };
   }
@@ -447,13 +445,12 @@ export class WaterfallOrchestrator {
         name,
         interimTitle ? String(interimTitle) : null,
         linkedInUrl,
-        this._apiToken,
       ).catch((err) => {
         console.warn(LOG_PREFIX, 'Company intel failed (non-fatal):', (err as Error).message);
         this._logBuffer?.warn('Waterfall', 'Company intel failed: ' + (err as Error).message);
         return null;
       }),
-      serpSearchCompanyInfo(String(interimCompany || ''), this._apiToken).catch((err) => {
+      serpSearchCompanyInfo(String(interimCompany || '')).catch((err) => {
         console.warn(LOG_PREFIX, 'SERP company search failed (non-fatal):', (err as Error).message);
         return null;
       }),
@@ -542,7 +539,7 @@ export class WaterfallOrchestrator {
     if ((!personData.experience || personData.experience.length === 0) && personData.linkedinUrl) {
       try {
         console.log(LOG_PREFIX, 'Experience missing — trying enrichment fallback for:', personData.name);
-        const enrichData = await deepLookupEnrich(personData.linkedinUrl, null, personData.name, this._apiToken);
+        const enrichData = await deepLookupEnrich(personData.linkedinUrl, null, personData.name);
         if (enrichData) {
           this._mergeEnrichData(personData, enrichData);
         }

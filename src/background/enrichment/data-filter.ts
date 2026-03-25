@@ -1,23 +1,18 @@
 // PreMeet – Filter API Client
 // Queries Bright Data's Filter API to retrieve enriched person data by LinkedIn ID.
+// All requests are proxied through the PreMeet backend.
+
+import { proxyFetch } from './brightdata-proxy';
 
 const LOG_PREFIX = '[PreMeet][Filter]';
 
-const FILTER_ENDPOINT = 'https://api.brightdata.com/datasets/filter';
-const SNAPSHOT_BASE = 'https://api.brightdata.com/datasets/snapshots';
+const FILTER_PATH = '/datasets/filter';
+const SNAPSHOT_BASE = '/datasets/snapshots';
 const DEFAULT_DATASET_ID = 'gd_l1viktl72bvl7bjuj0';
 
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_ATTEMPTS = 50;
 const FILTER_TIMEOUT_MS = 120_000;
-
-function authHeaders(apiToken: string): Record<string, string> {
-  return { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' };
-}
-
-function authHeadersGet(apiToken: string): Record<string, string> {
-  return { Authorization: `Bearer ${apiToken}` };
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,7 +20,6 @@ function sleep(ms: number): Promise<void> {
 
 export async function filterByLinkedInId(
   linkedInId: string,
-  apiToken: string,
   datasetId?: string,
 ): Promise<Array<Record<string, unknown>>> {
   const dsId = datasetId || DEFAULT_DATASET_ID;
@@ -40,11 +34,7 @@ export async function filterByLinkedInId(
 
   console.log(LOG_PREFIX, 'Filter request body:', JSON.stringify(filterBody));
 
-  const createRes = await fetch(FILTER_ENDPOINT, {
-    method: 'POST',
-    headers: authHeaders(apiToken),
-    body: JSON.stringify(filterBody),
-  });
+  const createRes = await proxyFetch(FILTER_PATH, 'POST', filterBody);
 
   if (!createRes.ok) {
     const errBody = await createRes.text().catch(() => '');
@@ -72,10 +62,7 @@ export async function filterByLinkedInId(
     await sleep(POLL_INTERVAL_MS);
     console.log(LOG_PREFIX, `Polling snapshot ${snapshotId} (attempt ${attempt}/${MAX_POLL_ATTEMPTS})`);
 
-    const statusRes = await fetch(`${SNAPSHOT_BASE}/${snapshotId}`, {
-      method: 'GET',
-      headers: authHeadersGet(apiToken),
-    });
+    const statusRes = await proxyFetch(`${SNAPSHOT_BASE}/${snapshotId}`, 'GET');
 
     if (!statusRes.ok) {
       if (statusRes.status === 404) continue; // Snapshot may not yet be registered.
@@ -106,13 +93,10 @@ export async function filterByLinkedInId(
   // Step 3: Download snapshot data.
   await sleep(1000); // Brief delay — download endpoint can lag behind status.
 
-  const downloadUrl = `${SNAPSHOT_BASE}/${snapshotId}/download?format=json`;
+  const downloadPath = `${SNAPSHOT_BASE}/${snapshotId}/download?format=json`;
   console.log(LOG_PREFIX, 'Downloading snapshot:', snapshotId);
 
-  const downloadRes = await fetch(downloadUrl, {
-    method: 'GET',
-    headers: authHeadersGet(apiToken),
-  });
+  const downloadRes = await proxyFetch(downloadPath, 'GET');
 
   if (!downloadRes.ok) {
     const errBody = await downloadRes.text().catch(() => '');

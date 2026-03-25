@@ -1,25 +1,20 @@
 // PreMeet – SERP API Client (Async Unblocker)
 // Uses Bright Data's async unblocker to extract LinkedIn URLs from Google Search.
+// All requests are proxied through the PreMeet backend.
 
+import { proxyFetch } from './brightdata-proxy';
 import type { CompanyInfo } from './types';
 
 const LOG_PREFIX = '[PreMeet][SERP]';
 
-const SERP_SEND_ENDPOINT = 'https://api.brightdata.com/unblocker/req';
-const SERP_RESULT_ENDPOINT = 'https://api.brightdata.com/unblocker/get_result';
+const SERP_SEND_PATH = '/unblocker/req';
+const SERP_RESULT_PATH = '/unblocker/get_result';
 const DEFAULT_CUSTOMER_ID = 'hl_cf5c4907';
 const ZONE = 'serp';
 
 const SERP_POLL_INTERVAL_MS = 2000;
 const SERP_MAX_POLL_ATTEMPTS = 15;
 const SERP_SEND_TIMEOUT_MS = 15_000;
-
-function authHeaders(apiToken: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${apiToken}`,
-    'Content-Type': 'application/json',
-  };
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,23 +62,19 @@ function extractLinkedInUrl(data: unknown): string | null {
   return null;
 }
 
-async function _serpRequest(searchUrl: string, apiToken: string, customerId?: string): Promise<unknown> {
+async function _serpRequest(searchUrl: string, customerId?: string): Promise<unknown> {
   const cid = customerId || DEFAULT_CUSTOMER_ID;
 
-  const sendUrl = `${SERP_SEND_ENDPOINT}?customer=${cid}&zone=${ZONE}`;
+  const sendPath = `${SERP_SEND_PATH}?customer=${cid}&zone=${ZONE}`;
   const controller = new AbortController();
   const timerId = setTimeout(() => controller.abort(), SERP_SEND_TIMEOUT_MS);
 
   let responseId: string | null = null;
   try {
-    const sendResponse = await fetch(sendUrl, {
-      method: 'POST',
-      headers: authHeaders(apiToken),
-      body: JSON.stringify({ url: searchUrl }),
-      signal: controller.signal,
-    });
+    const sendResponse = await proxyFetch(sendPath, 'POST', { url: searchUrl });
     clearTimeout(timerId);
 
+    // x-response-id is forwarded by the proxy
     responseId = sendResponse.headers.get('x-response-id');
     if (!responseId) {
       try {
@@ -104,14 +95,11 @@ async function _serpRequest(searchUrl: string, apiToken: string, customerId?: st
   }
 
   // Poll for result.
-  const resultUrl = `${SERP_RESULT_ENDPOINT}?customer=${cid}&zone=${ZONE}&response_id=${responseId}`;
+  const resultPath = `${SERP_RESULT_PATH}?customer=${cid}&zone=${ZONE}&response_id=${responseId}`;
 
   for (let attempt = 1; attempt <= SERP_MAX_POLL_ATTEMPTS; attempt++) {
     try {
-      const res = await fetch(resultUrl, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${apiToken}` },
-      });
+      const res = await proxyFetch(resultPath, 'GET');
 
       if (res.status === 200) {
         const contentType = res.headers.get('content-type') || '';
@@ -147,7 +135,6 @@ async function _serpRequest(searchUrl: string, apiToken: string, customerId?: st
 
 export async function serpFindLinkedInUrl(
   query: string,
-  apiToken: string,
   customerId?: string,
 ): Promise<string | null> {
   if (!query || !query.trim()) return null;
@@ -157,18 +144,13 @@ export async function serpFindLinkedInUrl(
 
   console.log(LOG_PREFIX, 'SERP search:', query);
 
-  const sendUrl = `${SERP_SEND_ENDPOINT}?customer=${cid}&zone=${ZONE}`;
+  const sendPath = `${SERP_SEND_PATH}?customer=${cid}&zone=${ZONE}`;
   const controller = new AbortController();
   const timerId = setTimeout(() => controller.abort(), SERP_SEND_TIMEOUT_MS);
 
   let responseId: string | null = null;
   try {
-    const sendResponse = await fetch(sendUrl, {
-      method: 'POST',
-      headers: authHeaders(apiToken),
-      body: JSON.stringify({ url: searchUrl }),
-      signal: controller.signal,
-    });
+    const sendResponse = await proxyFetch(sendPath, 'POST', { url: searchUrl });
     clearTimeout(timerId);
 
     responseId = sendResponse.headers.get('x-response-id');
@@ -194,16 +176,13 @@ export async function serpFindLinkedInUrl(
     throw err;
   }
 
-  const resultUrl = `${SERP_RESULT_ENDPOINT}?customer=${cid}&zone=${ZONE}&response_id=${responseId}`;
+  const resultPath = `${SERP_RESULT_PATH}?customer=${cid}&zone=${ZONE}&response_id=${responseId}`;
 
   for (let attempt = 1; attempt <= SERP_MAX_POLL_ATTEMPTS; attempt++) {
     console.log(LOG_PREFIX, `Polling SERP result (attempt ${attempt}/${SERP_MAX_POLL_ATTEMPTS})`);
 
     try {
-      const res = await fetch(resultUrl, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${apiToken}` },
-      });
+      const res = await proxyFetch(resultPath, 'GET');
 
       if (res.status === 200) {
         const contentType = res.headers.get('content-type') || '';
@@ -241,7 +220,6 @@ export async function serpFindLinkedInUrl(
 
 export async function serpSearchCompanyInfo(
   companyName: string,
-  apiToken: string,
   customerId?: string,
 ): Promise<CompanyInfo | null> {
   if (!companyName || !companyName.trim()) return null;
@@ -252,7 +230,7 @@ export async function serpSearchCompanyInfo(
   console.log(LOG_PREFIX, 'SERP company search:', companyName);
 
   try {
-    const data = await _serpRequest(searchUrl, apiToken, customerId);
+    const data = await _serpRequest(searchUrl, customerId);
     return extractCompanyInfo(data, companyName);
   } catch (err) {
     console.warn(LOG_PREFIX, 'SERP company search failed:', (err as Error).message);

@@ -120,9 +120,6 @@ export async function signInWithGoogle(): Promise<AuthState> {
   const user: AuthUser = data.user;
   await storeTokens(data.accessToken, data.refreshToken, data.expiresAt, user);
 
-  // Also store access token as the API token for enrichment requests
-  await chrome.storage.sync.set({ premeet_api_token: data.accessToken });
-
   console.log(LOG, `Signed in as ${user.email}`);
 
   return { isAuthenticated: true, user, accessToken: data.accessToken };
@@ -156,7 +153,6 @@ export async function refreshAccessToken(): Promise<string | null> {
 
     // Update stored access token
     await chrome.storage.local.set({ [STORAGE_KEYS.accessToken]: accessToken });
-    await chrome.storage.sync.set({ premeet_api_token: accessToken });
 
     return accessToken;
   } catch (err) {
@@ -198,7 +194,6 @@ export async function signOut(): Promise<void> {
   }
 
   await clearStoredTokens();
-  await chrome.storage.sync.remove('premeet_api_token');
 
   console.log(LOG, 'Signed out');
 }

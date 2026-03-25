@@ -1,5 +1,5 @@
 // PreMeet – Supabase Enrichment Cache Service
-// Server-side caching layer for Brightdata enrichment results.
+// Server-side caching layer for enrichment results.
 // Provides cache-first lookup, TTL-based expiry, manual invalidation,
 // in-flight deduplication, and hit/miss tracking.
 

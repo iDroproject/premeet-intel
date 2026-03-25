@@ -1,41 +1,17 @@
 // PreMeet – Web Scraper API Client (WSA)
 // Scrapes LinkedIn profiles via Bright Data's datasets API.
+// All requests are proxied through the PreMeet backend.
+
+import { proxyFetch } from './brightdata-proxy';
 
 const LOG_PREFIX = '[PreMeet][Scraper]';
 
-const BASE_URL = 'https://api.brightdata.com';
 const DATASET_ID = 'gd_l1viktl72bvl7bjuj0';
-const SCRAPE_ENDPOINT = `${BASE_URL}/datasets/v3/scrape?dataset_id=${DATASET_ID}&notify=false&include_errors=true`;
-const SNAPSHOT_BASE = `${BASE_URL}/datasets/snapshots`;
+const SCRAPE_PATH = `/datasets/v3/scrape?dataset_id=${DATASET_ID}&notify=false&include_errors=true`;
+const SNAPSHOT_BASE = '/datasets/snapshots';
 
 const MAX_POLL_ATTEMPTS = 30;
 const POLL_INTERVAL_MS = 2000;
-
-function authHeaders(apiToken: string): Record<string, string> {
-  return { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' };
-}
-
-async function fetchWithErrorHandling(url: string, options: RequestInit): Promise<Response> {
-  let response: Response;
-  try {
-    response = await fetch(url, options);
-  } catch (networkErr) {
-    throw new Error(`Network error: ${(networkErr as Error).message}`);
-  }
-
-  if (!response.ok && response.status !== 202) {
-    let bodyExcerpt = '';
-    try {
-      const text = await response.text();
-      bodyExcerpt = text.slice(0, 200);
-    } catch {
-      // ignore
-    }
-    throw new Error(`API returned HTTP ${response.status}${bodyExcerpt ? `: ${bodyExcerpt}` : ''}`);
-  }
-
-  return response;
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -63,14 +39,21 @@ export interface ScrapeResult {
   snapshotId?: string;
 }
 
-export async function scrapeByLinkedInUrl(linkedInUrl: string, apiToken: string): Promise<ScrapeResult> {
+export async function scrapeByLinkedInUrl(linkedInUrl: string): Promise<ScrapeResult> {
   console.log(LOG_PREFIX, 'Scraping LinkedIn URL:', linkedInUrl);
 
-  const response = await fetchWithErrorHandling(SCRAPE_ENDPOINT, {
-    method: 'POST',
-    headers: authHeaders(apiToken),
-    body: JSON.stringify({ input: [{ url: linkedInUrl }] }),
-  });
+  const response = await proxyFetch(SCRAPE_PATH, 'POST', { input: [{ url: linkedInUrl }] });
+
+  if (!response.ok && response.status !== 202) {
+    let bodyExcerpt = '';
+    try {
+      const text = await response.text();
+      bodyExcerpt = text.slice(0, 200);
+    } catch {
+      // ignore
+    }
+    throw new Error(`API returned HTTP ${response.status}${bodyExcerpt ? `: ${bodyExcerpt}` : ''}`);
+  }
 
   if (response.status === 202) {
     const body = await response.json();
@@ -88,16 +71,24 @@ export async function scrapeByLinkedInUrl(linkedInUrl: string, apiToken: string)
   return { mode: 'direct', profiles: valid };
 }
 
-export async function pollSnapshotUntilReady(snapshotId: string, apiToken: string): Promise<void> {
-  const statusUrl = `${SNAPSHOT_BASE}/${snapshotId}`;
+export async function pollSnapshotUntilReady(snapshotId: string): Promise<void> {
+  const statusPath = `${SNAPSHOT_BASE}/${snapshotId}`;
 
   for (let attempt = 1; attempt <= MAX_POLL_ATTEMPTS; attempt++) {
     console.log(LOG_PREFIX, `Polling snapshot ${snapshotId} (attempt ${attempt}/${MAX_POLL_ATTEMPTS})`);
 
-    const response = await fetchWithErrorHandling(statusUrl, {
-      method: 'GET',
-      headers: authHeaders(apiToken),
-    });
+    const response = await proxyFetch(statusPath, 'GET');
+
+    if (!response.ok) {
+      let bodyExcerpt = '';
+      try {
+        const text = await response.text();
+        bodyExcerpt = text.slice(0, 200);
+      } catch {
+        // ignore
+      }
+      throw new Error(`API returned HTTP ${response.status}${bodyExcerpt ? `: ${bodyExcerpt}` : ''}`);
+    }
 
     const status = await response.json();
 
@@ -116,14 +107,22 @@ export async function pollSnapshotUntilReady(snapshotId: string, apiToken: strin
   throw new Error(`Snapshot ${snapshotId} did not become ready after ${MAX_POLL_ATTEMPTS} attempts`);
 }
 
-export async function downloadSnapshot(snapshotId: string, apiToken: string): Promise<Array<Record<string, unknown>>> {
-  const downloadUrl = `${SNAPSHOT_BASE}/${snapshotId}/download?format=json`;
+export async function downloadSnapshot(snapshotId: string): Promise<Array<Record<string, unknown>>> {
+  const downloadPath = `${SNAPSHOT_BASE}/${snapshotId}/download?format=json`;
   console.log(LOG_PREFIX, 'Downloading snapshot:', snapshotId);
 
-  const response = await fetchWithErrorHandling(downloadUrl, {
-    method: 'GET',
-    headers: authHeaders(apiToken),
-  });
+  const response = await proxyFetch(downloadPath, 'GET');
+
+  if (!response.ok) {
+    let bodyExcerpt = '';
+    try {
+      const text = await response.text();
+      bodyExcerpt = text.slice(0, 200);
+    } catch {
+      // ignore
+    }
+    throw new Error(`API returned HTTP ${response.status}${bodyExcerpt ? `: ${bodyExcerpt}` : ''}`);
+  }
 
   const rawText = await response.text();
   const trimmed = rawText.trim();

@@ -1,11 +1,13 @@
 // PreMeet – Deep Lookup v1 (trigger_enrichment)
 // Uses Bright Data's deep lookup API to find LinkedIn profiles and enrich data.
+// All requests are proxied through the PreMeet backend.
 
+import { proxyFetch } from './brightdata-proxy';
 import type { DeepLookupSpec } from './types';
 
 const LOG_PREFIX = '[PreMeet][DeepLookup]';
 
-const BASE_URL = 'https://api.brightdata.com/datasets/deep_lookup/v1';
+const BASE_PATH = '/datasets/deep_lookup/v1';
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_POLL_ATTEMPTS = 30;
@@ -124,14 +126,6 @@ const COMPANY_INTELLIGENCE_SPEC: DeepLookupSpec = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function authHeaders(apiToken: string): Record<string, string> {
-  return { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' };
-}
-
-function authHeadersGet(apiToken: string): Record<string, string> {
-  return { Authorization: `Bearer ${apiToken}` };
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -175,17 +169,12 @@ function extractLinkedInUrl(responseData: unknown): string | null {
 async function triggerAndPoll(
   spec: DeepLookupSpec,
   inputRows: Record<string, unknown>[],
-  apiToken: string,
 ): Promise<{ requestId: string; responseData: unknown }> {
   const body = { spec, input: inputRows };
 
   console.log(LOG_PREFIX, 'Triggering enrichment:', JSON.stringify(inputRows).slice(0, 200));
 
-  const triggerRes = await fetch(`${BASE_URL}/trigger_enrichment`, {
-    method: 'POST',
-    headers: authHeaders(apiToken),
-    body: JSON.stringify(body),
-  });
+  const triggerRes = await proxyFetch(`${BASE_PATH}/trigger_enrichment`, 'POST', body);
 
   if (!triggerRes.ok) {
     const errBody = await triggerRes.text().catch(() => '');
@@ -213,10 +202,7 @@ async function triggerAndPoll(
     await sleep(POLL_INTERVAL_MS);
     console.log(LOG_PREFIX, `Polling request ${requestId} (attempt ${attempt}/${MAX_POLL_ATTEMPTS})`);
 
-    const statusRes = await fetch(`${BASE_URL}/request/${requestId}/status`, {
-      method: 'GET',
-      headers: authHeadersGet(apiToken),
-    });
+    const statusRes = await proxyFetch(`${BASE_PATH}/request/${requestId}/status`, 'GET');
 
     if (!statusRes.ok) {
       console.warn(LOG_PREFIX, `Status poll HTTP ${statusRes.status}`);
@@ -243,10 +229,7 @@ async function triggerAndPoll(
 
   console.log(LOG_PREFIX, 'Downloading results for', requestId);
 
-  const dataRes = await fetch(`${BASE_URL}/request/${requestId}`, {
-    method: 'GET',
-    headers: authHeadersGet(apiToken),
-  });
+  const dataRes = await proxyFetch(`${BASE_PATH}/request/${requestId}`, 'GET');
 
   if (!dataRes.ok) {
     const errBody = await dataRes.text().catch(() => '');
@@ -272,7 +255,6 @@ export async function deepLookupFindLinkedIn(
   email: string,
   name: string | null,
   company: string | null,
-  apiToken: string,
 ): Promise<{ linkedInUrl: string | null; responseData: unknown }> {
   if (!email || !email.includes('@')) {
     console.warn(LOG_PREFIX, 'Skipping: email is required but missing');
@@ -290,7 +272,7 @@ export async function deepLookupFindLinkedIn(
     company: company || 'Unknown',
   };
 
-  const { requestId, responseData } = await triggerAndPoll(LINKEDIN_DISCOVERY_SPEC, [input], apiToken);
+  const { requestId, responseData } = await triggerAndPoll(LINKEDIN_DISCOVERY_SPEC, [input]);
 
   const linkedInUrl = extractLinkedInUrl(responseData);
   console.log(LOG_PREFIX, `Discovery ${requestId} result: linkedInUrl=${linkedInUrl || 'none'}`);
@@ -302,7 +284,6 @@ export async function deepLookupEnrich(
   linkedInUrl: string,
   linkedInId: string | null,
   name: string | null,
-  apiToken: string,
 ): Promise<Record<string, unknown> | null> {
   const input: Record<string, string> = {};
   if (linkedInUrl) input.linkedin_url = linkedInUrl;
@@ -310,7 +291,7 @@ export async function deepLookupEnrich(
   if (name) input.full_name = name;
 
   try {
-    const { responseData } = await triggerAndPoll(LINKEDIN_ENRICHMENT_SPEC, [input], apiToken);
+    const { responseData } = await triggerAndPoll(LINKEDIN_ENRICHMENT_SPEC, [input]);
     const dataBlock = (responseData as Record<string, unknown>)?.data;
     if (dataBlock && typeof dataBlock === 'object') {
       const firstKey = Object.keys(dataBlock as Record<string, unknown>)[0];
@@ -328,7 +309,6 @@ export async function deepLookupCompanyIntel(
   personName: string | null,
   jobTitle: string | null,
   linkedInUrl: string | null,
-  apiToken: string,
 ): Promise<Record<string, unknown> | null> {
   if (!companyName) {
     console.warn(LOG_PREFIX, 'Skipping company intel: no company name');
@@ -344,7 +324,7 @@ export async function deepLookupCompanyIntel(
 
   try {
     console.log(LOG_PREFIX, 'Company intel lookup for:', companyName);
-    const { responseData } = await triggerAndPoll(COMPANY_INTELLIGENCE_SPEC, [input], apiToken);
+    const { responseData } = await triggerAndPoll(COMPANY_INTELLIGENCE_SPEC, [input]);
 
     const dataBlock = (responseData as Record<string, unknown>)?.data;
     if (dataBlock && typeof dataBlock === 'object') {
@@ -373,7 +353,6 @@ export async function deepLookupCustomEnrich(
   name: string | null,
   company: string | null,
   enrichType: 'experience' | 'education' | 'skills' | 'company',
-  apiToken: string,
 ): Promise<Record<string, unknown> | null> {
   const CUSTOM_ENRICH_SPECS: Record<string, DeepLookupSpec> = {
     experience: {
@@ -460,7 +439,7 @@ export async function deepLookupCustomEnrich(
   console.log(LOG_PREFIX, `Custom enrich [${enrichType}] for:`, name || linkedinUrl);
 
   try {
-    const { responseData } = await triggerAndPoll(spec, [input], apiToken);
+    const { responseData } = await triggerAndPoll(spec, [input]);
 
     const dataBlock = (responseData as Record<string, unknown>)?.data;
     if (dataBlock && typeof dataBlock === 'object') {

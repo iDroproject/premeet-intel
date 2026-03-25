@@ -35,17 +35,6 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) 
   console.warn(LOG, 'Failed to set side panel behavior:', err);
 });
 
-// ─── API Token Resolution ────────────────────────────────────────────────────
-
-async function resolveApiToken(): Promise<string | null> {
-  try {
-    const result = await chrome.storage.sync.get('premeet_api_token');
-    return result.premeet_api_token || null;
-  } catch {
-    return null;
-  }
-}
-
 // ─── Message Handling ────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener(
@@ -184,16 +173,7 @@ async function handleFetchPersonBackground(
 ): Promise<void> {
   console.log(LOG, `Waterfall fetch for: "${payload.name}" <${payload.email}>`);
 
-  const apiToken = await resolveApiToken();
-  if (!apiToken) {
-    broadcastToPopups({
-      type: 'PERSON_BACKGROUND_RESULT',
-      payload: { error: 'No API token configured. Set your token in extension settings.' },
-    });
-    return;
-  }
-
-  const orchestrator = new WaterfallOrchestrator(cache, apiToken);
+  const orchestrator = new WaterfallOrchestrator(cache);
 
   orchestrator.onProgress = (progress: ProgressPayload) => {
     broadcastToPopups({ type: 'FETCH_PROGRESS', payload: progress });
@@ -283,39 +263,36 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
     currentEnriched[idx] = { ...currentEnriched[idx], stage: 'enriching' };
     broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
 
-    const apiToken = await resolveApiToken();
     let personData: PersonData | null = null;
 
-    if (apiToken) {
-      try {
-        const orchestrator = new WaterfallOrchestrator(cache, apiToken);
-        orchestrator.onInterimResult = (interim: PersonData) => {
-          currentEnriched[idx] = {
-            ...currentEnriched[idx],
-            personData: interim,
-            hasLinkedIn: !!interim.linkedinUrl,
-            person: {
-              name: interim.name,
-              email: attendee.email,
-              title: interim.currentTitle,
-              company: interim.currentCompany ? {
-                name: interim.currentCompany,
-                domain: '',
-                website: interim.companyWebsite,
-                description: interim.companyDescription,
-              } : null,
-            },
-          };
-          broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+    try {
+      const orchestrator = new WaterfallOrchestrator(cache);
+      orchestrator.onInterimResult = (interim: PersonData) => {
+        currentEnriched[idx] = {
+          ...currentEnriched[idx],
+          personData: interim,
+          hasLinkedIn: !!interim.linkedinUrl,
+          person: {
+            name: interim.name,
+            email: attendee.email,
+            title: interim.currentTitle,
+            company: interim.currentCompany ? {
+              name: interim.currentCompany,
+              domain: '',
+              website: interim.companyWebsite,
+              description: interim.companyDescription,
+            } : null,
+          },
         };
-        personData = await orchestrator.fetch({
-          name: attendee.name,
-          email: attendee.email,
-          company: attendee.company || '',
-        });
-      } catch (waterfallErr) {
-        console.warn(LOG, `Waterfall failed for ${email}, falling back to basic:`, (waterfallErr as Error).message);
-      }
+        broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+      };
+      personData = await orchestrator.fetch({
+        name: attendee.name,
+        email: attendee.email,
+        company: attendee.company || '',
+      });
+    } catch (waterfallErr) {
+      console.warn(LOG, `Waterfall failed for ${email}, falling back to basic:`, (waterfallErr as Error).message);
     }
 
     if (!personData) {
