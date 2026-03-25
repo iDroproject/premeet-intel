@@ -31,6 +31,29 @@ export function companyFromEmail(email: string): string | null {
   return root.charAt(0).toUpperCase() + root.slice(1);
 }
 
+/** Maximum character length for a plausible person name. */
+export const MAX_NAME_LENGTH = 80;
+
+/**
+ * Email domains that belong to conferencing / SIP / system services and
+ * should never be treated as personal attendee emails.
+ */
+const NON_PERSON_EMAIL_DOMAINS = new Set([
+  'zoomcrc.com', 'zoom.us', 'zoomgov.com',
+  'meet.google.com', 'teams.microsoft.com', 'webex.com',
+  'noreply', 'no-reply',
+]);
+
+/** Returns true if the email looks like a real person email (not SIP, conference, etc.). */
+export function isPersonEmail(email: string): boolean {
+  if (!email || !email.includes('@')) return false;
+  const domain = email.split('@')[1].toLowerCase();
+  if (NON_PERSON_EMAIL_DOMAINS.has(domain)) return false;
+  const local = email.split('@')[0];
+  if (/^\d+$/.test(local)) return false;
+  return true;
+}
+
 /** Returns true if the Chrome extension context is still valid (not invalidated by reload/update). */
 export function isContextValid(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.runtime?.id;

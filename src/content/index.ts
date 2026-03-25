@@ -6,7 +6,7 @@
 
 import type { Attendee, MeetingEvent, ContentToBackground, TriggerMode } from '../types';
 import { initOnboarding, onMeetingDetected, onEnrichmentComplete } from './onboarding';
-import { cleanName, nameFromEmail, companyFromEmail, isContextValid } from './helpers';
+import { cleanName, nameFromEmail, companyFromEmail, isContextValid, isPersonEmail, MAX_NAME_LENGTH } from './helpers';
 import { injectButtons, removeButtons, resetAllLoadingButtons } from './button-injector';
 import type { AttendeeWithElement } from './button-injector';
 
@@ -124,7 +124,14 @@ function extractAttendees(popup: Element): AttendeeRaw[] {
     const key = (a.email || a.name).toLowerCase();
     if (key && !seen.has(key)) seen.set(key, a);
   }
-  return [...seen.values()];
+  // Filter out non-person emails (SIP, conference, system) and overly-long names
+  return [...seen.values()].filter((a) => {
+    if (a.email && !isPersonEmail(a.email)) return false;
+    if (a.name && a.name.length > MAX_NAME_LENGTH) {
+      a.name = a.email ? nameFromEmail(a.email) : a.name.slice(0, MAX_NAME_LENGTH);
+    }
+    return true;
+  });
 }
 
 // ─── Title Extraction ─────────────────────────────────────────────────────────
