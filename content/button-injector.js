@@ -413,10 +413,7 @@
     }
   }
 
-  // ─── Class Definition ─────────────────────────────────────────────────────
+  // ─── Expose to shared content-script scope ────────────────────────────────
 
-  /**
-   * ButtonInjector
-   * Injects compact inline PreMeet action buttons next to each
-   * attendee element in an event popup.
-   */
+  window.ButtonInjector = ButtonInjector;
+})();
