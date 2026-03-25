@@ -12,8 +12,10 @@ import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
 import { signInWithGoogle, signOut, getAuthState, getCurrentUser } from '../lib/auth';
 import { getSettings } from '../utils/settings';
+import { createLogBuffer, log as debugLog } from '../utils/logger';
 
 const LOG = '[PreMeet][SW]';
+const waterfallLogBuffer = createLogBuffer('Enrichment');
 
 // ─── Module-level Singletons ─────────────────────────────────────────────────
 
@@ -32,7 +34,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // ─── Side Panel Setup ────────────────────────────────────────────────────────
 
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) => {
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch((err) => {
   console.warn(LOG, 'Failed to set side panel behavior:', err);
 });
 
@@ -173,8 +175,9 @@ async function handleFetchPersonBackground(
   senderTabId?: number,
 ): Promise<void> {
   console.log(LOG, `Waterfall fetch for: "${payload.name}" <${payload.email}>`);
+  debugLog('Background', 'info', `Waterfall fetch started for "${payload.name}" <${payload.email}>`);
 
-  const orchestrator = new WaterfallOrchestrator(cache);
+  const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
 
   orchestrator.onProgress = (progress: ProgressPayload) => {
     broadcastToPopups({ type: 'FETCH_PROGRESS', payload: progress });
@@ -299,6 +302,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
 
   const attendee = currentMeeting.attendees[idx];
   console.log(LOG, `On-demand enrich for: "${attendee.name}" <${attendee.email}>`);
+  debugLog('Background', 'info', `Enrichment started for "${attendee.name}" <${attendee.email}>`);
 
   // Check credits
   try {
@@ -333,7 +337,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
     let personData: PersonData | null = null;
 
     try {
-      const orchestrator = new WaterfallOrchestrator(cache);
+      const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
       orchestrator.onInterimResult = (interim: PersonData) => {
         currentEnriched[idx] = {
           ...currentEnriched[idx],
@@ -361,6 +365,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
     } catch (waterfallErr) {
       const errMsg = (waterfallErr as Error).message;
       console.error(LOG, `Waterfall failed for ${email}:`, errMsg);
+      debugLog('Background', 'error', `Waterfall failed for ${email}: ${errMsg}`);
 
       // Mark as error with descriptive message instead of silently falling back
       currentEnriched[idx] = {
@@ -398,6 +403,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
     }
   } catch (err) {
     console.error(LOG, `Enrichment failed for ${email}:`, err);
+    debugLog('Background', 'error', `Enrichment failed for ${email}: ${(err as Error).message}`);
     currentEnriched[idx] = { ...currentEnriched[idx], status: 'error', stage: 'complete', error: (err as Error).message };
   }
 
@@ -414,6 +420,7 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
   const allDone = currentEnriched.every((a) => a.status === 'done' || a.status === 'error');
   if (allDone) {
     notifyContentScript({ type: 'ENRICHMENT_COMPLETE' });
+    debugLog('Background', 'info', `All attendees enriched for "${currentMeeting.title}"`);
     console.log(LOG, `All attendees enriched for "${currentMeeting.title}"`);
   }
 }

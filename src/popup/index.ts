@@ -12,6 +12,8 @@ import {
 } from '../utils/featureRequests';
 import { getSettings, saveSettings } from '../utils/settings';
 import { getActivityLog } from '../utils/activityLog';
+import { getDebugLog, clearDebugLog } from '../utils/logger';
+import type { LogEntry } from '../utils/logger';
 
 const LOG = '[PreMeet][Popup]';
 
@@ -35,11 +37,24 @@ const Els = {
   // Tabs
   tabAttendees:   $('pm-tab-attendees'),
   tabActivity:    $('pm-tab-activity'),
+  tabLogs:        $('pm-tab-logs'),
   tabFeatures:    $('pm-tab-features'),
   panelAttendees: $('pm-panel-attendees'),
   panelActivity:  $('pm-panel-activity'),
+  panelLogs:      $('pm-panel-logs'),
   panelFeatures:  $('pm-panel-features'),
   activityList:   $('pm-activity-list'),
+  activityStats:  $('pm-activity-stats'),
+  statBriefs:     $('pm-stat-briefs'),
+  statSuccess:    $('pm-stat-success'),
+  statErrors:     $('pm-stat-errors'),
+  statRate:       $('pm-stat-rate'),
+  statLastLookup: $('pm-stat-last-lookup'),
+  // Debug logs
+  debugLogList:     $('pm-debug-log-list'),
+  logModuleFilter:  $<HTMLSelectElement>('pm-log-module-filter'),
+  logLevelFilter:   $<HTMLSelectElement>('pm-log-level-filter'),
+  logClear:         $('pm-log-clear'),
   // Feature requests
   addToggle:      $('pm-add-toggle'),
   addForm:        $('pm-add-form'),
@@ -258,18 +273,21 @@ async function refreshCredits(): Promise<void> {
 
 // ─── Tab Management ───────────────────────────────────────────────────────────
 
-type Tab = 'attendees' | 'activity' | 'features';
+type Tab = 'attendees' | 'activity' | 'logs' | 'features';
 
 function switchTab(tab: Tab): void {
   Els.tabAttendees?.classList.toggle('pm-tab--active', tab === 'attendees');
   Els.tabActivity?.classList.toggle('pm-tab--active', tab === 'activity');
+  Els.tabLogs?.classList.toggle('pm-tab--active', tab === 'logs');
   Els.tabFeatures?.classList.toggle('pm-tab--active', tab === 'features');
   Els.panelAttendees?.classList.toggle('pm-hidden', tab !== 'attendees');
   Els.panelActivity?.classList.toggle('pm-hidden', tab !== 'activity');
+  Els.panelLogs?.classList.toggle('pm-hidden', tab !== 'logs');
   Els.panelFeatures?.classList.toggle('pm-hidden', tab !== 'features');
 
   if (tab === 'features') loadFeatureRequests();
   if (tab === 'activity') loadActivityLog();
+  if (tab === 'logs') loadDebugLog();
 }
 
 // ─── Attendee View Management ─────────────────────────────────────────────────
@@ -438,9 +456,37 @@ const STATUS_BADGE: Record<string, { cls: string; label: string }> = {
   cached:  { cls: 'pm-badge--cached',  label: 'Cached' },
 };
 
+function renderActivityStats(entries: ActivityLogEntry[]): void {
+  if (!Els.activityStats) return;
+  if (entries.length === 0) {
+    Els.activityStats.classList.add('pm-hidden');
+    return;
+  }
+  Els.activityStats.classList.remove('pm-hidden');
+
+  const total = entries.length;
+  // 'partial' counts as success (enrichment returned data, even if low confidence)
+  const successCount = entries.filter((e) => e.status === 'success' || e.status === 'partial' || e.status === 'cached').length;
+  const errorCount = entries.filter((e) => e.status === 'failed').length;
+  const rate = total > 0 ? Math.round((successCount / total) * 100) : 0;
+
+  if (Els.statBriefs) Els.statBriefs.textContent = String(total);
+  if (Els.statSuccess) Els.statSuccess.textContent = String(successCount);
+  if (Els.statErrors) Els.statErrors.textContent = String(errorCount);
+  if (Els.statRate) Els.statRate.textContent = `${rate}%`;
+
+  if (Els.statLastLookup) {
+    const lastEntry = entries[0]; // entries are sorted newest-first
+    Els.statLastLookup.textContent = lastEntry
+      ? `Last lookup: ${relativeTime(lastEntry.timestamp)}`
+      : '';
+  }
+}
+
 function renderActivityLog(entries: ActivityLogEntry[]): void {
   if (!Els.activityList) return;
   Els.activityList.innerHTML = '';
+  renderActivityStats(entries);
 
   if (entries.length === 0) {
     Els.activityList.innerHTML = `
@@ -481,6 +527,78 @@ function renderActivityLog(entries: ActivityLogEntry[]): void {
 async function loadActivityLog(): Promise<void> {
   const entries = await getActivityLog();
   renderActivityLog(entries);
+}
+
+// ─── Debug Log Render ────────────────────────────────────────────────────────
+
+let cachedDebugEntries: LogEntry[] = [];
+
+function debugRelativeTime(ts: number): string {
+  const diff = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (diff < 60) return `${diff}s`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  return `${Math.floor(diff / 86400)}d`;
+}
+
+function renderDebugLog(entries: LogEntry[]): void {
+  if (!Els.debugLogList) return;
+  Els.debugLogList.innerHTML = '';
+
+  if (entries.length === 0) {
+    Els.debugLogList.innerHTML = `
+      <div class="pm-state">
+        <div class="pm-state__icon">&#128220;</div>
+        <div class="pm-state__title">No log entries</div>
+        <div class="pm-state__body">Enrichment debug and error logs will appear here.</div>
+      </div>`;
+    return;
+  }
+
+  entries.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = 'pm-debug-item';
+    row.innerHTML = `
+      <div class="pm-debug-item__head">
+        <span class="pm-debug-item__time">${escapeHtml(debugRelativeTime(entry.timestamp))}</span>
+        <span class="pm-debug-item__level pm-debug-item__level--${escapeHtml(entry.level)}">${escapeHtml(entry.level)}</span>
+        <span class="pm-debug-item__module">${escapeHtml(entry.module)}</span>
+      </div>
+      <div class="pm-debug-item__msg">${escapeHtml(entry.message)}</div>
+    `;
+    Els.debugLogList!.appendChild(row);
+  });
+}
+
+function populateModuleFilter(entries: LogEntry[]): void {
+  if (!Els.logModuleFilter) return;
+  const current = (Els.logModuleFilter as HTMLSelectElement).value;
+  const modules = [...new Set(entries.map((e) => e.module))].sort();
+  (Els.logModuleFilter as HTMLSelectElement).innerHTML = '<option value="">All modules</option>';
+  modules.forEach((m) => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    (Els.logModuleFilter as HTMLSelectElement).appendChild(opt);
+  });
+  (Els.logModuleFilter as HTMLSelectElement).value = current;
+}
+
+function applyDebugFilters(): void {
+  const moduleVal = (Els.logModuleFilter as HTMLSelectElement | null)?.value || '';
+  const levelVal = (Els.logLevelFilter as HTMLSelectElement | null)?.value || '';
+  const filtered = cachedDebugEntries.filter((e) => {
+    if (moduleVal && e.module !== moduleVal) return false;
+    if (levelVal && e.level !== levelVal) return false;
+    return true;
+  });
+  renderDebugLog(filtered);
+}
+
+async function loadDebugLog(): Promise<void> {
+  cachedDebugEntries = await getDebugLog();
+  populateModuleFilter(cachedDebugEntries);
+  applyDebugFilters();
 }
 
 // ─── Settings Panel ──────────────────────────────────────────────────────────
@@ -608,7 +726,17 @@ function wireEvents(): void {
   // Tab switching
   Els.tabAttendees?.addEventListener('click', () => switchTab('attendees'));
   Els.tabActivity?.addEventListener('click', () => switchTab('activity'));
+  Els.tabLogs?.addEventListener('click', () => switchTab('logs'));
   Els.tabFeatures?.addEventListener('click', () => switchTab('features'));
+
+  // Debug log filters
+  Els.logModuleFilter?.addEventListener('change', () => applyDebugFilters());
+  Els.logLevelFilter?.addEventListener('change', () => applyDebugFilters());
+  Els.logClear?.addEventListener('click', async () => {
+    await clearDebugLog();
+    cachedDebugEntries = [];
+    applyDebugFilters();
+  });
 
   // Add feature form toggle
   Els.addToggle?.addEventListener('click', () => {
