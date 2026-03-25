@@ -300,8 +300,8 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
         ...currentEnriched[idx],
         status: 'error',
         stage: 'complete',
-        error: errMsg.includes('VITE_SUPABASE_URL')
-          ? 'Enrichment backend not configured. Check extension settings.'
+        error: errMsg.includes('VITE_BRIGHTDATA_API_KEY')
+          ? 'BrightData API key not configured. Set VITE_BRIGHTDATA_API_KEY in .env'
           : errMsg.includes('Not authenticated')
             ? 'Please sign in to use enrichment.'
             : `Enrichment failed: ${errMsg}`,

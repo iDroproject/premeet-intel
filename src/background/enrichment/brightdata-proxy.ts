@@ -1,45 +1,46 @@
-// PreMeet — BrightData Proxy Client
-// Routes all BrightData API calls through the PreMeet backend
-// (Supabase Edge Function: enrichment-proxy) so the extension
-// never contacts api.brightdata.com directly.
-
-import { authFetch } from '../../lib/auth';
+// PreMeet — BrightData API Client
+// Calls api.brightdata.com directly with the API key from build-time env.
 
 const LOG_PREFIX = '[PreMeet][BDProxy]';
+const BRIGHTDATA_BASE = 'https://api.brightdata.com';
 
-function getProxyUrl(): string {
-  const url = import.meta.env.VITE_SUPABASE_URL as string;
-  if (!url) throw new Error('VITE_SUPABASE_URL not configured');
-  return `${url}/functions/v1/enrichment-proxy`;
+function getApiKey(): string {
+  const key = import.meta.env.VITE_BRIGHTDATA_API_KEY as string;
+  if (!key) throw new Error('VITE_BRIGHTDATA_API_KEY not configured. Set it in .env');
+  return key;
 }
 
 /**
- * Sends a request to BrightData via the PreMeet backend proxy.
+ * Sends a request to BrightData directly.
  *
  * @param path   The BrightData API path (e.g. "/datasets/v3/scrape?dataset_id=...")
  * @param method "GET" or "POST"
  * @param body   Optional request body (for POST requests)
- * @returns      The proxied Response object
+ * @returns      The Response object
  */
 export async function proxyFetch(
   path: string,
   method: 'GET' | 'POST' = 'GET',
   body?: unknown,
 ): Promise<Response> {
-  const proxyUrl = getProxyUrl();
+  const apiKey = getApiKey();
+  const url = `${BRIGHTDATA_BASE}${path}`;
 
   console.log(LOG_PREFIX, `${method} ${path.split('?')[0]}`);
 
-  const payload: Record<string, unknown> = { path, method };
-  if (body !== undefined) {
-    payload.body = body;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+  };
+  if (method === 'POST') {
+    headers['Content-Type'] = 'application/json';
   }
 
-  const response = await authFetch(proxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
+  const init: RequestInit = { method, headers };
+  if (body !== undefined && method === 'POST') {
+    init.body = JSON.stringify(body);
+  }
+
+  const response = await fetch(url, init);
 
   return response;
 }
