@@ -61,6 +61,10 @@ const Els = {
   tokenFeedback:  $('pm-token-feedback'),
 };
 
+// ─── State ───────────────────────────────────────────────────────────────────
+
+let currentAttendees: EnrichedAttendee[] = [];
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function escapeHtml(str: string): string {
@@ -145,8 +149,70 @@ function setLoading(on: boolean): void {
 
 // ─── Attendee Render ──────────────────────────────────────────────────────────
 
+function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
+  const card = document.createElement('div');
+  card.className = `pm-card${attendee.status === 'pending' ? ' pm-card--pending' : ''}`;
+  card.dataset.email = attendee.email;
+  card.style.cursor = 'pointer';
+
+  const name = attendee.person?.name || attendee.name;
+  const title = attendee.person?.title || '';
+  const company = attendee.person?.company?.name || attendee.company || '';
+  const email = attendee.email;
+  const avi = initials(name || '?');
+
+  card.innerHTML = `
+    <div class="pm-avatar">${escapeHtml(avi)}</div>
+    <div class="pm-card__body">
+      <div class="pm-card__name">${escapeHtml(name)}</div>
+      ${title ? `<div class="pm-card__title">${escapeHtml(title)}</div>` : ''}
+      ${company ? `<div class="pm-card__company">&#127970; ${escapeHtml(company)}</div>` : ''}
+      ${email ? `<div class="pm-card__email">${escapeHtml(email)}</div>` : ''}
+    </div>
+  `;
+
+  card.addEventListener('click', () => {
+    if (attendee.status === 'pending') return; // already enriching
+
+    // Trigger enrichment if not done yet
+    if (attendee.status !== 'done') {
+      chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: attendee.email } }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn(LOG, 'ENRICH_ATTENDEE failed:', chrome.runtime.lastError.message);
+        }
+      });
+    }
+
+    // If enriched data is available, send it to the side panel for display
+    if (attendee.personData) {
+      chrome.runtime.sendMessage({
+        type: 'FETCH_PERSON_BACKGROUND',
+        payload: {
+          name: attendee.person?.name || attendee.name,
+          email: attendee.email,
+          company: attendee.person?.company?.name || attendee.company || '',
+        },
+      }, () => { void chrome.runtime.lastError; });
+    }
+
+    // Open the side panel
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId != null) {
+        chrome.sidePanel.open({ tabId }).catch((err) => {
+          console.warn(LOG, 'Could not open side panel:', err);
+        });
+      }
+    });
+  });
+
+  return card;
+}
+
 function renderAttendees(meeting: MeetingEvent, attendees: EnrichedAttendee[]): void {
   if (!Els.list) return;
+
+  currentAttendees = attendees;
 
   if (Els.meetingTitle) {
     Els.meetingTitle.textContent = meeting.title;
@@ -165,26 +231,7 @@ function renderAttendees(meeting: MeetingEvent, attendees: EnrichedAttendee[]): 
   showView('list');
 
   attendees.forEach((attendee) => {
-    const card = document.createElement('div');
-    card.className = `pm-card${attendee.status === 'pending' ? ' pm-card--pending' : ''}`;
-
-    const name = attendee.person?.name || attendee.name;
-    const title = attendee.person?.title || '';
-    const company = attendee.person?.company?.name || attendee.company || '';
-    const email = attendee.email;
-    const avi = initials(name || '?');
-
-    card.innerHTML = `
-      <div class="pm-avatar">${escapeHtml(avi)}</div>
-      <div class="pm-card__body">
-        <div class="pm-card__name">${escapeHtml(name)}</div>
-        ${title ? `<div class="pm-card__title">${escapeHtml(title)}</div>` : ''}
-        ${company ? `<div class="pm-card__company">&#127970; ${escapeHtml(company)}</div>` : ''}
-        ${email ? `<div class="pm-card__email">${escapeHtml(email)}</div>` : ''}
-      </div>
-    `;
-
-    Els.list!.appendChild(card);
+    Els.list!.appendChild(renderAttendeeCard(attendee));
   });
 }
 
@@ -401,6 +448,27 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
     const { meeting, attendees } = msg.payload;
     renderAttendees(meeting, attendees);
     refreshCredits();
+  }
+  if (msg.type === 'ATTENDEE_UPDATE') {
+    const { email, attendee } = msg.payload;
+    if (!Els.list) return;
+
+    // Update the stored enriched attendees array
+    const idx = currentAttendees.findIndex((a) => a.email.toLowerCase() === email.toLowerCase());
+    if (idx !== -1) {
+      currentAttendees[idx] = attendee;
+    }
+
+    // Find the existing card and replace it in-place
+    const existingCard = Els.list.querySelector<HTMLElement>(`[data-email="${CSS.escape(email)}"]`);
+    if (existingCard) {
+      const newCard = renderAttendeeCard(attendee);
+      existingCard.replaceWith(newCard);
+    }
+
+    // Update loading bar
+    const isAnyPending = currentAttendees.some((a) => a.status === 'pending');
+    setLoading(isAnyPending);
   }
   if (msg.type === 'CREDITS_EXHAUSTED') {
     const { meeting, resetDate } = msg.payload;
