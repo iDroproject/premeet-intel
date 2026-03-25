@@ -176,27 +176,17 @@ function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
 
     // Trigger enrichment if not done yet
     if (attendee.status !== 'done') {
+      card.classList.add('pm-card--pending');
       chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: attendee.email } }, () => {
         if (chrome.runtime.lastError) {
           console.warn(LOG, 'ENRICH_ATTENDEE failed:', chrome.runtime.lastError.message);
+          card.classList.remove('pm-card--pending');
         }
       });
     }
 
-    // If enriched data is available, send it to the side panel for display
-    if (attendee.personData) {
-      chrome.runtime.sendMessage({
-        type: 'FETCH_PERSON_BACKGROUND',
-        payload: {
-          name: attendee.person?.name || attendee.name,
-          email: attendee.email,
-          company: attendee.person?.company?.name || attendee.company || '',
-        },
-      }, () => { void chrome.runtime.lastError; });
-    }
-
-    // Open the side panel
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    // Open the side panel for the active GCal tab
+    chrome.tabs.query({ url: 'https://calendar.google.com/*' }, (tabs) => {
       const tabId = tabs[0]?.id;
       if (tabId != null) {
         chrome.sidePanel.open({ tabId }).catch((err) => {

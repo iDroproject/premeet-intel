@@ -196,100 +196,122 @@
 
 /* Per-attendee inline "Brief" pill */
 .pm-brief-inline {
-  appearance: none;
-  -webkit-appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: 6px;
-  padding: 2px 8px;
-  background: var(--pm-primary);
-  color: #fff;
-  border: none;
-  border-radius: 12px;
-  font-family: var(--pm-font);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  vertical-align: middle;
-  transition: background 150ms ease, opacity 150ms ease;
-  white-space: nowrap;
+  all: initial;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 3px !important;
+  margin: 0 0 0 6px !important;
+  padding: 2px 8px !important;
+  background: var(--pm-primary) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 12px !important;
+  font-family: var(--pm-font) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  vertical-align: middle !important;
+  transition: background 150ms ease, opacity 150ms ease !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  text-decoration: none !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .pm-brief-inline:hover {
-  background: var(--pm-primary-hover);
+  background: var(--pm-primary-hover) !important;
 }
 
 .pm-brief-inline:active {
-  background: var(--pm-primary-active);
+  background: var(--pm-primary-active) !important;
 }
 
 .pm-brief-inline.pm-brief--loading {
-  opacity: 0.6;
-  cursor: default;
+  opacity: 0.6 !important;
+  cursor: default !important;
 }
 
 .pm-brief-inline__icon {
-  font-size: 10px;
-  line-height: 1;
+  all: initial;
+  font-size: 10px !important;
+  line-height: 1 !important;
+  display: inline !important;
 }
 
 /* "Brief All" header button */
 .pm-brief-all-wrap {
-  padding: 6px 8px 4px;
+  all: initial;
+  display: block !important;
+  padding: 6px 8px 4px !important;
+  box-sizing: border-box !important;
 }
 
 .pm-brief-all {
-  appearance: none;
-  -webkit-appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  background: var(--pm-primary);
-  color: #fff;
-  border: none;
-  border-radius: var(--pm-radius);
-  font-family: var(--pm-font);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.4;
-  cursor: pointer;
-  transition: background 150ms ease, opacity 150ms ease;
-  white-space: nowrap;
-  height: 36px;
+  all: initial;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 5px 12px !important;
+  background: var(--pm-primary) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: var(--pm-radius) !important;
+  font-family: var(--pm-font) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  cursor: pointer !important;
+  transition: background 150ms ease, opacity 150ms ease !important;
+  white-space: nowrap !important;
+  height: 36px !important;
+  box-sizing: border-box !important;
+  text-decoration: none !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .pm-brief-all:hover {
-  background: var(--pm-primary-hover);
+  background: var(--pm-primary-hover) !important;
 }
 
 .pm-brief-all:active {
-  background: var(--pm-primary-active);
+  background: var(--pm-primary-active) !important;
 }
 
 .pm-brief-all.pm-brief--loading {
-  opacity: 0.6;
-  cursor: default;
+  opacity: 0.6 !important;
+  cursor: default !important;
 }
 
 .pm-brief-all__icon {
-  font-size: 13px;
-  line-height: 1;
+  all: initial;
+  font-size: 13px !important;
+  line-height: 1 !important;
+  display: inline !important;
 }
 
 .pm-brief-all__count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 9px;
-  font-size: 10px;
-  font-weight: 700;
+  all: initial;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  padding: 0 4px !important;
+  background: rgba(255, 255, 255, 0.25) !important;
+  border-radius: 9px !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  color: #fff !important;
+  box-sizing: border-box !important;
 }
 
 /* ── Dark Mode ─────────────────────────────────────────────────────────────── */

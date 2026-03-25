@@ -7,7 +7,7 @@
 import type { Attendee, MeetingEvent, ContentToBackground, TriggerMode } from '../types';
 import { initOnboarding, onMeetingDetected, onEnrichmentComplete } from './onboarding';
 import { cleanName, nameFromEmail, companyFromEmail, isContextValid } from './helpers';
-import { injectButtons, removeButtons } from './button-injector';
+import { injectButtons, removeButtons, resetAllLoadingButtons } from './button-injector';
 import type { AttendeeWithElement } from './button-injector';
 
 const LOG = '[PreMeet][Content]';
@@ -302,6 +302,7 @@ if (isContextValid()) {
     if (!isContextValid()) return false;
     if (msg?.type === 'ENRICHMENT_COMPLETE') {
       onEnrichmentComplete();
+      resetAllLoadingButtons();
       sendResponse({ ok: true });
     }
     return false;

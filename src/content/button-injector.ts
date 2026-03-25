@@ -6,6 +6,9 @@ import { isContextValid } from './helpers';
 
 const LOG = '[PreMeet][ButtonInjector]';
 
+// Track loading buttons so we can reset them on enrichment complete
+const loadingButtons = new Map<string, HTMLButtonElement>();
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface AttendeeWithElement extends Attendee {
@@ -56,7 +59,14 @@ function createInlineButton(
     if (btn.classList.contains('pm-brief--loading')) return;
     onClick(attendee);
     setButtonLoading(btn, true);
-    setTimeout(() => setButtonLoading(btn, false), 1500);
+    loadingButtons.set(attendee.email.toLowerCase(), btn);
+    // Fallback: reset after 30s if no enrichment response arrives
+    setTimeout(() => {
+      if (btn.classList.contains('pm-brief--loading')) {
+        setButtonLoading(btn, false);
+        loadingButtons.delete(attendee.email.toLowerCase());
+      }
+    }, 30_000);
   });
 
   return btn;
@@ -101,7 +111,14 @@ function createBriefAllButton(
     if (btn.classList.contains('pm-brief--loading')) return;
     onClick();
     setButtonLoading(btn, true);
-    setTimeout(() => setButtonLoading(btn, false), 2000);
+    loadingButtons.set('__brief_all__', btn);
+    // Fallback: reset after 60s if no enrichment response arrives
+    setTimeout(() => {
+      if (btn.classList.contains('pm-brief--loading')) {
+        setButtonLoading(btn, false);
+        loadingButtons.delete('__brief_all__');
+      }
+    }, 60_000);
   });
 
   return wrap;
@@ -201,4 +218,14 @@ export function removeButtons(popupEl: Element): void {
   popupEl.querySelectorAll('[data-pm-injected]').forEach((el) => {
     el.removeAttribute('data-pm-injected');
   });
+}
+
+/**
+ * Reset loading state for all Brief buttons (called when enrichment completes).
+ */
+export function resetAllLoadingButtons(): void {
+  for (const [key, btn] of loadingButtons) {
+    setButtonLoading(btn, false);
+  }
+  loadingButtons.clear();
 }
