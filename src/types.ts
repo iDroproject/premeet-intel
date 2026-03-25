@@ -1,6 +1,6 @@
 // PreMeet shared TypeScript types
 
-import type { PersonData, SearchResult } from './background/enrichment/types';
+import type { PersonData, SearchResult, CompanyData } from './background/enrichment/types';
 
 export interface Attendee {
   name: string;
@@ -122,13 +122,15 @@ export type BackgroundToPopup =
   | { type: 'INTERIM_PERSON_DATA'; payload: unknown }
   | { type: 'PERSON_BACKGROUND_RESULT'; payload: unknown }
   | { type: 'SEARCH_PERSON_RESULT'; payload: SearchResult | { error: string } }
-  | { type: 'ENRICH_PERSON_RESULT'; payload: PersonData | { error: string } };
+  | { type: 'ENRICH_PERSON_RESULT'; payload: PersonData | { error: string } }
+  | { type: 'COMPANY_INTEL_RESULT'; payload: { email: string; data: CompanyData; cached: boolean } | { email: string; error: string } };
 
 export type PopupToBackground =
   | { type: 'GET_CURRENT_MEETING' }
   | { type: 'ENRICH_ATTENDEE'; payload: { email: string } }
   | { type: 'SEARCH_PERSON'; payload: { name: string; email: string; company: string } }
   | { type: 'ENRICH_PERSON'; payload: { name: string; email: string; company: string; linkedInUrl: string } }
+  | { type: 'FETCH_COMPANY_INTEL'; payload: { email: string; companyName: string; linkedinUrl?: string; website?: string } }
   | { type: 'GET_CACHE_STATS' }
   | { type: 'CLEAR_CACHE' }
   | { type: 'GET_ACTIVITY_LOG' }

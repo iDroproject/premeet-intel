@@ -145,6 +145,28 @@ export interface DeepLookupSpec {
   };
 }
 
+// ─── Company Data (from enrichment-company edge function) ────────────────────
+
+export interface CompanyData {
+  name: string;
+  linkedinUrl: string | null;
+  logo: string | null;
+  industry: string | null;
+  sizeRange: string | null;
+  revenueRange: string | null;
+  website: string | null;
+  foundedYear: number | null;
+  hqAddress: string | null;
+  description: string | null;
+  fundingTotal: string | null;
+  fundingLastRound: string | null;
+  fundingInvestors: string[];
+  products: string[];
+  technologies: string[];
+  recentNews: Array<{ title: string; url: string; date: string }>;
+  intentSignals: Array<{ signal: string; detail: string }>;
+}
+
 // ─── Company Info (SERP) ─────────────────────────────────────────────────────
 
 export interface CompanyInfo {

@@ -3,7 +3,7 @@
 // Communicates with the background service worker via chrome.runtime messaging.
 
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup } from '../types';
-import type { PersonData, ExperienceEntry, EducationEntry, ConfidenceCitation } from '../background/enrichment/types';
+import type { PersonData, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData } from '../background/enrichment/types';
 import { getCredits, remainingCredits } from '../utils/credits';
 import { maskPersonData, skillsPreviewCount } from '../utils/masking';
 
@@ -38,6 +38,9 @@ let isAuthenticated = false;
 
 // Track which expandable sections are open per attendee
 const expandedSections = new Map<string, Set<string>>();
+
+// Track company intel state per attendee: 'idle' | 'loading' | CompanyData | error string
+const companyIntelState = new Map<string, 'idle' | 'loading' | { data: CompanyData } | { error: string }>();
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -390,18 +393,84 @@ function renderSkills(skills: string[]): string {
   return `<div class="pm-skills">${skills.map((s) => `<span class="pm-skill-tag">${escapeHtml(s)}</span>`).join('')}</div>`;
 }
 
-function renderCompanyIntel(pd: PersonData): string {
+function renderCompanyIntelFromData(cd: CompanyData): string {
   const rows: string[] = [];
-  if (pd.companySize) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Size:</span> ${escapeHtml(pd.companySize)}</div>`);
-  if (pd.companyFounded) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Founded:</span> ${escapeHtml(pd.companyFounded)}</div>`);
-  if (pd.companyHeadquarters) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">HQ:</span> ${escapeHtml(pd.companyHeadquarters)}</div>`);
-  if (pd.companyRevenue) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Revenue:</span> ${escapeHtml(pd.companyRevenue)}</div>`);
-  if (pd.companyFunding) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Funding:</span> ${escapeHtml(pd.companyFunding)}</div>`);
-  if (pd.companyProducts) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Products:</span> ${escapeHtml(pd.companyProducts)}</div>`);
-  if (pd.companyTechnologies) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Technologies:</span> ${escapeHtml(pd.companyTechnologies)}</div>`);
-  if (pd.recentNews) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Recent News:</span> ${escapeHtml(pd.recentNews)}</div>`);
+
+  if (cd.industry) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Industry:</span> ${escapeHtml(cd.industry)}</div>`);
+  if (cd.sizeRange) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Size:</span> ${escapeHtml(cd.sizeRange)}</div>`);
+  if (cd.foundedYear) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Founded:</span> ${cd.foundedYear}</div>`);
+  if (cd.hqAddress) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">HQ:</span> ${escapeHtml(cd.hqAddress)}</div>`);
+  if (cd.revenueRange) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Revenue:</span> ${escapeHtml(cd.revenueRange)}</div>`);
+  if (cd.website) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Website:</span> <a href="${escapeHtml(cd.website)}" target="_blank" rel="noopener">${escapeHtml(cd.website)}</a></div>`);
+
+  // Funding
+  const fundingParts: string[] = [];
+  if (cd.fundingTotal) fundingParts.push(`Total: ${escapeHtml(cd.fundingTotal)}`);
+  if (cd.fundingLastRound) fundingParts.push(`Last round: ${escapeHtml(cd.fundingLastRound)}`);
+  if (fundingParts.length > 0) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Funding:</span> ${fundingParts.join(' · ')}</div>`);
+  if (cd.fundingInvestors.length > 0) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Investors:</span> ${cd.fundingInvestors.map(escapeHtml).join(', ')}</div>`);
+
+  // Products & Technologies as tags
+  if (cd.products.length > 0) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Products:</span> ${cd.products.map(escapeHtml).join(', ')}</div>`);
+  if (cd.technologies.length > 0) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Technologies:</span> <div class="pm-intel__tags">${cd.technologies.map((t) => `<span class="pm-skill-tag">${escapeHtml(t)}</span>`).join('')}</div></div>`);
+
+  // Recent News
+  if (cd.recentNews.length > 0) {
+    const newsItems = cd.recentNews.slice(0, 5).map((n) => {
+      const titleHtml = n.url ? `<a href="${escapeHtml(n.url)}" target="_blank" rel="noopener">${escapeHtml(n.title)}</a>` : escapeHtml(n.title);
+      const dateHtml = n.date ? ` <span class="pm-intel__date">(${escapeHtml(n.date)})</span>` : '';
+      return `<li>${titleHtml}${dateHtml}</li>`;
+    }).join('');
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Recent News:</span><ul class="pm-intel__news">${newsItems}</ul></div>`);
+  }
+
+  // Intent Signals
+  if (cd.intentSignals.length > 0) {
+    const signalItems = cd.intentSignals.map((s) => {
+      return `<li><strong>${escapeHtml(s.signal)}</strong>${s.detail ? ': ' + escapeHtml(s.detail) : ''}</li>`;
+    }).join('');
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Intent Signals:</span><ul class="pm-intel__signals">${signalItems}</ul></div>`);
+  }
+
   if (rows.length === 0) return '<div style="font-size:12px;color:#9ca3af;">No company intel available</div>';
   return `<div class="pm-intel">${rows.join('')}</div>`;
+}
+
+function renderCompanyIntelSection(key: string, pd: PersonData): string {
+  const state = companyIntelState.get(key) || 'idle';
+  const companyName = pd.currentCompany;
+  if (!companyName) return '';
+
+  if (state === 'loading') {
+    return renderExpandableSection(key, 'intel', 'Company Intel', `
+      <div class="pm-intel-skeleton">
+        <div class="pm-skeleton-row pm-skeleton-row--wide"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--medium"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--wide"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--short"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--medium"></div>
+      </div>
+    `);
+  }
+
+  if (typeof state === 'object' && 'data' in state) {
+    return renderExpandableSection(key, 'intel', 'Company Intel', renderCompanyIntelFromData(state.data));
+  }
+
+  if (typeof state === 'object' && 'error' in state) {
+    return renderExpandableSection(key, 'intel', 'Company Intel',
+      `<div style="font-size:12px;color:#991B1B;">${escapeHtml(state.error)}</div>`);
+  }
+
+  // idle — show fetch button
+  return `
+    <div class="pm-section" data-section="intel" data-attendee="${escapeHtml(key)}">
+      <button class="pm-intel-fetch-btn" data-fetch-intel="${escapeHtml(key)}">
+        <span class="pm-intel-fetch-btn__icon">🏢</span>
+        Company Intel
+        <span class="pm-intel-fetch-btn__arrow">→</span>
+      </button>
+    </div>`;
 }
 
 function renderRecentPosts(pd: PersonData): string {
@@ -508,8 +577,8 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
     } else if (pd.skills && pd.skills.length > 0) {
       sections.push(renderExpandableSection(key, 'skills', 'Skills', renderSkills(pd.skills)));
     }
-    if (pd.companyIndustry || pd.companySize || pd.companyFounded || pd.recentNews || pd.companyProducts || pd.companyTechnologies) {
-      sections.push(renderExpandableSection(key, 'intel', 'Company Intel', renderCompanyIntel(pd)));
+    if (pd.currentCompany) {
+      sections.push(renderCompanyIntelSection(key, pd));
     }
     if (pd.recentPosts && pd.recentPosts.length > 0) {
       sections.push(renderExpandableSection(key, 'posts', 'Recent Posts', renderRecentPosts(pd)));
@@ -609,6 +678,34 @@ function attachCardListeners(card: HTMLElement, key: string): void {
     });
   }
 
+  // Company Intel fetch button
+  const intelBtn = card.querySelector<HTMLButtonElement>(`[data-fetch-intel="${CSS.escape(key)}"]`);
+  if (intelBtn) {
+    intelBtn.addEventListener('click', () => {
+      const attendee = attendeeMap.get(key);
+      if (!attendee?.personData?.currentCompany) return;
+      const pd = attendee.personData;
+
+      companyIntelState.set(key, 'loading');
+      // Auto-expand the intel section
+      const sections = expandedSections.get(key) || new Set();
+      sections.add('intel');
+      expandedSections.set(key, sections);
+      // Re-render card to show skeleton
+      updateCardContent(card, attendee);
+
+      chrome.runtime.sendMessage({
+        type: 'FETCH_COMPANY_INTEL',
+        payload: {
+          email: attendee.email,
+          companyName: pd.currentCompany!,
+          linkedinUrl: pd.companyLinkedinUrl || undefined,
+          website: pd.companyWebsite || undefined,
+        },
+      });
+    });
+  }
+
   // Section toggles
   const sectionToggles = card.querySelectorAll<HTMLButtonElement>('[data-toggle-section]');
   sectionToggles.forEach((toggle) => {
@@ -701,6 +798,29 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
   if (msg.type === 'ATTENDEE_UPDATE') {
     const { email, attendee } = msg.payload;
     updateSingleAttendee(email, attendee);
+    refreshCredits();
+  }
+
+  if (msg.type === 'COMPANY_INTEL_RESULT') {
+    const payload = msg.payload as { email: string; data?: CompanyData; cached?: boolean; error?: string };
+    const key = payload.email.toLowerCase();
+    if ('error' in payload && payload.error) {
+      companyIntelState.set(key, { error: payload.error });
+    } else if (payload.data) {
+      companyIntelState.set(key, { data: payload.data });
+    }
+    // Re-render the card to show results
+    const attendee = attendeeMap.get(key);
+    if (attendee && Els.list) {
+      const existingCard = Els.list.querySelector<HTMLElement>(`[data-attendee-key="${CSS.escape(key)}"]`);
+      if (existingCard) {
+        // Auto-expand intel section
+        const sections = expandedSections.get(key) || new Set();
+        sections.add('intel');
+        expandedSections.set(key, sections);
+        updateCardContent(existingCard, attendee);
+      }
+    }
     refreshCredits();
   }
 });

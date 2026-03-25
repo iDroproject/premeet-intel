@@ -7,10 +7,10 @@ import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, ContentToBackgrou
 import { enrichAttendee } from './enrichment';
 import { hasCredit, useCredit, getCredits } from '../utils/credits';
 import { WaterfallOrchestrator, CacheManager } from './enrichment/index';
-import type { PersonData, ProgressPayload, SearchResult } from './enrichment/types';
+import type { PersonData, ProgressPayload, SearchResult, CompanyData } from './enrichment/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
-import { signInWithGoogle, signOut, getAuthState, getCurrentUser } from '../lib/auth';
+import { signInWithGoogle, signOut, getAuthState, getCurrentUser, authFetch } from '../lib/auth';
 import { getSettings } from '../utils/settings';
 import { createLogBuffer, log as debugLog } from '../utils/logger';
 
@@ -82,6 +82,12 @@ chrome.runtime.onMessage.addListener(
 
     if (msg.type === 'ENRICH_PERSON') {
       handleEnrichPerson(msg.payload, sender.tab?.id);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'FETCH_COMPANY_INTEL') {
+      handleFetchCompanyIntel(msg.payload);
       sendResponse({ ok: true });
       return false;
     }
@@ -557,6 +563,50 @@ async function handleEnrichSingleAttendee(email: string, _senderTabId?: number):
     notifyContentScript({ type: 'ENRICHMENT_COMPLETE' });
     debugLog('Background', 'info', `All attendees enriched for "${currentMeeting.title}"`);
     console.log(LOG, `All attendees enriched for "${currentMeeting.title}"`);
+  }
+}
+
+// ─── Company Intel (on-demand, 1 credit) ─────────────────────────────────────
+
+async function handleFetchCompanyIntel(
+  payload: { email: string; companyName: string; linkedinUrl?: string; website?: string },
+): Promise<void> {
+  const { email, companyName, linkedinUrl, website } = payload;
+  console.log(LOG, `Company intel fetch for: "${companyName}" (attendee: ${email})`);
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+  if (!supabaseUrl) {
+    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: 'API not configured' } });
+    return;
+  }
+
+  const url = `${supabaseUrl}/functions/v1/enrichment-company`;
+  const body: Record<string, string> = { companyName };
+  if (linkedinUrl) body.linkedinUrl = linkedinUrl;
+  if (website) body.website = website;
+
+  try {
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errMsg = (errBody as { error?: string }).error || `HTTP ${res.status}`;
+      console.error(LOG, `Company intel error for "${companyName}":`, errMsg);
+      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
+      return;
+    }
+
+    const json = await res.json() as { data: CompanyData; cached: boolean };
+    console.log(LOG, `Company intel complete for "${companyName}" (cached: ${json.cached})`);
+    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: json.data, cached: json.cached } });
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(LOG, `Company intel fetch failed for "${companyName}":`, errMsg);
+    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
   }
 }
 
