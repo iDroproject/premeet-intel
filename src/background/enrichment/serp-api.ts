@@ -1,13 +1,12 @@
-// PreMeet – SERP API Client (Direct /request endpoint)
-// Uses Bright Data's SERP API with brd_json=1 for structured single-request results.
-// Returns structured JSON with organic results for reliable LinkedIn URL extraction.
+// PreMeet – SERP API Client (Discover endpoint)
+// Uses the /discover endpoint for structured search results.
+// Returns JSON with organic results for reliable LinkedIn URL extraction.
 
 import { proxyFetch } from './brightdata-proxy';
 import type { CompanyInfo } from './types';
 
 const LOG_PREFIX = '[PreMeet][SERP]';
 
-const SERP_ZONE = 'serp';
 function extractLinkedInUrl(data: unknown): string | null {
   // 1. Structured JSON with organic results (brd_json=1 format).
   if (data && typeof data === 'object' && !Array.isArray(data)) {
@@ -51,21 +50,24 @@ function extractLinkedInUrl(data: unknown): string | null {
 }
 
 /**
- * Single synchronous SERP request via /request endpoint with brd_json=1.
- * Returns structured JSON directly — no polling needed.
+ * Search via the /discover endpoint.
+ * Accepts a plain-text query and returns structured JSON results.
  */
-async function _serpRequest(searchUrl: string): Promise<unknown> {
-  console.log(LOG_PREFIX, 'SERP request:', searchUrl.slice(0, 120));
+async function _discoverRequest(query: string): Promise<unknown> {
+  console.log(LOG_PREFIX, 'Discover request:', query.slice(0, 120));
 
-  const response = await proxyFetch('/request', 'POST', {
-    zone: SERP_ZONE,
-    url: searchUrl,
-    format: 'raw',
+  const response = await proxyFetch('/discover', 'POST', {
+    query,
+    language: 'en',
+    country: 'US',
+    format: 'json',
+    remove_duplicates: false,
+    include_content: false,
   });
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => '');
-    throw new Error(`SERP API HTTP ${response.status}: ${errBody.slice(0, 200)}`);
+    throw new Error(`Discover API HTTP ${response.status}: ${errBody.slice(0, 200)}`);
   }
 
   const contentType = response.headers.get('content-type') || '';
@@ -86,20 +88,21 @@ export async function serpFindLinkedInUrl(
 ): Promise<string | null> {
   if (!query || !query.trim()) return null;
 
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent('site:linkedin.com/in ' + query)}&brd_json=1&hl=en&gl=us`;
+  // Use the Discover API with a linkedin-scoped query
+  const discoverQuery = `${query} linkedin`;
 
-  console.log(LOG_PREFIX, 'SERP LinkedIn search:', query);
+  console.log(LOG_PREFIX, 'Discover LinkedIn search:', query);
   const start = Date.now();
 
   try {
-    const data = await _serpRequest(searchUrl);
+    const data = await _discoverRequest(discoverQuery);
     const elapsed = Date.now() - start;
     const url = extractLinkedInUrl(data);
-    console.log(LOG_PREFIX, `SERP LinkedIn search completed in ${elapsed}ms, found: ${url || 'none'}`);
+    console.log(LOG_PREFIX, `Discover LinkedIn search completed in ${elapsed}ms, found: ${url || 'none'}`);
     return url;
   } catch (err) {
     const elapsed = Date.now() - start;
-    console.warn(LOG_PREFIX, `SERP LinkedIn search failed in ${elapsed}ms:`, (err as Error).message);
+    console.warn(LOG_PREFIX, `Discover LinkedIn search failed in ${elapsed}ms:`, (err as Error).message);
     throw err;
   }
 }
@@ -109,16 +112,15 @@ export async function serpSearchCompanyInfo(
 ): Promise<CompanyInfo | null> {
   if (!companyName || !companyName.trim()) return null;
 
-  const query = `${companyName} company overview products services founded`;
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&brd_json=1&hl=en&gl=us`;
+  const discoverQuery = `${companyName} company overview products services founded`;
 
-  console.log(LOG_PREFIX, 'SERP company search:', companyName);
+  console.log(LOG_PREFIX, 'Discover company search:', companyName);
 
   try {
-    const data = await _serpRequest(searchUrl);
+    const data = await _discoverRequest(discoverQuery);
     return extractCompanyInfo(data, companyName);
   } catch (err) {
-    console.warn(LOG_PREFIX, 'SERP company search failed:', (err as Error).message);
+    console.warn(LOG_PREFIX, 'Discover company search failed:', (err as Error).message);
     return null;
   }
 }
