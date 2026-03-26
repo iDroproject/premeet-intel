@@ -55,6 +55,9 @@ type CustomEnrichState =
   | { error: string };
 const customEnrichState = new Map<string, CustomEnrichState>();
 
+// Track which attendee previews have been tracked in Mixpanel (avoid duplicate events)
+const previewTracked = new Set<string>();
+
 // Suggestion prompts for custom enrichment
 const CUSTOM_ENRICH_SUGGESTIONS = [
   'Recent speaking engagements',
@@ -440,6 +443,21 @@ function renderSkills(skills: string[]): string {
   return `<div class="pm-skills">${skills.map((s) => `<span class="pm-skill-tag">${escapeHtml(s)}</span>`).join('')}</div>`;
 }
 
+/**
+ * Wraps section content with a blurred lock overlay and inline sign-in CTA.
+ * Used for masked sections in freemium preview mode.
+ */
+function renderLockedSection(content: string, label: string): string {
+  return `
+    <div class="pm-section-lock">
+      <div class="pm-section-lock__content">${content}</div>
+      <div class="pm-section-lock__cta" data-lock-signin>
+        <div class="pm-section-lock__icon">&#128274;</div>
+        <div class="pm-section-lock__label">Sign in to view ${escapeHtml(label)}</div>
+      </div>
+    </div>`;
+}
+
 function renderCompanyIntelFromData(cd: CompanyData): string {
   const rows: string[] = [];
 
@@ -754,7 +772,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   if (attendee.fromCache) classes.push('pm-card--cache-hit');
   if (attendee.hasLinkedIn && !isDone) classes.push('pm-card--usable');
   if (isDone && !attendee.error) classes.push('pm-card--complete');
-  if (isPreview) classes.push('pm-locked-overlay');
+  if (isPreview) classes.push('pm-card--preview');
 
   card.className = classes.join(' ');
 
@@ -834,20 +852,31 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
     companySectionHtml = renderCompanySection(pd);
 
     if (pd.bio) {
-      bioHtml = renderBio(pd.bio, key);
+      if (isPreview) {
+        bioHtml = renderLockedSection(renderBio(pd.bio, key), 'full bio');
+      } else {
+        bioHtml = renderBio(pd.bio, key);
+      }
     }
 
     // Expandable sections
     const sections: string[] = [];
     if (pd.experience && pd.experience.length > 0) {
-      sections.push(renderExpandableSection(key, 'work', 'Work History', renderWorkHistory(pd.experience)));
+      const workContent = renderExpandableSection(key, 'work', 'Work History', renderWorkHistory(pd.experience));
+      sections.push(isPreview ? renderLockedSection(workContent, 'work history') : workContent);
     }
     if (pd.education && pd.education.length > 0) {
-      sections.push(renderExpandableSection(key, 'education', 'Education', renderEducation(pd.education)));
+      const eduContent = renderExpandableSection(key, 'education', 'Education', renderEducation(pd.education));
+      sections.push(isPreview ? renderLockedSection(eduContent, 'education') : eduContent);
     }
     if (isPreview && originalPd && originalPd.skills && originalPd.skills.length > 0) {
       const count = skillsPreviewCount(originalPd);
-      sections.push(renderExpandableSection(key, 'skills', 'Skills', `<div class="pm-skills-preview">${count} skills &mdash; sign in to view</div>`));
+      sections.push(renderExpandableSection(key, 'skills', 'Skills',
+        renderLockedSection(
+          `<div class="pm-skills-preview">${count} skills available</div>`,
+          'skills'
+        )
+      ));
     } else if (pd.skills && pd.skills.length > 0) {
       sections.push(renderExpandableSection(key, 'skills', 'Skills', renderSkills(pd.skills)));
     }
@@ -864,6 +893,12 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
       sections.push(renderExpandableSection(key, 'posts', 'Recent Posts', renderRecentPosts(pd)));
     }
     expandableSectionsHtml = sections.join('');
+
+    // Track freemium preview impression
+    if (isPreview && !previewTracked.has(key)) {
+      previewTracked.add(key);
+      track('freemium_preview_viewed', { email: attendee.email });
+    }
   }
 
   // ── Skeleton placeholders for pending state ──
@@ -1131,6 +1166,15 @@ function attachCardListeners(card: HTMLElement, key: string): void {
       }
     });
   });
+
+  // Freemium lock CTA: clicking any lock overlay triggers sign-in
+  const lockCtas = card.querySelectorAll<HTMLElement>('[data-lock-signin]');
+  lockCtas.forEach((cta) => {
+    cta.addEventListener('click', () => {
+      track('freemium_cta_clicked', { section: cta.closest<HTMLElement>('.pm-section')?.dataset.section || 'bio' });
+      Els.ctaSignin?.click();
+    });
+  });
 }
 
 // ─── Full Render (initial load) ──────────────────────────────────────────────
@@ -1313,16 +1357,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       if (response?.ok) {
+        const wasPreview = !isAuthenticated;
         isAuthenticated = true;
         if (response.user) {
           identifyUser(response.user);
           track('Sign In', { login_method: 'google' });
+          if (wasPreview) {
+            track('freemium_converted', { attendees_previewed: previewTracked.size });
+          }
         }
         updateCtaBanner();
-        // Re-render all attendees with full data
+        // Re-render all attendees with full data and unmasking animation
         if (currentMeeting) {
           const attendees = [...attendeeMap.values()];
           renderAllAttendees(currentMeeting, attendees);
+          // Apply unmasking animation after re-render
+          if (wasPreview) {
+            document.querySelectorAll('.pm-card').forEach((el) => {
+              el.classList.add('pm-card--unmasking');
+            });
+            setTimeout(() => {
+              document.querySelectorAll('.pm-card--unmasking').forEach((el) => {
+                el.classList.remove('pm-card--unmasking');
+              });
+            }, 500);
+          }
         }
         refreshCredits();
       }
