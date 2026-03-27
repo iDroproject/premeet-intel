@@ -520,8 +520,11 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
     broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
   } catch (searchErr) {
     const errMsg = (searchErr as Error).message;
-    console.error(LOG, `Search failed for ${email}:`, errMsg);
+    const errStack = (searchErr as Error).stack || '';
+    console.error(LOG, `Search failed for ${email}:`, errMsg, '\nStack:', errStack);
     debugLog('Background', 'error', `Search failed for ${email}: ${errMsg}`);
+    // Persist last error for diagnostics (retrievable via chrome.storage.local.get('pm_last_error'))
+    chrome.storage.local.set({ pm_last_error: { email, error: errMsg, stack: errStack, ts: Date.now() } }).catch(() => {});
     currentEnriched[idx] = {
       ...currentEnriched[idx],
       status: 'error',

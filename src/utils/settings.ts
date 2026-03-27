@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS: Settings = {
   cacheDuration: '7d',
   showConfidenceScores: true,
   compactMode: false,
-  autoSearchAttendees: false,
+  autoSearchAttendees: true,
 };
 
 export function getDefaultSettings(): Settings {
