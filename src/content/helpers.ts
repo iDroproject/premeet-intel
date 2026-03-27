@@ -54,6 +54,33 @@ export function isPersonEmail(email: string): boolean {
   return true;
 }
 
+/**
+ * Strings that appear as attendee names in Google Calendar but are not
+ * real people. Case-insensitive exact match after trimming.
+ */
+const NON_PERSON_NAMES = new Set([
+  'transferred from', 'forwarded invitation', 'no organizer',
+  'unknown organizer', 'room', 'conference room', 'meeting room',
+  'guest', 'group', 'team', 'everyone', 'all', 'calendar',
+  'no reply', 'noreply', 'do not reply', 'mailer-daemon', 'postmaster',
+]);
+
+const NON_PERSON_PATTERNS = [
+  /^\d+\s+more$/i,
+  /^\+?\d+$/,
+  /^[\W_]+$/,
+  /^.{0,1}$/,
+  /^(transferred|forwarded)\s/i,
+];
+
+/** Returns true if the cleaned name looks like a real person. */
+export function isLikelyPersonName(name: string): boolean {
+  if (!name) return false;
+  if (name.length > MAX_NAME_LENGTH) return false;
+  if (NON_PERSON_NAMES.has(name.toLowerCase().trim())) return false;
+  return !NON_PERSON_PATTERNS.some((re) => re.test(name.trim()));
+}
+
 /** Returns true if the Chrome extension context is still valid (not invalidated by reload/update). */
 export function isContextValid(): boolean {
   return typeof chrome !== 'undefined' && !!chrome.runtime?.id;

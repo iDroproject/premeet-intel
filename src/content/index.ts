@@ -6,7 +6,7 @@
 
 import type { Attendee, MeetingEvent, ContentToBackground, TriggerMode } from '../types';
 import { initOnboarding, onMeetingDetected, onEnrichmentComplete } from './onboarding';
-import { cleanName, nameFromEmail, companyFromEmail, isContextValid, isPersonEmail, MAX_NAME_LENGTH } from './helpers';
+import { cleanName, nameFromEmail, companyFromEmail, isContextValid, isPersonEmail, isLikelyPersonName, MAX_NAME_LENGTH } from './helpers';
 import { injectButtons, removeButtons, resetAllLoadingButtons } from './button-injector';
 import type { AttendeeWithElement } from './button-injector';
 
@@ -93,7 +93,11 @@ function extractViaMailtoLinks(root: Element): AttendeeRaw[] {
   return results;
 }
 
-const ATTENDEE_SELECTORS = ['.PoMeXc', '.PKKqje', '.xYjf6e', '[jsname="ESCLMb"]', '[jsname="haAclf"]'];
+const ATTENDEE_SELECTORS = [
+  '.PoMeXc', '.PKKqje', '.xYjf6e',
+  '[jsname="ESCLMb"]', '[jsname="haAclf"]',
+  '#xDetDlgAtt [data-email]', '#xDetDlgAtt .bgOWSb',
+];
 
 function extractViaKnownClasses(root: Element): AttendeeRaw[] {
   const results: AttendeeRaw[] = [];
@@ -112,8 +116,137 @@ function extractViaKnownClasses(root: Element): AttendeeRaw[] {
   return results;
 }
 
+/**
+ * Strategy 5: Title-attribute email scan.
+ * GCal places attendee emails in the `title` attribute of chip elements.
+ * Most direct and reliable when data-email is absent.
+ */
+function extractViaTitleAttribute(root: Element): AttendeeRaw[] {
+  const results: AttendeeRaw[] = [];
+  root.querySelectorAll<HTMLElement>('[title*="@"]').forEach((el) => {
+    const title = el.getAttribute('title') || '';
+    const emailMatch = title.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+    if (!emailMatch) return;
+    const email = emailMatch[0];
+
+    let name = cleanName(el.getAttribute('aria-label') || '');
+    if (!name || name.includes('@')) name = cleanName(el.textContent?.trim() || '');
+    if (!name || name.includes('@')) {
+      const nameFromTitle = title.replace(/<[^>]+>/, '').replace(email, '').trim();
+      name = cleanName(nameFromTitle);
+    }
+    if (!name || name.includes('@')) name = nameFromEmail(email);
+
+    const target = el.closest('li, [role="listitem"], div.PoMeXc, div.PKKqje') || el;
+    results.push({ name, email, company: companyFromEmail(email), element: target });
+  });
+  return results;
+}
+
+/**
+ * Strategy 6: Full text-node scan for email addresses.
+ * Walks every text node inside the popup — most resilient fallback
+ * since it works regardless of GCal class names or data attributes.
+ */
+function extractViaTextScan(root: Element): AttendeeRaw[] {
+  const results: AttendeeRaw[] = [];
+  const emailRe = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+
+  // Skip description/location sections — emails there are meeting body text, not attendees.
+  const DESCRIPTION_SELECTORS =
+    '[data-eventchip] [data-content], [data-eventid] .NMtib, [jsname="x8hBRd"], .IbTbbe, ' +
+    '[aria-label*="description" i], [aria-label*="location" i], ' +
+    '[aria-label*="conference" i], [aria-label*="join with" i]';
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let textNode: Node | null;
+
+  while ((textNode = walker.nextNode())) {
+    const text = textNode.textContent || '';
+    const matches = text.match(emailRe);
+    if (!matches) continue;
+
+    if ((textNode as Text).parentElement?.closest(DESCRIPTION_SELECTORS)) continue;
+
+    for (const email of matches) {
+      if (!isPersonEmail(email)) continue;
+
+      let el: Element | null = (textNode as Text).parentElement;
+      const BLOCK = new Set(['LI', 'TR', 'DIV', 'SPAN', 'P', 'ARTICLE', 'SECTION']);
+      while (el && el !== root && !BLOCK.has(el.tagName)) {
+        el = el.parentElement;
+      }
+      if (!el || el === root) el = (textNode as Text).parentElement;
+
+      let name = cleanName(el?.getAttribute('aria-label') || '');
+      if (!name || name.includes('@')) {
+        const fullText = ((el as HTMLElement)?.innerText || el?.textContent || '')
+          .replace(email, '')
+          .replace(/,\s*$/, '')
+          .trim();
+        name = cleanName(fullText);
+      }
+      if (!name || name.includes('@')) name = nameFromEmail(email);
+      if (name.length > MAX_NAME_LENGTH) name = nameFromEmail(email);
+
+      results.push({ name, email, company: companyFromEmail(email), element: el });
+    }
+  }
+  return results;
+}
+
+/**
+ * Strategy 7: Scan elements near "X guests" text.
+ * Finds the guest count section and scans descendant leaf elements.
+ */
+function extractViaGuestSection(root: Element): AttendeeRaw[] {
+  const results: AttendeeRaw[] = [];
+  const emailRe = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+
+  const guestHeaderEl = Array.from(root.querySelectorAll('*')).find((el) => {
+    if (el.children.length > 5) return false;
+    const t = ((el as HTMLElement).innerText || el.textContent || '').trim().toLowerCase();
+    return /^\d+\s+guests?$/.test(t) || t === 'guests' || t === 'guest';
+  });
+
+  if (!guestHeaderEl) return results;
+
+  const guestSection =
+    guestHeaderEl.closest('[aria-label*="guest" i], [aria-label*="attendee" i]') ||
+    guestHeaderEl.parentElement?.parentElement;
+
+  if (!guestSection || guestSection === root) return results;
+
+  guestSection.querySelectorAll('*').forEach((el) => {
+    if (el.children.length > 0) return;
+    const text = ((el as HTMLElement).innerText || el.textContent || '').trim();
+    if (!text) return;
+
+    if (emailRe.test(text)) {
+      const email = text.match(emailRe)![0];
+      results.push({ name: nameFromEmail(email), email, company: companyFromEmail(email), element: (el.parentElement || el) as Element });
+    } else if (text.length > 1 && text.length < 60 && !/^\d+$/.test(text) && text !== 'Organizer') {
+      const ariaEmail =
+        el.getAttribute('data-email') ||
+        (el.getAttribute('data-hovercard-id') || '').replace(/^contact:/, '');
+      if (ariaEmail.includes('@')) {
+        results.push({ name: cleanName(text), email: ariaEmail, company: companyFromEmail(ariaEmail), element: (el.parentElement || el) as Element });
+      }
+    }
+  });
+  return results;
+}
+
 function extractAttendees(popup: Element): AttendeeRaw[] {
-  const strategies = [extractViaDataAttributes, extractViaAriaLabels, extractViaMailtoLinks, extractViaKnownClasses];
+  const strategies = [
+    extractViaTitleAttribute,    // Highest confidence — title attr emails
+    extractViaDataAttributes,
+    extractViaAriaLabels,
+    extractViaMailtoLinks,
+    extractViaKnownClasses,
+    extractViaGuestSection,
+    extractViaTextScan,          // Broadest fallback — scans all text nodes
+  ];
   const all: AttendeeRaw[] = [];
   for (const fn of strategies) {
     try { all.push(...fn(popup)); } catch { /* ignore */ }
@@ -124,12 +257,16 @@ function extractAttendees(popup: Element): AttendeeRaw[] {
     const key = (a.email || a.name).toLowerCase();
     if (key && !seen.has(key)) seen.set(key, a);
   }
-  // Filter out non-person emails (SIP, conference, system) and overly-long names
+  // Filter out non-person emails and non-person names
   return [...seen.values()].filter((a) => {
     if (a.email && !isPersonEmail(a.email)) return false;
     if (a.name && a.name.length > MAX_NAME_LENGTH) {
       a.name = a.email ? nameFromEmail(a.email) : a.name.slice(0, MAX_NAME_LENGTH);
     }
+    // If attendee has a valid email, keep them even with an odd name
+    if (a.email && a.email.includes('@')) return true;
+    // Name-only attendees must pass the person-name check
+    if (!isLikelyPersonName(a.name)) return false;
     return true;
   });
 }
@@ -205,17 +342,27 @@ function processPopup(popup: Element): void {
 
   const attendees = extractAttendees(popup);
   if (attendees.length === 0) {
-    // Retry once after DOM settles
-    setTimeout(() => {
-      if (!popup.isConnected || processed.has(popup) || !isContextValid()) return;
-      const retried = extractAttendees(popup);
-      if (retried.length > 0) {
-        processed.add(popup);
-        handlePopupWithAttendees(popup, retried);
-      } else {
-        processed.add(popup); // No guests — mark done to avoid loops
+    // Escalating retry — 3 attempts at increasing delays
+    const RETRY_DELAYS = [400, 1200, 2500];
+    let attempt = 0;
+    const tryRetry = (): void => {
+      if (attempt >= RETRY_DELAYS.length) {
+        processed.add(popup); // No guests after all retries
+        return;
       }
-    }, 800);
+      setTimeout(() => {
+        if (!popup.isConnected || processed.has(popup) || !isContextValid()) return;
+        const retried = extractAttendees(popup);
+        if (retried.length > 0) {
+          processed.add(popup);
+          handlePopupWithAttendees(popup, retried);
+        } else {
+          attempt++;
+          tryRetry();
+        }
+      }, RETRY_DELAYS[attempt]);
+    };
+    tryRetry();
     return;
   }
 
