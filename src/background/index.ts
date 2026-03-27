@@ -365,7 +365,8 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
  * This avoids redundant SERP/deep-lookup calls for repeat attendees.
  */
 async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
-  const serverCache = new EnrichmentCacheService();
+  const auth = await getAuthState();
+  const serverCache = auth.isAuthenticated ? new EnrichmentCacheService() : null;
   let warmed = 0;
 
   const checks = meeting.attendees.map(async (attendee, idx) => {
@@ -375,7 +376,7 @@ async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
     let personData = await cache.get<PersonData>(cacheKey);
 
     // Fall back to server cache
-    if (!personData) {
+    if (!personData && serverCache) {
       try {
         const serverResult = await serverCache.get('person', cacheKey);
         if (serverResult.hit && serverResult.data) {

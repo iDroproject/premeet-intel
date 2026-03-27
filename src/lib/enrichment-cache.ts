@@ -16,6 +16,7 @@ function getApiBaseUrl(): string {
 
 export interface CacheLookupResult {
   hit: boolean;
+  stale: boolean;
   data: Record<string, unknown> | null;
   confidence: ConfidenceLevel | null;
   confidenceScore: number | null;
@@ -93,6 +94,7 @@ export class EnrichmentCacheService {
   private async _lookup(entityType: EntityType, entityKey: string): Promise<CacheLookupResult> {
     const miss: CacheLookupResult = {
       hit: false,
+      stale: false,
       data: null,
       confidence: null,
       confidenceScore: null,
@@ -113,9 +115,11 @@ export class EnrichmentCacheService {
         return miss;
       }
 
-      console.log(LOG_PREFIX, `Cache hit: ${entityType}/${entityKey}`);
+      const isStale = !!(result.stale);
+      console.log(LOG_PREFIX, `Cache ${isStale ? 'stale' : 'hit'}: ${entityType}/${entityKey}`);
       return {
         hit: true,
+        stale: isStale,
         data: result.data as Record<string, unknown>,
         confidence: (result.confidence as ConfidenceLevel) ?? null,
         confidenceScore: (result.confidenceScore as number) ?? null,
@@ -124,7 +128,12 @@ export class EnrichmentCacheService {
         expiresAt: (result.expiresAt as string) ?? null,
       };
     } catch (err) {
-      console.error(LOG_PREFIX, 'Lookup error:', (err as Error).message);
+      const msg = (err as Error).message;
+      if (msg === 'Not authenticated' || msg.includes('Session expired')) {
+        console.warn(LOG_PREFIX, 'Skipping server cache (not signed in)');
+      } else {
+        console.error(LOG_PREFIX, 'Lookup error:', msg);
+      }
       return miss;
     }
   }
