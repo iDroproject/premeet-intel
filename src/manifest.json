@@ -46,7 +46,7 @@
     "128": "icons/icon128.png"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://api.brightdata.com https://api-js.mixpanel.com https://mixpanel.com"
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "oauth2": {
     "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
