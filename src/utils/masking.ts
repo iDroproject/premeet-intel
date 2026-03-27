@@ -1,7 +1,7 @@
 // PreMeet — Freemium Data Masking
 // Masks high-value fields for unauthenticated users to encourage sign-in.
 
-import type { PersonData, ExperienceEntry, EducationEntry } from '../background/enrichment/types';
+import type { PersonData, ExperienceEntry, EducationEntry } from '../background/waterfall-data-fetch/types';
 
 /**
  * Masks a job title: show first word only + "..."

@@ -4,10 +4,10 @@
 // full waterfall enrichment pipeline (FETCH_PERSON_BACKGROUND).
 
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, ContentToBackground, PopupToBackground } from '../types';
-import { enrichAttendee } from './enrichment';
+import { enrichAttendee } from './waterfall-data-fetch';
 import { hasCredit, useCredit, getCredits } from '../utils/credits';
-import { WaterfallOrchestrator, CacheManager, normaliseCacheKey, EnrichmentCacheService } from './enrichment/index';
-import type { PersonData, ProgressPayload, SearchResult, CompanyData, ContactInfo } from './enrichment/types';
+import { WaterfallOrchestrator, CacheManager, normaliseCacheKey, EnrichmentCacheService } from './waterfall-data-fetch/index';
+import type { PersonData, ProgressPayload, SearchResult, CompanyData, ContactInfo } from './waterfall-data-fetch/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
 import { signInWithGoogle, signOut, getAuthState, getCurrentUser, authFetch } from '../lib/auth';

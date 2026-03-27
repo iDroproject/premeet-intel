@@ -1,6 +1,6 @@
 // PreMeet shared TypeScript types
 
-import type { PersonData, SearchResult, CompanyData, ContactInfo } from './background/enrichment/types';
+import type { PersonData, SearchResult, CompanyData, ContactInfo } from './background/waterfall-data-fetch/types';
 
 export interface Attendee {
   name: string;

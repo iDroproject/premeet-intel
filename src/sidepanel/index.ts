@@ -3,7 +3,7 @@
 // Communicates with the background service worker via chrome.runtime messaging.
 
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup, CustomEnrichmentResult } from '../types';
-import type { PersonData, SearchResult, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo } from '../background/enrichment/types';
+import type { PersonData, SearchResult, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo } from '../background/waterfall-data-fetch/types';
 import { getCredits, remainingCredits } from '../utils/credits';
 import { maskPersonData, skillsPreviewCount } from '../utils/masking';
 import { initMixpanel, identifyUser, resetUser, track } from '../lib/mixpanel';

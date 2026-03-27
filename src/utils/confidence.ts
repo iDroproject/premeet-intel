@@ -2,7 +2,7 @@
 // Assesses how well an enriched profile matches the original calendar attendee.
 // Produces a 0–100 score with weighted factor breakdown.
 
-import type { PersonData, ConfidenceCitation } from '../background/enrichment/types';
+import type { PersonData, ConfidenceCitation } from '../background/waterfall-data-fetch/types';
 import type { Attendee } from '../types';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
