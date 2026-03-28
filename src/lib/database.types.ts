@@ -1,6 +1,5 @@
-// PreMeet – Supabase Database Types
-// Generated from the schema; keep in sync with migrations.
-// In production, regenerate via: npx supabase gen types typescript --project-id <id>
+// PreMeet – Database Types (Neon Postgres)
+// Generated from the schema; keep in sync with neon/migrations/.
 
 export type SubscriptionTier = 'free' | 'pro' | 'enterprise';
 export type EntityType = 'person' | 'company';

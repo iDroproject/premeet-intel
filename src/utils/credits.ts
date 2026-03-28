@@ -1,6 +1,6 @@
 // PreMeet credit system
 // Tracks per-user enrichment usage against the freemium plan limit.
-// Stored in chrome.storage.local; will be synced to Supabase when ready.
+// Stored in chrome.storage.local; will be synced to Neon when the backend API is ready.
 
 import type { Credits, Plan } from '../types';
 

@@ -1,6 +1,6 @@
 // PreMeet — Client-side Auth Service
 // Manages Google OAuth sign-in via chrome.identity and session tokens
-// via the PreMeet Edge Functions.
+// via the PreMeet API.
 
 const LOG = '[PreMeet][Auth]';
 

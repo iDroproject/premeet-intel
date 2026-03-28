@@ -1,6 +1,6 @@
 // PreMeet feature requests
 // Stores feature requests and user votes in chrome.storage.local.
-// Will migrate to Supabase for cross-user sharing when credentials are ready.
+// Will migrate to Neon for cross-user sharing when the backend API is ready.
 
 import type { FeatureRequest } from '../types';
 
