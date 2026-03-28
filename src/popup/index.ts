@@ -365,7 +365,7 @@ function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
     const name = sr?.name || pd?.name || attendee.person?.name || attendee.name;
     const avatarUrl = sr?.avatarUrl || pd?.avatarUrl || null;
     const rawTitle = sr?.currentTitle || pd?.currentTitle || attendee.person?.title || '';
-    const title = (!isAuthenticated && rawTitle) ? (maskTitle(rawTitle) || '') : rawTitle;
+    const title = rawTitle; // Phase 1: no auth gate — show full titles
     const company = sr?.currentCompany || pd?.currentCompany || attendee.person?.company?.name || attendee.company || '';
     const location = sr?.location || pd?.location || '';
     const connections = sr?.connections ?? pd?.connections ?? null;
@@ -431,7 +431,7 @@ function renderAttendeeCard(attendee: EnrichedAttendee): HTMLElement {
 
   const name = attendee.person?.name || attendee.name;
   const rawTitle = attendee.person?.title || '';
-  const title = (!isAuthenticated && rawTitle) ? (maskTitle(rawTitle) || '') : rawTitle;
+  const title = rawTitle; // Phase 1: no auth gate
   const company = attendee.person?.company?.name || attendee.company || '';
   const email = attendee.email;
 
@@ -494,7 +494,7 @@ function renderAttendees(meeting: MeetingEvent, attendees: EnrichedAttendee[]): 
   showView('list');
 
   // Show CTA banner when attendees are visible but user is not authenticated
-  Els.ctaBanner?.classList.toggle('pm-hidden', isAuthenticated);
+  Els.ctaBanner?.classList.add('pm-hidden'); // Phase 1: no auth gate
 
   attendees.forEach((attendee) => {
     Els.list!.appendChild(renderAttendeeCard(attendee));
@@ -895,7 +895,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check auth state for freemium preview mode
   isAuthenticated = await checkAuthState();
   updateAuthUI();
-  Els.ctaBanner?.classList.toggle('pm-hidden', isAuthenticated);
+  Els.ctaBanner?.classList.add('pm-hidden'); // Phase 1: no auth gate
 
   // Auth event handlers — header, settings panel, and CTA banner sign-in buttons
   Els.headerSignin?.addEventListener('click', () => handleSignIn());

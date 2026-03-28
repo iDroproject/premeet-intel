@@ -218,7 +218,8 @@ async function checkAuthState(): Promise<boolean> {
 
 function updateCtaBanner(): void {
   if (!Els.ctaBanner) return;
-  Els.ctaBanner.classList.toggle('pm-hidden', isAuthenticated);
+  // Phase 1: always hide CTA banner — no auth gate on search
+  Els.ctaBanner.classList.add('pm-hidden');
 }
 
 // ─── Credits Display ────────────────────────────────────────────────────────
@@ -818,10 +819,9 @@ function renderContactInfoSection(key: string, pd: PersonData): string {
       `<div style="font-size:12px;color:#991B1B;">${escapeHtml(state.error)}</div>`);
   }
 
-  // idle — show fetch button (locked for free users)
-  const isLocked = !isAuthenticated;
-  const lockedClass = isLocked ? ' pm-contact-btn--locked' : '';
-  const lockIcon = isLocked ? '\uD83D\uDD12' : '\uD83D\uDCDE';
+  // idle — show fetch button (Phase 1: no auth gate)
+  const lockedClass = '';
+  const lockIcon = '\uD83D\uDCDE';
   return `
     <div class="pm-section" data-section="contact" data-attendee="${escapeHtml(key)}">
       <button class="pm-contact-btn${lockedClass}" data-fetch-contact="${escapeHtml(key)}">
@@ -862,7 +862,7 @@ function renderCustomEnrichSection(key: string, pd: PersonData): string {
   const state = customEnrichState.get(key) || 'idle';
 
   // Pro-gated: free users see locked button
-  const isPro = isAuthenticated; // TODO: check actual subscription tier
+  const isPro = true; // Phase 1: no auth gate — custom research available to all
 
   if (typeof state === 'object' && 'loading' in state) {
     return renderExpandableSection(key, 'custom', 'Custom Research', `
@@ -976,9 +976,9 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   const isSearched = attendee.status === 'searched';
   const isEnriching = attendee.status === 'enriching';
   const isDone = attendee.status === 'done';
-  const isPreview = !isAuthenticated && !!attendee.personData;
-  const pd = isPreview && attendee.personData ? maskPersonData(attendee.personData) : attendee.personData;
-  const originalPd = attendee.personData; // keep ref for skill count in preview
+  const isPreview = false; // Phase 1: no auth gate on search — show full data always
+  const pd = attendee.personData;
+  const originalPd = attendee.personData;
   const sr = attendee.searchResult; // search-phase preview data
   const name = pd?.name || sr?.name || attendee.person?.name || attendee.name;
   const title = pd?.currentTitle || sr?.currentTitle || attendee.person?.title || '';
@@ -997,7 +997,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   if (attendee.fromCache) classes.push('pm-card--cache-hit');
   if (attendee.hasLinkedIn && !isDone) classes.push('pm-card--usable');
   if (isDone && !attendee.error) classes.push('pm-card--complete');
-  if (isPreview) classes.push('pm-card--preview');
+  // isPreview is always false in Phase 1 — no preview class needed
 
   card.className = classes.join(' ');
 
@@ -1645,9 +1645,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // CTA sign-in button
   Els.ctaSignin?.addEventListener('click', () => {
+    const btn = Els.ctaSignin as HTMLButtonElement | null;
+    if (btn) btn.disabled = true;
     chrome.runtime.sendMessage({ type: 'AUTH_SIGN_IN' }, (response) => {
+      if (btn) btn.disabled = false;
       if (chrome.runtime.lastError) {
         console.warn(LOG, 'Sign-in failed:', chrome.runtime.lastError.message);
+        if (Els.errorMsg) Els.errorMsg.textContent = 'Sign-in failed. Please try again.';
+        showView('error');
+        return;
+      }
+      if (!response?.ok) {
+        console.warn(LOG, 'Sign-in failed:', response?.error || 'Unknown error');
+        if (Els.errorMsg) Els.errorMsg.textContent = response?.error || 'Sign-in failed. Please try again.';
+        showView('error');
         return;
       }
       if (response?.ok) {

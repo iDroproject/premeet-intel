@@ -12,6 +12,7 @@ import type { ActivityLogEntry, DataSourceLabel } from '../types';
 import { signInWithGoogle, signOut, getAuthState, getCurrentUser, authFetch } from '../lib/auth';
 import { getSettings } from '../utils/settings';
 import { createLogBuffer, log as debugLog } from '../utils/logger';
+import { hasSearchQuota, useSearchQuota, getSearchQuota } from '../utils/rateLimit';
 
 const LOG = '[PreMeet][SW]';
 const waterfallLogBuffer = createLogBuffer('Enrichment');
@@ -171,6 +172,11 @@ chrome.runtime.onMessage.addListener(
 
     if (msg.type === 'GET_ACTIVITY_LOG') {
       getActivityLog().then((entries) => sendResponse({ ok: true, entries })).catch(() => sendResponse({ ok: false }));
+      return true;
+    }
+
+    if (msg.type === 'GET_SEARCH_QUOTA') {
+      getSearchQuota().then((quota) => sendResponse({ ok: true, ...quota })).catch(() => sendResponse({ ok: false }));
       return true;
     }
 
@@ -515,12 +521,30 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
   if (s === 'pending' || s === 'searched' || s === 'enriching' || s === 'done') return;
 
   const attendee = currentMeeting.attendees[idx];
+
+  // Phase 1: client-side daily rate limit
+  if (!(await hasSearchQuota())) {
+    const quota = await getSearchQuota();
+    console.warn(LOG, `Daily search limit reached (${quota.used}/${quota.limit})`);
+    currentEnriched[idx] = {
+      ...currentEnriched[idx],
+      status: 'error',
+      stage: 'complete',
+      error: `Daily search limit reached (${quota.limit}/day). Resets tomorrow.`,
+    };
+    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+    return;
+  }
+
   console.log(LOG, `Search for: "${attendee.name}" <${attendee.email}>`);
   debugLog('Background', 'info', `Search started for "${attendee.name}" <${attendee.email}>`);
 
   // Mark as pending/searching
   currentEnriched[idx] = { ...currentEnriched[idx], status: 'pending', stage: 'searching' };
   broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+
+  // Count this search against the daily quota
+  await useSearchQuota().catch(() => {});
 
   const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
 

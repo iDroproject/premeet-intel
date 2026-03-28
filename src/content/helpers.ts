@@ -71,6 +71,8 @@ const NON_PERSON_PATTERNS = [
   /^[\W_]+$/,
   /^.{0,1}$/,
   /^(transferred|forwarded)\s/i,
+  /^\d+\s+guests?/i,                   // "2 guests", "3 guests1 yes1", etc.
+  /\b(yes|no|maybe|awaiting|accepted|declined|tentative)\s*\d/i, // "1 yes2 no"
 ];
 
 /** Returns true if the cleaned name looks like a real person. */
