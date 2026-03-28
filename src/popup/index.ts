@@ -110,6 +110,10 @@ function escapeHtml(str: string): string {
   return d.innerHTML;
 }
 
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
+}
+
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
@@ -323,7 +327,7 @@ function formatCount(n: number | null): string {
 
 function renderAvatarHtml(avatarUrl: string | null, fallbackName: string): string {
   if (avatarUrl) {
-    return `<img class="pm-avatar--photo" src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'pm-avatar--initials\\'>${escapeHtml(initials(fallbackName || '?'))}</div>'" />`;
+    return `<img class="pm-avatar--photo" src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" data-fallback-html="pm-avatar--initials" data-fallback-text="${escapeAttr(initials(fallbackName || '?'))}" />`;
   }
   return `<div class="pm-avatar--initials">${escapeHtml(initials(fallbackName || '?'))}</div>`;
 }
@@ -886,6 +890,28 @@ function wireEvents(): void {
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+
+// Delegated image error handler — replaces inline onerror attributes for CSP compliance
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const fallbackText = img.dataset.fallbackText;
+  const fallbackClass = img.dataset.fallbackHtml;
+  if (fallbackText && fallbackClass) {
+    const div = document.createElement('div');
+    div.className = fallbackClass;
+    div.textContent = fallbackText;
+    img.replaceWith(div);
+    return;
+  }
+  if (fallbackText) {
+    img.replaceWith(document.createTextNode(fallbackText));
+    return;
+  }
+  if (img.hasAttribute('data-hide-on-error')) {
+    img.style.display = 'none';
+  }
+}, true);
 
 document.addEventListener('DOMContentLoaded', async () => {
   if (Els.year) Els.year.textContent = String(new Date().getFullYear());

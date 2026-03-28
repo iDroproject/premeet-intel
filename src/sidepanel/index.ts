@@ -330,7 +330,7 @@ function updateCounter(): void {
 function renderAvatar(name: string, pd: PersonData | undefined, sr?: SearchResult | null): string {
   const avatarUrl = pd?.avatarUrl || sr?.avatarUrl;
   if (avatarUrl) {
-    return `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" onerror="this.replaceWith(document.createTextNode('${escapeHtml(initials(name))}'))">`;
+    return `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" data-fallback-text="${escapeAttr(initials(name))}">`;
   }
   return escapeHtml(initials(name || '?'));
 }
@@ -367,7 +367,7 @@ function renderCompanySection(pd: PersonData): string {
   if (!companyName) return '';
 
   const logo = pd.companyLogoUrl
-    ? `<img class="pm-company-section__logo" src="${escapeHtml(pd.companyLogoUrl)}" alt="" onerror="this.style.display='none'">`
+    ? `<img class="pm-company-section__logo" src="${escapeHtml(pd.companyLogoUrl)}" alt="" data-hide-on-error>`
     : '';
   const industry = pd.companyIndustry ? `<span class="pm-company-section__meta">${escapeHtml(pd.companyIndustry)}</span>` : '';
   const desc = pd.companyDescription
@@ -1631,6 +1631,20 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
 });
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+
+// Delegated image error handler — replaces inline onerror attributes for CSP compliance
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const fallback = img.dataset.fallbackText;
+  if (fallback) {
+    img.replaceWith(document.createTextNode(fallback));
+    return;
+  }
+  if (img.hasAttribute('data-hide-on-error')) {
+    img.style.display = 'none';
+  }
+}, true);
 
 document.addEventListener('DOMContentLoaded', async () => {
   if (Els.year) Els.year.textContent = String(new Date().getFullYear());

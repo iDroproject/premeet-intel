@@ -91,7 +91,18 @@ export async function signInWithGoogle(): Promise<AuthState> {
   const googleToken = await new Promise<string>((resolve, reject) => {
     chrome.identity.getAuthToken({ interactive: true }, (token) => {
       if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        const rawMsg = chrome.runtime.lastError.message || '';
+        console.error(LOG, 'OAuth2 error:', rawMsg);
+        // Map common OAuth errors to user-friendly messages
+        if (rawMsg.includes('bad client id')) {
+          reject(new Error('Google sign-in is not configured correctly. Please reinstall the extension or contact support.'));
+        } else if (rawMsg.includes('canceled') || rawMsg.includes('cancelled')) {
+          reject(new Error('Sign-in was cancelled.'));
+        } else if (rawMsg.includes('network')) {
+          reject(new Error('Network error during sign-in. Please check your connection.'));
+        } else {
+          reject(new Error('Sign-in failed. Please try again.'));
+        }
         return;
       }
       if (!token) {
