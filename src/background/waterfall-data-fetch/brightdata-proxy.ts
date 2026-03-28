@@ -1,9 +1,10 @@
 // PreMeet — BrightData API Client
-// Calls api.brightdata.com directly with the API key from build-time env.
-// Includes automatic retry with exponential backoff for transient failures.
+// Calls BrightData APIs directly with Bearer token authentication.
+// The API key is loaded from VITE_BRIGHTDATA_API_KEY at build time.
 
 const LOG_PREFIX = '[PreMeet][BDProxy]';
-const BRIGHTDATA_BASE = 'https://api.brightdata.com';
+
+const BRIGHTDATA_BASE_URL = 'https://api.brightdata.com';
 
 const RETRY_MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 1000;
@@ -37,7 +38,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Sends a request to BrightData directly, with automatic retry for transient failures.
+ * Sends a request to BrightData directly with Bearer token auth, with automatic retry.
  *
  * @param path      The BrightData API path (e.g. "/datasets/v3/scrape?dataset_id=...")
  * @param method    "GET" or "POST"
@@ -52,15 +53,8 @@ export async function proxyFetch(
   timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
   const apiKey = getApiKey();
-  const url = `${BRIGHTDATA_BASE}${path}`;
+  const url = `${BRIGHTDATA_BASE_URL}${path}`;
   const pathLabel = path.split('?')[0];
-
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
-  };
-  if (method === 'POST') {
-    headers['Content-Type'] = 'application/json';
-  }
 
   let lastError: Error | null = null;
 
@@ -70,13 +64,20 @@ export async function proxyFetch(
     const controller = new AbortController();
     const timerId = setTimeout(() => controller.abort(), timeoutMs);
 
-    const init: RequestInit = { method, headers, signal: controller.signal };
-    if (body !== undefined && method === 'POST') {
-      init.body = JSON.stringify(body);
-    }
-
     try {
-      const response = await fetch(url, init);
+      const headers: Record<string, string> = {
+        'Authorization': `Bearer ${apiKey}`,
+      };
+      if (method === 'POST') {
+        headers['Content-Type'] = 'application/json';
+      }
+
+      const response = await fetch(url, {
+        method,
+        headers,
+        signal: controller.signal,
+        ...(body !== undefined && method === 'POST' ? { body: JSON.stringify(body) } : {}),
+      });
       clearTimeout(timerId);
 
       console.log(LOG_PREFIX, `${method} ${pathLabel} → HTTP ${response.status} (attempt ${attempt})`);
