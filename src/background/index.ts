@@ -6,7 +6,7 @@
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, ContentToBackground, PopupToBackground } from '../types';
 import { hasCredit, useCredit, getCredits } from '../utils/credits';
 import { WaterfallOrchestrator, CacheManager, normaliseCacheKey, EnrichmentCacheService } from './waterfall-data-fetch/index';
-import type { PersonData, ProgressPayload, SearchResult, CompanyData, ContactInfo } from './waterfall-data-fetch/types';
+import type { PersonData, ProgressPayload, SearchResult, CompanyData, ContactInfo, HiringSignals, StakeholderMap, SocialPulse, ReputationData } from './waterfall-data-fetch/types';
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
 import { signInWithGoogle, signOut, getAuthState, getCurrentUser, authFetch } from '../lib/auth';
@@ -131,6 +131,30 @@ chrome.runtime.onMessage.addListener(
 
     if (msg.type === 'CUSTOM_ENRICHMENT') {
       handleCustomEnrichment(msg.payload);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'FETCH_HIRING_SIGNALS') {
+      handleFetchHiringSignals(msg.payload);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'FETCH_STAKEHOLDER_MAP') {
+      handleFetchStakeholderMap(msg.payload);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'FETCH_SOCIAL_PULSE') {
+      handleFetchSocialPulse(msg.payload);
+      sendResponse({ ok: true });
+      return false;
+    }
+
+    if (msg.type === 'FETCH_REPUTATION') {
+      handleFetchReputation(msg.payload);
       sendResponse({ ok: true });
       return false;
     }
@@ -784,6 +808,186 @@ async function handleCustomEnrichment(
     const errMsg = (err as Error).message;
     console.error(LOG, `Custom enrichment fetch failed for "${fullName}":`, errMsg);
     broadcastToPopups({ type: 'CUSTOM_ENRICHMENT_RESULT', payload: { email, error: errMsg } });
+  }
+}
+
+// ─── Hiring Signals (on-demand power-up, 0.5 credits) ──────────────────────
+
+async function handleFetchHiringSignals(
+  payload: { email: string; companyName: string; linkedinUrl?: string; website?: string },
+): Promise<void> {
+  const { email, companyName, linkedinUrl, website } = payload;
+  console.log(LOG, `Hiring signals fetch for: "${companyName}" (attendee: ${email})`);
+
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+  if (!apiBase) {
+    broadcastToPopups({ type: 'HIRING_SIGNALS_RESULT', payload: { email, error: 'API not configured' } });
+    return;
+  }
+
+  const url = `${apiBase}/enrichment-hiring-signals`;
+  const body: Record<string, string> = { companyName };
+  if (linkedinUrl) body.linkedinUrl = linkedinUrl;
+  if (website) body.website = website;
+
+  try {
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errMsg = (errBody as { error?: string; message?: string }).message
+        || (errBody as { error?: string }).error
+        || `HTTP ${res.status}`;
+      console.error(LOG, `Hiring signals error for "${companyName}":`, errMsg);
+      broadcastToPopups({ type: 'HIRING_SIGNALS_RESULT', payload: { email, error: errMsg } });
+      return;
+    }
+
+    const json = await res.json() as { data: HiringSignals; cached: boolean };
+    console.log(LOG, `Hiring signals complete for "${companyName}" (cached: ${json.cached})`);
+    broadcastToPopups({ type: 'HIRING_SIGNALS_RESULT', payload: { email, data: json.data, cached: json.cached } });
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(LOG, `Hiring signals fetch failed for "${companyName}":`, errMsg);
+    broadcastToPopups({ type: 'HIRING_SIGNALS_RESULT', payload: { email, error: errMsg } });
+  }
+}
+
+// ─── Stakeholder Map (on-demand power-up, 1 credit) ─────────────────────────
+
+async function handleFetchStakeholderMap(
+  payload: { email: string; companyName: string; linkedinUrl?: string },
+): Promise<void> {
+  const { email, companyName, linkedinUrl } = payload;
+  console.log(LOG, `Stakeholder map fetch for: "${companyName}" (attendee: ${email})`);
+
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+  if (!apiBase) {
+    broadcastToPopups({ type: 'STAKEHOLDER_MAP_RESULT', payload: { email, error: 'API not configured' } });
+    return;
+  }
+
+  const url = `${apiBase}/enrichment-stakeholder-map`;
+  const body: Record<string, string> = { companyName };
+  if (linkedinUrl) body.linkedinUrl = linkedinUrl;
+
+  try {
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errMsg = (errBody as { error?: string; message?: string }).message
+        || (errBody as { error?: string }).error
+        || `HTTP ${res.status}`;
+      console.error(LOG, `Stakeholder map error for "${companyName}":`, errMsg);
+      broadcastToPopups({ type: 'STAKEHOLDER_MAP_RESULT', payload: { email, error: errMsg } });
+      return;
+    }
+
+    const json = await res.json() as { data: StakeholderMap; cached: boolean };
+    console.log(LOG, `Stakeholder map complete for "${companyName}" (cached: ${json.cached})`);
+    broadcastToPopups({ type: 'STAKEHOLDER_MAP_RESULT', payload: { email, data: json.data, cached: json.cached } });
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(LOG, `Stakeholder map fetch failed for "${companyName}":`, errMsg);
+    broadcastToPopups({ type: 'STAKEHOLDER_MAP_RESULT', payload: { email, error: errMsg } });
+  }
+}
+
+// ─── Social Pulse (on-demand power-up, 0.5 credits) ─────────────────────────
+
+async function handleFetchSocialPulse(
+  payload: { email: string; companyName: string; website?: string },
+): Promise<void> {
+  const { email, companyName, website } = payload;
+  console.log(LOG, `Social pulse fetch for: "${companyName}" (attendee: ${email})`);
+
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+  if (!apiBase) {
+    broadcastToPopups({ type: 'SOCIAL_PULSE_RESULT', payload: { email, error: 'API not configured' } });
+    return;
+  }
+
+  const url = `${apiBase}/enrichment-social-pulse`;
+  const body: Record<string, string> = { companyName };
+  if (website) body.website = website;
+
+  try {
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errMsg = (errBody as { error?: string; message?: string }).message
+        || (errBody as { error?: string }).error
+        || `HTTP ${res.status}`;
+      console.error(LOG, `Social pulse error for "${companyName}":`, errMsg);
+      broadcastToPopups({ type: 'SOCIAL_PULSE_RESULT', payload: { email, error: errMsg } });
+      return;
+    }
+
+    const json = await res.json() as { data: SocialPulse; cached: boolean };
+    console.log(LOG, `Social pulse complete for "${companyName}" (cached: ${json.cached})`);
+    broadcastToPopups({ type: 'SOCIAL_PULSE_RESULT', payload: { email, data: json.data, cached: json.cached } });
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(LOG, `Social pulse fetch failed for "${companyName}":`, errMsg);
+    broadcastToPopups({ type: 'SOCIAL_PULSE_RESULT', payload: { email, error: errMsg } });
+  }
+}
+
+// ─── Reputation (on-demand power-up, 0.5 credits) ���─────────────────────────
+
+async function handleFetchReputation(
+  payload: { email: string; companyName: string },
+): Promise<void> {
+  const { email, companyName } = payload;
+  console.log(LOG, `Reputation fetch for: "${companyName}" (attendee: ${email})`);
+
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+  if (!apiBase) {
+    broadcastToPopups({ type: 'REPUTATION_RESULT', payload: { email, error: 'API not configured' } });
+    return;
+  }
+
+  const url = `${apiBase}/enrichment-reputation`;
+  const body: Record<string, string> = { companyName };
+
+  try {
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errMsg = (errBody as { error?: string; message?: string }).message
+        || (errBody as { error?: string }).error
+        || `HTTP ${res.status}`;
+      console.error(LOG, `Reputation error for "${companyName}":`, errMsg);
+      broadcastToPopups({ type: 'REPUTATION_RESULT', payload: { email, error: errMsg } });
+      return;
+    }
+
+    const json = await res.json() as { data: ReputationData; cached: boolean };
+    console.log(LOG, `Reputation complete for "${companyName}" (cached: ${json.cached})`);
+    broadcastToPopups({ type: 'REPUTATION_RESULT', payload: { email, data: json.data, cached: json.cached } });
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(LOG, `Reputation fetch failed for "${companyName}":`, errMsg);
+    broadcastToPopups({ type: 'REPUTATION_RESULT', payload: { email, error: errMsg } });
   }
 }
 

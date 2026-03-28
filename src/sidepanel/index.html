@@ -881,6 +881,36 @@
         margin-bottom: 4px;
       }
 
+      /* ── Power-up Add-on Buttons ── */
+      .pm-powerup-btn {
+        display: flex; align-items: center; gap: 8px;
+        width: 100%; padding: 10px 14px; margin: 0;
+        background: var(--pm-bg); color: var(--pm-text);
+        border: 1px solid var(--pm-border); border-radius: 8px;
+        font-size: 13px; font-weight: 600;
+        cursor: pointer; transition: all 0.15s ease;
+        font-family: var(--pm-font);
+      }
+      .pm-powerup-btn:hover {
+        background: var(--pm-primary-light);
+        border-color: var(--pm-primary);
+        color: var(--pm-primary);
+      }
+      .pm-powerup-btn__icon { font-size: 16px; }
+      .pm-powerup-btn__cost {
+        margin-left: auto;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--pm-text-tertiary);
+        background: var(--pm-border-light);
+        padding: 2px 8px;
+        border-radius: 10px;
+      }
+      .pm-powerup-btn:hover .pm-powerup-btn__cost {
+        background: var(--pm-primary-light);
+        color: var(--pm-primary);
+      }
+
       /* Pro upgrade prompt inline */
       .pm-pro-prompt {
         padding: 10px 12px;

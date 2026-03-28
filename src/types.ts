@@ -1,6 +1,6 @@
 // PreMeet shared TypeScript types
 
-import type { PersonData, SearchResult, CompanyData, ContactInfo } from './background/waterfall-data-fetch/types';
+import type { PersonData, SearchResult, CompanyData, ContactInfo, CompanyIntel, HiringSignals, StakeholderMap, SocialPulse, ReputationData } from './background/waterfall-data-fetch/types';
 
 export interface Attendee {
   name: string;
@@ -139,7 +139,11 @@ export type BackgroundToPopup =
   | { type: 'ENRICH_PERSON_RESULT'; payload: PersonData | { error: string } }
   | { type: 'COMPANY_INTEL_RESULT'; payload: { email: string; data: CompanyData; cached: boolean } | { email: string; error: string } }
   | { type: 'CONTACT_INFO_RESULT'; payload: { email: string; data: ContactInfo; cached: boolean } | { email: string; error: string } }
-  | { type: 'CUSTOM_ENRICHMENT_RESULT'; payload: { email: string; data: CustomEnrichmentResult; cached: boolean } | { email: string; error: string } };
+  | { type: 'CUSTOM_ENRICHMENT_RESULT'; payload: { email: string; data: CustomEnrichmentResult; cached: boolean } | { email: string; error: string } }
+  | { type: 'HIRING_SIGNALS_RESULT'; payload: { email: string; data: HiringSignals; cached: boolean } | { email: string; error: string } }
+  | { type: 'STAKEHOLDER_MAP_RESULT'; payload: { email: string; data: StakeholderMap; cached: boolean } | { email: string; error: string } }
+  | { type: 'SOCIAL_PULSE_RESULT'; payload: { email: string; data: SocialPulse; cached: boolean } | { email: string; error: string } }
+  | { type: 'REPUTATION_RESULT'; payload: { email: string; data: ReputationData; cached: boolean } | { email: string; error: string } };
 
 export type PopupToBackground =
   | { type: 'GET_CURRENT_MEETING' }
@@ -150,6 +154,10 @@ export type PopupToBackground =
   | { type: 'FETCH_COMPANY_INTEL'; payload: { email: string; companyName: string; linkedinUrl?: string; website?: string } }
   | { type: 'FETCH_CONTACT_INFO'; payload: { email: string; linkedinUrl: string; fullName: string; companyName?: string } }
   | { type: 'CUSTOM_ENRICHMENT'; payload: { email: string; linkedinUrl: string; fullName: string; prompt: string } }
+  | { type: 'FETCH_HIRING_SIGNALS'; payload: { email: string; companyName: string; linkedinUrl?: string; website?: string } }
+  | { type: 'FETCH_STAKEHOLDER_MAP'; payload: { email: string; companyName: string; linkedinUrl?: string } }
+  | { type: 'FETCH_SOCIAL_PULSE'; payload: { email: string; companyName: string; website?: string } }
+  | { type: 'FETCH_REPUTATION'; payload: { email: string; companyName: string } }
   | { type: 'GET_CACHE_STATS' }
   | { type: 'CLEAR_CACHE' }
   | { type: 'GET_ACTIVITY_LOG' }

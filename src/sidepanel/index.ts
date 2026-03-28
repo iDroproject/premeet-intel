@@ -3,7 +3,7 @@
 // Communicates with the background service worker via chrome.runtime messaging.
 
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup, CustomEnrichmentResult } from '../types';
-import type { PersonData, SearchResult, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo } from '../background/waterfall-data-fetch/types';
+import type { PersonData, SearchResult, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo, HiringSignals, StakeholderMap, SocialPulse, ReputationData } from '../background/waterfall-data-fetch/types';
 import { getCredits, remainingCredits } from '../utils/credits';
 import { maskPersonData, skillsPreviewCount } from '../utils/masking';
 import { initMixpanel, identifyUser, resetUser, track } from '../lib/mixpanel';
@@ -54,6 +54,13 @@ type CustomEnrichState =
   | { data: CustomEnrichmentResult; prompt: string }
   | { error: string };
 const customEnrichState = new Map<string, CustomEnrichState>();
+
+// Track power-up add-on states per attendee
+type PowerUpState<T> = 'idle' | 'loading' | { data: T } | { error: string };
+const hiringSignalsState = new Map<string, PowerUpState<HiringSignals>>();
+const stakeholderMapState = new Map<string, PowerUpState<StakeholderMap>>();
+const socialPulseState = new Map<string, PowerUpState<SocialPulse>>();
+const reputationState = new Map<string, PowerUpState<ReputationData>>();
 
 // Track which attendee previews have been tracked in Mixpanel (avoid duplicate events)
 const previewTracked = new Set<string>();
@@ -538,6 +545,224 @@ function renderCompanyIntelSection(key: string, pd: PersonData): string {
     </div>`;
 }
 
+// ─── Power-Up Add-on Buttons ────────────────────────────────────────────────
+
+interface PowerUpConfig {
+  id: string;
+  label: string;
+  icon: string;
+  cost: string;
+  stateMap: Map<string, PowerUpState<unknown>>;
+  messageType: string;
+  buildPayload: (pd: PersonData, email: string) => Record<string, string | undefined>;
+  renderData: (data: unknown) => string;
+}
+
+function renderHiringSignalsData(data: unknown): string {
+  const hs = data as HiringSignals;
+  const rows: string[] = [];
+  if (hs.totalOpenRoles > 0) {
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Open Roles:</span> ${hs.totalOpenRoles} positions</div>`);
+  }
+  if (hs.departments.length > 0) {
+    const deptList = hs.departments.map(d => `${escapeHtml(d.name)} (${d.openRoles})`).join(', ');
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Departments Hiring:</span> ${deptList}</div>`);
+  }
+  if (hs.growthSignals.length > 0) {
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Growth Signals:</span><ul class="pm-intel__signals">${hs.growthSignals.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>`);
+  }
+  if (hs.openRoles.length > 0) {
+    const roleItems = hs.openRoles.slice(0, 5).map(r => {
+      const titleHtml = r.url ? `<a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>` : escapeHtml(r.title);
+      const meta = [r.department, r.location].filter(Boolean).join(' · ');
+      return `<li>${titleHtml}${meta ? ` <span class="pm-intel__date">(${escapeHtml(meta)})</span>` : ''}</li>`;
+    }).join('');
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Top Openings:</span><ul class="pm-intel__news">${roleItems}</ul></div>`);
+  }
+  if (hs.recentHires.length > 0) {
+    const hireItems = hs.recentHires.slice(0, 3).map(h => {
+      return `<li>${escapeHtml(h.name)} — ${escapeHtml(h.title)}${h.startDate ? ` <span class="pm-intel__date">(${escapeHtml(h.startDate)})</span>` : ''}</li>`;
+    }).join('');
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Recent Hires:</span><ul class="pm-intel__news">${hireItems}</ul></div>`);
+  }
+  if (rows.length === 0) return '<div style="font-size:12px;color:#9ca3af;">No hiring signals found</div>';
+  return `<div class="pm-intel">${rows.join('')}</div>`;
+}
+
+function renderStakeholderMapData(data: unknown): string {
+  const sm = data as StakeholderMap;
+  const rows: string[] = [];
+  if (sm.stakeholders.length > 0) {
+    const items = sm.stakeholders.slice(0, 8).map(s => {
+      const nameHtml = s.linkedinUrl
+        ? `<a href="${escapeHtml(s.linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(s.name)}</a>`
+        : escapeHtml(s.name);
+      const badge = s.isDecisionMaker ? ' <span class="pm-skill-tag" style="background:#D1FAE5;color:#059669;">Decision Maker</span>' : '';
+      return `<li>${nameHtml} — ${escapeHtml(s.title)}${badge}</li>`;
+    }).join('');
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Key Stakeholders:</span><ul class="pm-intel__news">${items}</ul></div>`);
+  }
+  if (sm.orgInsights.length > 0) {
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Org Insights:</span><ul class="pm-intel__signals">${sm.orgInsights.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>`);
+  }
+  if (rows.length === 0) return '<div style="font-size:12px;color:#9ca3af;">No stakeholder data found</div>';
+  return `<div class="pm-intel">${rows.join('')}</div>`;
+}
+
+function renderSocialPulseData(data: unknown): string {
+  const sp = data as SocialPulse;
+  const rows: string[] = [];
+  const sentimentColors: Record<string, string> = { positive: '#059669', neutral: '#6B7280', negative: '#DC2626', mixed: '#D97706' };
+  rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Sentiment:</span> <span style="color:${sentimentColors[sp.overallSentiment] || '#6B7280'};font-weight:600;">${escapeHtml(sp.overallSentiment)}</span></div>`);
+  if (sp.trendingTopics.length > 0) {
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Trending:</span> <div class="pm-intel__tags">${sp.trendingTopics.map(t => `<span class="pm-skill-tag">${escapeHtml(t)}</span>`).join('')}</div></div>`);
+  }
+  if (sp.socialPresence.length > 0) {
+    const presence = sp.socialPresence.map(p => {
+      const foll = p.followers != null ? ` (${formatNumber(p.followers)})` : '';
+      return p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.platform)}</a>${foll}` : `${escapeHtml(p.platform)}${foll}`;
+    }).join(' · ');
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Presence:</span> ${presence}</div>`);
+  }
+  if (sp.mentions.length > 0) {
+    const items = sp.mentions.slice(0, 5).map(m => {
+      const icon = m.sentiment === 'positive' ? '+' : m.sentiment === 'negative' ? '-' : '~';
+      const contentHtml = m.url ? `<a href="${escapeHtml(m.url)}" target="_blank" rel="noopener">${escapeHtml(m.content.slice(0, 100))}</a>` : escapeHtml(m.content.slice(0, 100));
+      return `<li>[${icon}] ${contentHtml} <span class="pm-intel__date">(${escapeHtml(m.platform)}, ${escapeHtml(m.date)})</span></li>`;
+    }).join('');
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Recent Mentions:</span><ul class="pm-intel__news">${items}</ul></div>`);
+  }
+  if (rows.length <= 1) return '<div style="font-size:12px;color:#9ca3af;">No social pulse data found</div>';
+  return `<div class="pm-intel">${rows.join('')}</div>`;
+}
+
+function renderReputationData(data: unknown): string {
+  const rd = data as ReputationData;
+  const rows: string[] = [];
+  const ratings: string[] = [];
+  if (rd.glassdoorRating != null) ratings.push(`Glassdoor: ${rd.glassdoorRating}/5${rd.glassdoorReviewCount ? ` (${rd.glassdoorReviewCount} reviews)` : ''}`);
+  if (rd.g2Rating != null) ratings.push(`G2: ${rd.g2Rating}/5${rd.g2ReviewCount ? ` (${rd.g2ReviewCount} reviews)` : ''}`);
+  if (rd.trustpilotRating != null) ratings.push(`Trustpilot: ${rd.trustpilotRating}/5${rd.trustpilotReviewCount ? ` (${rd.trustpilotReviewCount} reviews)` : ''}`);
+  if (ratings.length > 0) {
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Ratings:</span><ul class="pm-intel__signals">${ratings.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul></div>`);
+  }
+  if (rd.highlights.length > 0) {
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Highlights:</span><ul class="pm-intel__signals">${rd.highlights.map(h => `<li style="color:#059669;">${escapeHtml(h)}</li>`).join('')}</ul></div>`);
+  }
+  if (rd.concerns.length > 0) {
+    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Concerns:</span><ul class="pm-intel__signals">${rd.concerns.map(c => `<li style="color:#DC2626;">${escapeHtml(c)}</li>`).join('')}</ul></div>`);
+  }
+  if (rows.length === 0) return '<div style="font-size:12px;color:#9ca3af;">No reputation data found</div>';
+  return `<div class="pm-intel">${rows.join('')}</div>`;
+}
+
+const POWER_UPS: PowerUpConfig[] = [
+  {
+    id: 'hiring',
+    label: 'Hiring Signals',
+    icon: '\uD83D\uDCCA',
+    cost: '0.5 cr',
+    stateMap: hiringSignalsState as Map<string, PowerUpState<unknown>>,
+    messageType: 'FETCH_HIRING_SIGNALS',
+    buildPayload: (pd, email) => ({
+      email,
+      companyName: pd.currentCompany || undefined,
+      linkedinUrl: pd.companyLinkedinUrl || undefined,
+      website: pd.companyWebsite || undefined,
+    }),
+    renderData: renderHiringSignalsData,
+  },
+  {
+    id: 'stakeholder',
+    label: 'Stakeholder Map',
+    icon: '\uD83D\uDC65',
+    cost: '1 cr',
+    stateMap: stakeholderMapState as Map<string, PowerUpState<unknown>>,
+    messageType: 'FETCH_STAKEHOLDER_MAP',
+    buildPayload: (pd, email) => ({
+      email,
+      companyName: pd.currentCompany || undefined,
+      linkedinUrl: pd.companyLinkedinUrl || undefined,
+    }),
+    renderData: renderStakeholderMapData,
+  },
+  {
+    id: 'social',
+    label: 'Social Pulse',
+    icon: '\uD83D\uDCE2',
+    cost: '0.5 cr',
+    stateMap: socialPulseState as Map<string, PowerUpState<unknown>>,
+    messageType: 'FETCH_SOCIAL_PULSE',
+    buildPayload: (pd, email) => ({
+      email,
+      companyName: pd.currentCompany || undefined,
+      website: pd.companyWebsite || undefined,
+    }),
+    renderData: renderSocialPulseData,
+  },
+  {
+    id: 'reputation',
+    label: 'Reputation',
+    icon: '\u2B50',
+    cost: '0.5 cr',
+    stateMap: reputationState as Map<string, PowerUpState<unknown>>,
+    messageType: 'FETCH_REPUTATION',
+    buildPayload: (pd, email) => ({
+      email,
+      companyName: pd.currentCompany || undefined,
+    }),
+    renderData: renderReputationData,
+  },
+];
+
+function renderPowerUpButton(key: string, pu: PowerUpConfig, pd: PersonData): string {
+  if (!pd.currentCompany) return '';
+
+  const state = pu.stateMap.get(key) || 'idle';
+
+  if (state === 'loading') {
+    return renderExpandableSection(key, pu.id, pu.label, `
+      <div class="pm-intel-skeleton">
+        <div class="pm-skeleton-row pm-skeleton-row--wide"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--medium"></div>
+        <div class="pm-skeleton-row pm-skeleton-row--short"></div>
+      </div>
+    `);
+  }
+
+  if (typeof state === 'object' && 'data' in state) {
+    return renderExpandableSection(key, pu.id, pu.label, pu.renderData(state.data));
+  }
+
+  if (typeof state === 'object' && 'error' in state) {
+    if (state.error.includes('Pro subscription required') || state.error.includes('Pro plan')) {
+      return `
+        <div class="pm-section" data-section="${escapeHtml(pu.id)}" data-attendee="${escapeHtml(key)}">
+          <div class="pm-pro-prompt">
+            <strong>Pro feature</strong> — Upgrade to access ${escapeHtml(pu.label.toLowerCase())}.
+          </div>
+        </div>`;
+    }
+    return renderExpandableSection(key, pu.id, pu.label,
+      `<div style="font-size:12px;color:#991B1B;">${escapeHtml(state.error)}</div>`);
+  }
+
+  // idle — show power-up button with cost
+  return `
+    <div class="pm-section" data-section="${escapeHtml(pu.id)}" data-attendee="${escapeHtml(key)}">
+      <button class="pm-powerup-btn" data-powerup="${escapeHtml(pu.id)}" data-powerup-key="${escapeHtml(key)}">
+        <span class="pm-powerup-btn__icon">${pu.icon}</span>
+        ${escapeHtml(pu.label)}
+        <span class="pm-powerup-btn__cost">${escapeHtml(pu.cost)}</span>
+      </button>
+    </div>`;
+}
+
+function renderPowerUpsSection(key: string, pd: PersonData): string {
+  if (!pd.currentCompany) return '';
+  return POWER_UPS.map(pu => renderPowerUpButton(key, pu, pd)).join('');
+}
+
 // ─── Contact Info Section ───────────────────────────────────────────────────
 
 function renderContactInfoFromData(ci: ContactInfo): string {
@@ -883,6 +1108,10 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
     if (pd.currentCompany) {
       sections.push(renderCompanyIntelSection(key, pd));
     }
+    // Power-up add-on buttons
+    if (pd.currentCompany) {
+      sections.push(renderPowerUpsSection(key, pd));
+    }
     if (pd.linkedinUrl) {
       sections.push(renderContactInfoSection(key, pd));
     }
@@ -1147,6 +1376,33 @@ function attachCardListeners(card: HTMLElement, key: string): void {
     });
   });
 
+  // Power-up add-on buttons
+  const powerUpBtns = card.querySelectorAll<HTMLButtonElement>('[data-powerup]');
+  powerUpBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const puId = btn.dataset.powerup;
+      const puKey = btn.dataset.powerupKey;
+      if (!puId || !puKey) return;
+      const pu = POWER_UPS.find(p => p.id === puId);
+      if (!pu) return;
+      const attendee = attendeeMap.get(puKey);
+      if (!attendee?.personData?.currentCompany) return;
+      const pd = attendee.personData;
+
+      pu.stateMap.set(puKey, 'loading');
+      const sections = expandedSections.get(puKey) || new Set();
+      sections.add(puId);
+      expandedSections.set(puKey, sections);
+      updateCardContent(card, attendee);
+
+      track(`powerup_${puId}_requested`);
+      chrome.runtime.sendMessage({
+        type: pu.messageType,
+        payload: pu.buildPayload(pd, attendee.email),
+      });
+    });
+  });
+
   // Section toggles
   const sectionToggles = card.querySelectorAll<HTMLButtonElement>('[data-toggle-section]');
   sectionToggles.forEach((toggle) => {
@@ -1333,6 +1589,44 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
       }
     }
     refreshCredits();
+  }
+
+  // Power-up results (generic handler for all four types)
+  const powerUpResultTypes: Array<{
+    msgType: string;
+    stateMap: Map<string, PowerUpState<unknown>>;
+    trackName: string;
+    sectionId: string;
+  }> = [
+    { msgType: 'HIRING_SIGNALS_RESULT', stateMap: hiringSignalsState as Map<string, PowerUpState<unknown>>, trackName: 'hiring_signals', sectionId: 'hiring' },
+    { msgType: 'STAKEHOLDER_MAP_RESULT', stateMap: stakeholderMapState as Map<string, PowerUpState<unknown>>, trackName: 'stakeholder_map', sectionId: 'stakeholder' },
+    { msgType: 'SOCIAL_PULSE_RESULT', stateMap: socialPulseState as Map<string, PowerUpState<unknown>>, trackName: 'social_pulse', sectionId: 'social' },
+    { msgType: 'REPUTATION_RESULT', stateMap: reputationState as Map<string, PowerUpState<unknown>>, trackName: 'reputation', sectionId: 'reputation' },
+  ];
+
+  for (const prt of powerUpResultTypes) {
+    if (msg.type === prt.msgType) {
+      const payload = msg.payload as { email: string; data?: unknown; cached?: boolean; error?: string };
+      const key = payload.email.toLowerCase();
+      if ('error' in payload && payload.error) {
+        prt.stateMap.set(key, { error: payload.error });
+        track(`${prt.trackName}_completed`, { success: false });
+      } else if (payload.data) {
+        prt.stateMap.set(key, { data: payload.data });
+        track(`${prt.trackName}_completed`, { success: true, cached: payload.cached ?? false });
+      }
+      const attendee = attendeeMap.get(key);
+      if (attendee && Els.list) {
+        const existingCard = Els.list.querySelector<HTMLElement>(`[data-attendee-key="${CSS.escape(key)}"]`);
+        if (existingCard) {
+          const sections = expandedSections.get(key) || new Set();
+          sections.add(prt.sectionId);
+          expandedSections.set(key, sections);
+          updateCardContent(existingCard, attendee);
+        }
+      }
+      refreshCredits();
+    }
   }
 });
 
