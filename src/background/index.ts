@@ -18,8 +18,8 @@ const waterfallLogBuffer = createLogBuffer('Enrichment');
 
 /** Maps raw pipeline errors to user-friendly messages. */
 function friendlyErrorMessage(rawMsg: string): string {
-  if (rawMsg.includes('VITE_BRIGHTDATA_API_KEY'))
-    return 'BrightData API key not configured. Set VITE_BRIGHTDATA_API_KEY in .env';
+  if (rawMsg.includes('VITE_API_BASE_URL'))
+    return 'API base URL not configured. Set VITE_API_BASE_URL in .env';
   if (rawMsg.includes('Not authenticated'))
     return 'Please sign in to use enrichment.';
   if (/timed out/i.test(rawMsg))
@@ -680,11 +680,49 @@ async function handleGenerateBrief(email: string, _senderTabId?: number): Promis
 
 // ─── Company Intel (on-demand, 1 credit) ─────────────────────────────────────
 
+// MCP enrichment feature flag — when enabled, fetches richer data from
+// Crunchbase + ZoomInfo via the enrichment-mcp endpoint instead of
+// the single-source enrichment-company endpoint.
+const MCP_ENRICHMENT_ENABLED = (import.meta.env.VITE_MCP_ENRICHMENT ?? 'true') !== 'false';
+
+/** Map MCP CompanyIntel response to the CompanyData shape the sidepanel renders. */
+function mcpIntelToCompanyData(
+  intel: Record<string, unknown>,
+  companyName: string,
+): CompanyData {
+  const investors = Array.isArray(intel.investors)
+    ? (intel.investors as Array<{ name: string }>).map((i) => i.name)
+    : [];
+  const lastRound = intel.lastFundingRound as { type?: string; amount?: string; date?: string } | null;
+
+  return {
+    name: companyName,
+    linkedinUrl: null,
+    logo: null,
+    industry: null,
+    sizeRange: intel.employeeCount ? `~${intel.employeeCount} employees` : null,
+    revenueRange: null,
+    website: null,
+    foundedYear: null,
+    hqAddress: null,
+    description: null,
+    fundingTotal: (intel.totalFunding as string) ?? null,
+    fundingLastRound: lastRound ? `${lastRound.type ?? ''} ${lastRound.amount ?? ''}`.trim() || null : null,
+    fundingInvestors: investors,
+    products: [],
+    technologies: Array.isArray(intel.techStack) ? (intel.techStack as string[]) : [],
+    recentNews: [],
+    intentSignals: Array.isArray(intel.intentTopics)
+      ? (intel.intentTopics as string[]).map((t) => ({ signal: 'Intent', detail: t }))
+      : [],
+  };
+}
+
 async function handleFetchCompanyIntel(
   payload: { email: string; companyName: string; linkedinUrl?: string; website?: string },
 ): Promise<void> {
   const { email, companyName, linkedinUrl, website } = payload;
-  console.log(LOG, `Company intel fetch for: "${companyName}" (attendee: ${email})`);
+  console.log(LOG, `Company intel fetch (mcp=${MCP_ENRICHMENT_ENABLED})`);
 
   const apiBase = import.meta.env.VITE_API_BASE_URL as string;
   if (!apiBase) {
@@ -692,6 +730,71 @@ async function handleFetchCompanyIntel(
     return;
   }
 
+  // Choose endpoint based on feature flag
+  const useMcp = MCP_ENRICHMENT_ENABLED;
+  const url = useMcp ? `${apiBase}/enrichment-mcp` : `${apiBase}/enrichment-company`;
+
+  const body: Record<string, string> = { companyName };
+  if (useMcp) {
+    // MCP endpoint uses companyDomain instead of linkedinUrl/website
+    if (website) body.companyDomain = website.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  } else {
+    if (linkedinUrl) body.linkedinUrl = linkedinUrl;
+    if (website) body.website = website;
+  }
+
+  try {
+    const res = await authFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      const errMsg = (errBody as { error?: string }).error || `HTTP ${res.status}`;
+      console.error(LOG, 'Company intel error:', errMsg);
+
+      // Fall back to legacy endpoint if MCP fails
+      if (useMcp) {
+        console.warn(LOG, 'MCP failed, falling back to enrichment-company');
+        return handleFetchCompanyIntelLegacy(payload);
+      }
+
+      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
+      return;
+    }
+
+    const json = await res.json();
+
+    if (useMcp) {
+      // Map MCP CompanyIntel → CompanyData for sidepanel compatibility
+      const data = mcpIntelToCompanyData(json.data as Record<string, unknown>, companyName);
+      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data, cached: json.cached ?? false } });
+    } else {
+      const typed = json as { data: CompanyData; cached: boolean };
+      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: typed.data, cached: typed.cached } });
+    }
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(LOG, 'Company intel fetch failed:', errMsg);
+
+    // Fall back to legacy endpoint if MCP throws
+    if (useMcp) {
+      console.warn(LOG, 'MCP failed, falling back to enrichment-company');
+      return handleFetchCompanyIntelLegacy(payload);
+    }
+
+    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
+  }
+}
+
+/** Legacy company intel fetch via enrichment-company endpoint (fallback). */
+async function handleFetchCompanyIntelLegacy(
+  payload: { email: string; companyName: string; linkedinUrl?: string; website?: string },
+): Promise<void> {
+  const { email, companyName, linkedinUrl, website } = payload;
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
   const url = `${apiBase}/enrichment-company`;
   const body: Record<string, string> = { companyName };
   if (linkedinUrl) body.linkedinUrl = linkedinUrl;
@@ -707,18 +810,14 @@ async function handleFetchCompanyIntel(
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
       const errMsg = (errBody as { error?: string }).error || `HTTP ${res.status}`;
-      console.error(LOG, `Company intel error for "${companyName}":`, errMsg);
       broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
       return;
     }
 
     const json = await res.json() as { data: CompanyData; cached: boolean };
-    console.log(LOG, `Company intel complete for "${companyName}" (cached: ${json.cached})`);
     broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: json.data, cached: json.cached } });
   } catch (err) {
-    const errMsg = (err as Error).message;
-    console.error(LOG, `Company intel fetch failed for "${companyName}":`, errMsg);
-    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
+    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: (err as Error).message } });
   }
 }
 
