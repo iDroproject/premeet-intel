@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<title>PreMeet - Company Intelligence</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 1280px; height: 800px; overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #F1F3F4; display: flex;
+}
+.gcal-bg {
+  flex: 1; background: #fff; position: relative; opacity: 0.5; filter: blur(1px);
+}
+.gcal-topbar { height: 64px; background: #fff; border-bottom: 1px solid #DADCE0; display: flex; align-items: center; padding: 0 20px; }
+.gcal-topbar .logo { display: flex; align-items: center; gap: 8px; }
+.gcal-topbar .logo svg { width: 40px; height: 40px; }
+.gcal-topbar .logo span { font-size: 22px; color: #3C4043; }
+.gcal-content { padding: 20px; color: #70757A; }
+.gcal-event-block { background: #D2E3FC; border-left: 4px solid #4285F4; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; color: #174EA6; font-size: 13px; }
+
+.pm-sidepanel {
+  width: 420px; background: #F9FAFB; border-left: 1px solid #E5E7EB;
+  display: flex; flex-direction: column; height: 800px; overflow-y: auto;
+}
+.pm-header {
+  background: #4F46E5; color: #fff; padding: 14px 20px;
+  display: flex; align-items: center; gap: 10px;
+  position: sticky; top: 0; z-index: 10;
+}
+.pm-header-logo { width: 32px; height: 32px; background: rgba(255,255,255,0.2); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; }
+.pm-header-title { font-size: 18px; font-weight: 600; }
+.pm-header-meeting { font-size: 12px; opacity: 0.85; margin-left: auto; }
+.pm-header-credits { background: rgba(255,255,255,0.18); border-radius: 10px; padding: 2px 10px; font-size: 11px; font-weight: 500; }
+
+.pm-card {
+  background: #fff; margin: 12px 16px; border-radius: 12px;
+  border: 1px solid #E5E7EB; overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  border-left: 3px solid #059669;
+}
+
+/* Compact card header for scrolled-down view */
+.pm-card-mini {
+  display: flex; align-items: center; padding: 12px 20px; gap: 12px;
+  border-bottom: 1px solid #F3F4F6;
+}
+.pm-avatar-sm {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: linear-gradient(135deg, #4F46E5, #7C3AED);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 15px; font-weight: 600; flex-shrink: 0;
+}
+.pm-mini-info { flex: 1; }
+.pm-mini-name { font-size: 14px; font-weight: 600; color: #111827; }
+.pm-mini-title { font-size: 12px; color: #6B7280; }
+
+/* Company Section - Featured */
+.pm-company-featured {
+  padding: 20px; background: linear-gradient(135deg, #F5F3FF 0%, #EEF2FF 100%);
+  border-bottom: 1px solid #E5E7EB;
+}
+.pm-company-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+}
+.pm-company-logo {
+  width: 44px; height: 44px; border-radius: 10px; background: #4F46E5;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 20px; font-weight: 700;
+  box-shadow: 0 2px 8px rgba(79,70,229,0.2);
+}
+.pm-company-name { font-size: 18px; font-weight: 700; color: #111827; }
+.pm-company-industry {
+  display: inline-block; background: #EEF2FF; color: #4F46E5;
+  padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 500; margin-top: 2px;
+}
+.pm-company-desc { font-size: 13px; color: #374151; line-height: 1.6; margin-bottom: 14px; }
+.pm-company-link { font-size: 12px; color: #4F46E5; text-decoration: none; font-weight: 500; }
+
+/* Intel Grid */
+.pm-intel-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px 20px;
+  border-bottom: 1px solid #F3F4F6;
+}
+.pm-intel-item {
+  background: #F9FAFB; border: 1px solid #F3F4F6; border-radius: 8px; padding: 10px 12px;
+}
+.pm-intel-label { font-size: 10px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+.pm-intel-value { font-size: 13px; color: #111827; font-weight: 600; margin-top: 2px; }
+.pm-intel-value.small { font-size: 12px; font-weight: 500; }
+
+/* Technologies */
+.pm-tech-section { padding: 14px 20px; border-bottom: 1px solid #F3F4F6; }
+.pm-tech-label { font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 8px; }
+.pm-tech-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.pm-tech-tag {
+  background: #F3F4F6; color: #374151; padding: 3px 10px; border-radius: 12px;
+  font-size: 11px; font-weight: 500;
+}
+
+/* Recent News */
+.pm-news-section { padding: 14px 20px; }
+.pm-news-label { font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 10px; }
+.pm-news-item {
+  padding: 8px 0; border-bottom: 1px solid #F3F4F6;
+}
+.pm-news-item:last-child { border-bottom: none; }
+.pm-news-title { font-size: 12px; color: #4F46E5; font-weight: 500; text-decoration: none; cursor: pointer; }
+.pm-news-source { font-size: 11px; color: #9CA3AF; margin-top: 2px; }
+
+/* Enrichment Buttons */
+.pm-enrich-btns {
+  display: flex; gap: 8px; padding: 14px 20px; border-top: 1px solid #F3F4F6;
+}
+.pm-enrich-btn {
+  flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #E5E7EB;
+  background: #fff; font-size: 12px; font-weight: 500; color: #374151;
+  cursor: pointer; font-family: inherit; text-align: center;
+  transition: all 200ms;
+}
+.pm-enrich-btn:hover { background: #F9FAFB; border-color: #4F46E5; color: #4F46E5; }
+.pm-enrich-btn .icon { margin-right: 4px; }
+
+.overlay-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 60%, transparent 100%);
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 20px; z-index: 200;
+}
+.overlay-text { font-size: 28px; font-weight: 600; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.3); letter-spacing: -0.3px; }
+</style>
+</head>
+<body>
+
+<div class="gcal-bg">
+  <div class="gcal-topbar">
+    <div class="logo">
+      <svg viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#4285F4"/><rect x="8" y="8" width="24" height="24" rx="4" fill="#fff"/></svg>
+      <span>Calendar</span>
+    </div>
+  </div>
+  <div class="gcal-content">
+    <div class="gcal-event-block">Partnership Call &middot; 10:00 - 11:00 AM</div>
+    <div class="gcal-event-block">Sales Review &middot; 1:00 - 2:00 PM</div>
+  </div>
+</div>
+
+<div class="pm-sidepanel">
+  <div class="pm-header">
+    <div class="pm-header-logo">P</div>
+    <div class="pm-header-title">PreMeet</div>
+    <span class="pm-header-meeting">Partnership Call</span>
+    <span class="pm-header-credits">47 credits</span>
+  </div>
+
+  <div class="pm-card">
+    <!-- Compact person header -->
+    <div class="pm-card-mini">
+      <div class="pm-avatar-sm" style="background:linear-gradient(135deg,#EC4899,#8B5CF6)">SR</div>
+      <div class="pm-mini-info">
+        <div class="pm-mini-name">Sarah Rodriguez</div>
+        <div class="pm-mini-title">VP of Strategic Partnerships</div>
+      </div>
+    </div>
+
+    <!-- Company Featured Section -->
+    <div class="pm-company-featured">
+      <div class="pm-company-header">
+        <div class="pm-company-logo">N</div>
+        <div>
+          <div class="pm-company-name">Nexus Ventures</div>
+          <span class="pm-company-industry">Venture Capital &middot; Financial Services</span>
+        </div>
+      </div>
+      <div class="pm-company-desc">
+        Early-stage venture capital firm investing in B2B SaaS, AI/ML, and developer tools. Based in San Francisco with portfolio companies across North America and Europe. $400M AUM across three funds.
+      </div>
+      <a href="#" class="pm-company-link">&#127760; nexusventures.com</a>
+    </div>
+
+    <!-- Intel Grid -->
+    <div class="pm-intel-grid">
+      <div class="pm-intel-item">
+        <div class="pm-intel-label">Founded</div>
+        <div class="pm-intel-value">2018</div>
+      </div>
+      <div class="pm-intel-item">
+        <div class="pm-intel-label">Company Size</div>
+        <div class="pm-intel-value">51-200</div>
+      </div>
+      <div class="pm-intel-item">
+        <div class="pm-intel-label">Headquarters</div>
+        <div class="pm-intel-value small">San Francisco, CA</div>
+      </div>
+      <div class="pm-intel-item">
+        <div class="pm-intel-label">Funding</div>
+        <div class="pm-intel-value">$400M AUM</div>
+      </div>
+      <div class="pm-intel-item">
+        <div class="pm-intel-label">Revenue</div>
+        <div class="pm-intel-value small">$10M - $50M</div>
+      </div>
+      <div class="pm-intel-item">
+        <div class="pm-intel-label">Specialties</div>
+        <div class="pm-intel-value small">B2B SaaS, AI/ML</div>
+      </div>
+    </div>
+
+    <!-- Technologies -->
+    <div class="pm-tech-section">
+      <div class="pm-tech-label">&#128736; Technologies Used</div>
+      <div class="pm-tech-tags">
+        <span class="pm-tech-tag">React</span>
+        <span class="pm-tech-tag">Node.js</span>
+        <span class="pm-tech-tag">AWS</span>
+        <span class="pm-tech-tag">PostgreSQL</span>
+        <span class="pm-tech-tag">Salesforce</span>
+        <span class="pm-tech-tag">HubSpot</span>
+        <span class="pm-tech-tag">Slack</span>
+        <span class="pm-tech-tag">Notion</span>
+      </div>
+    </div>
+
+    <!-- Recent News -->
+    <div class="pm-news-section">
+      <div class="pm-news-label">&#128240; Recent News</div>
+      <div class="pm-news-item">
+        <div class="pm-news-title">Nexus Ventures Closes $150M Fund III for AI Startups</div>
+        <div class="pm-news-source">TechCrunch &middot; 2 weeks ago</div>
+      </div>
+      <div class="pm-news-item">
+        <div class="pm-news-title">Portfolio Company DataLoom Raises $28M Series B</div>
+        <div class="pm-news-source">VentureBeat &middot; 1 month ago</div>
+      </div>
+      <div class="pm-news-item">
+        <div class="pm-news-title">Sarah Rodriguez Named to Forbes 30 Under 30</div>
+        <div class="pm-news-source">Forbes &middot; 3 months ago</div>
+      </div>
+    </div>
+
+    <!-- Enrichment Buttons -->
+    <div class="pm-enrich-btns">
+      <button class="pm-enrich-btn"><span class="icon">&#128269;</span> Deep Dive</button>
+      <button class="pm-enrich-btn"><span class="icon">&#9889;</span> Skills</button>
+      <button class="pm-enrich-btn"><span class="icon">&#128200;</span> Financials</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay-bar">
+  <div class="overlay-text">Company intel at a glance</div>
+</div>
+
+</body>
+</html>

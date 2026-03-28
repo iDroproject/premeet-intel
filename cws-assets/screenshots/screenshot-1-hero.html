@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<title>PreMeet - Hero Shot</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 1280px; height: 800px; overflow: hidden;
+  font-family: 'Roboto', 'Arial', sans-serif;
+  background: #F1F3F4;
+}
+
+/* Google Calendar Shell */
+.gcal-sidebar {
+  position: absolute; top: 0; left: 0; width: 256px; height: 800px;
+  background: #fff; border-right: 1px solid #DADCE0;
+  padding: 16px;
+}
+.gcal-sidebar .create-btn {
+  display: flex; align-items: center; gap: 12px;
+  background: #fff; border: 1px solid #DADCE0; border-radius: 24px;
+  padding: 8px 24px 8px 12px; font-size: 14px; color: #3C4043;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 24px; cursor: pointer;
+}
+.gcal-sidebar .create-btn .plus {
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  font-size: 28px; color: #4285F4; font-weight: 300;
+}
+.gcal-sidebar .mini-cal { margin-top: 8px; }
+.gcal-sidebar .mini-cal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 14px; font-weight: 500; color: #3C4043; margin-bottom: 12px;
+}
+.gcal-sidebar .mini-cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; text-align: center; font-size: 11px; color: #70757A;
+}
+.mcg-day { padding: 6px 0; border-radius: 50%; }
+.mcg-day.today { background: #4285F4; color: #fff; font-weight: 500; }
+.mcg-day.header { font-weight: 500; color: #70757A; font-size: 10px; }
+
+/* Top bar */
+.gcal-topbar {
+  position: absolute; top: 0; left: 256px; right: 0; height: 64px;
+  background: #fff; border-bottom: 1px solid #DADCE0;
+  display: flex; align-items: center; padding: 0 16px; gap: 16px;
+}
+.gcal-topbar .hamburger { font-size: 22px; color: #5F6368; cursor: pointer; padding: 8px; }
+.gcal-topbar .logo { display: flex; align-items: center; gap: 8px; }
+.gcal-topbar .logo-icon { width: 40px; height: 40px; }
+.gcal-topbar .logo-text { font-size: 22px; color: #3C4043; font-family: 'Product Sans', 'Roboto', sans-serif; }
+.gcal-topbar .nav-btns { display: flex; align-items: center; gap: 8px; margin-left: 16px; }
+.gcal-topbar .nav-btn {
+  width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; color: #5F6368; font-size: 18px;
+}
+.gcal-topbar .today-btn {
+  border: 1px solid #DADCE0; border-radius: 4px; padding: 4px 16px;
+  font-size: 14px; color: #3C4043; background: #fff; cursor: pointer; font-weight: 500;
+}
+.gcal-topbar .date-label { font-size: 22px; color: #3C4043; font-weight: 400; margin-left: 8px; }
+.gcal-topbar .view-select {
+  margin-left: auto; border: 1px solid #DADCE0; border-radius: 4px; padding: 6px 12px;
+  font-size: 14px; color: #3C4043; background: #fff;
+}
+
+/* Main calendar area */
+.gcal-main {
+  position: absolute; top: 64px; left: 256px; right: 0; bottom: 0;
+  background: #fff; overflow: hidden;
+}
+
+/* Time grid */
+.time-grid { display: flex; height: 100%; }
+.time-labels { width: 60px; padding-top: 0; }
+.time-label { height: 60px; font-size: 11px; color: #70757A; text-align: right; padding-right: 8px; padding-top: 0; }
+.day-columns { flex: 1; display: flex; border-left: 1px solid #DADCE0; }
+.day-col {
+  flex: 1; border-right: 1px solid #E8EAED; position: relative;
+}
+.day-header {
+  text-align: center; padding: 8px 0; border-bottom: 1px solid #DADCE0;
+  font-size: 11px; color: #70757A; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.day-header .day-num { display: block; font-size: 24px; color: #3C4043; font-weight: 400; margin-top: 2px; }
+.day-header .day-num.today { background: #4285F4; color: #fff; border-radius: 50%; width: 40px; height: 40px; line-height: 40px; margin: 2px auto 0; }
+.hour-line { height: 60px; border-bottom: 1px solid #F1F3F4; }
+
+/* Calendar Event */
+.cal-event {
+  position: absolute; left: 4px; right: 4px; border-radius: 6px;
+  padding: 6px 8px; font-size: 12px; overflow: hidden; cursor: pointer;
+}
+.cal-event.blue { background: #D2E3FC; border-left: 4px solid #4285F4; color: #174EA6; }
+.cal-event.green { background: #CEEAD6; border-left: 4px solid #34A853; color: #137333; }
+.cal-event.purple { background: #E8DAEF; border-left: 4px solid #9C27B0; color: #6A1B9A; }
+.cal-event .ev-title { font-weight: 500; margin-bottom: 2px; }
+.cal-event .ev-time { font-size: 11px; opacity: 0.8; }
+
+/* Event detail popup (Google Calendar style) */
+.event-popup {
+  position: absolute; top: 120px; left: 440px; width: 460px;
+  background: #fff; border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18), 0 2px 12px rgba(0,0,0,0.08);
+  z-index: 100; overflow: hidden;
+}
+.event-popup-header {
+  background: #4285F4; padding: 16px 20px 12px; color: #fff;
+}
+.event-popup-header .ev-title { font-size: 20px; font-weight: 500; }
+.event-popup-header .ev-time { font-size: 14px; opacity: 0.9; margin-top: 4px; }
+.event-popup-body { padding: 16px 20px; }
+.event-popup-body .section-label { font-size: 12px; color: #70757A; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; font-weight: 500; }
+.attendee-row {
+  display: flex; align-items: center; padding: 8px 0;
+  border-bottom: 1px solid #F1F3F4;
+}
+.attendee-row:last-child { border-bottom: none; }
+.attendee-avatar {
+  width: 32px; height: 32px; border-radius: 50%; margin-right: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 500; color: #fff;
+}
+.attendee-avatar.av1 { background: #4285F4; }
+.attendee-avatar.av2 { background: #34A853; }
+.attendee-avatar.av3 { background: #EA4335; }
+.attendee-avatar.av4 { background: #FBBC04; color: #3C4043; }
+.attendee-info { flex: 1; }
+.attendee-name { font-size: 14px; color: #3C4043; font-weight: 500; }
+.attendee-email { font-size: 12px; color: #70757A; }
+
+/* PreMeet Brief Button */
+.pm-brief-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #4F46E5; color: #fff; border: none; border-radius: 12px;
+  padding: 3px 10px; font-size: 11px; font-weight: 500; cursor: pointer;
+  font-family: 'Inter', sans-serif; white-space: nowrap;
+  transition: background 200ms ease;
+  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
+}
+.pm-brief-btn:hover { background: #4338CA; }
+.pm-brief-btn .icon { font-size: 12px; }
+
+/* Overlay text bar */
+.overlay-bar {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 80px;
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 60%, transparent 100%);
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 20px;
+  z-index: 200;
+}
+.overlay-text {
+  font-family: 'Inter', sans-serif; font-size: 28px; font-weight: 600;
+  color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  letter-spacing: -0.3px;
+}
+
+/* Highlight glow on brief buttons */
+.pm-brief-btn.highlight {
+  animation: glow 2s ease-in-out infinite;
+}
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(79,70,229,0.4), 0 1px 3px rgba(79,70,229,0.3); }
+  50% { box-shadow: 0 0 20px rgba(79,70,229,0.6), 0 1px 6px rgba(79,70,229,0.4); }
+}
+</style>
+</head>
+<body>
+
+<!-- Google Calendar Sidebar -->
+<div class="gcal-sidebar">
+  <div class="create-btn"><span class="plus">+</span> Create</div>
+  <div class="mini-cal">
+    <div class="mini-cal-header">
+      <span>March 2026</span>
+      <span style="color:#70757A">< ></span>
+    </div>
+    <div class="mini-cal-grid">
+      <span class="mcg-day header">S</span><span class="mcg-day header">M</span><span class="mcg-day header">T</span><span class="mcg-day header">W</span><span class="mcg-day header">T</span><span class="mcg-day header">F</span><span class="mcg-day header">S</span>
+      <span class="mcg-day">1</span><span class="mcg-day">2</span><span class="mcg-day">3</span><span class="mcg-day">4</span><span class="mcg-day">5</span><span class="mcg-day">6</span><span class="mcg-day">7</span>
+      <span class="mcg-day">8</span><span class="mcg-day">9</span><span class="mcg-day">10</span><span class="mcg-day">11</span><span class="mcg-day">12</span><span class="mcg-day">13</span><span class="mcg-day">14</span>
+      <span class="mcg-day">15</span><span class="mcg-day">16</span><span class="mcg-day">17</span><span class="mcg-day">18</span><span class="mcg-day">19</span><span class="mcg-day">20</span><span class="mcg-day">21</span>
+      <span class="mcg-day">22</span><span class="mcg-day">23</span><span class="mcg-day today">24</span><span class="mcg-day">25</span><span class="mcg-day">26</span><span class="mcg-day">27</span><span class="mcg-day">28</span>
+      <span class="mcg-day">29</span><span class="mcg-day">30</span><span class="mcg-day">31</span>
+    </div>
+  </div>
+</div>
+
+<!-- Top bar -->
+<div class="gcal-topbar">
+  <span class="hamburger">&#9776;</span>
+  <div class="logo">
+    <svg class="logo-icon" viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#4285F4"/><rect x="8" y="8" width="24" height="24" rx="4" fill="#fff"/><rect x="12" y="16" width="16" height="2" rx="1" fill="#4285F4"/><rect x="12" y="20" width="12" height="2" rx="1" fill="#4285F4"/><rect x="12" y="12" width="8" height="2" rx="1" fill="#EA4335"/></svg>
+    <span class="logo-text">Calendar</span>
+  </div>
+  <div class="nav-btns">
+    <button class="today-btn">Today</button>
+    <button class="nav-btn">&lt;</button>
+    <button class="nav-btn">&gt;</button>
+  </div>
+  <span class="date-label">March 24, 2026</span>
+  <select class="view-select"><option>Week</option></select>
+</div>
+
+<!-- Main calendar -->
+<div class="gcal-main">
+  <div class="time-grid">
+    <div class="time-labels">
+      <div class="time-label" style="height:48px"></div>
+      <div class="time-label">8 AM</div>
+      <div class="time-label">9 AM</div>
+      <div class="time-label">10 AM</div>
+      <div class="time-label">11 AM</div>
+      <div class="time-label">12 PM</div>
+      <div class="time-label">1 PM</div>
+      <div class="time-label">2 PM</div>
+      <div class="time-label">3 PM</div>
+      <div class="time-label">4 PM</div>
+      <div class="time-label">5 PM</div>
+      <div class="time-label">6 PM</div>
+    </div>
+    <div class="day-columns">
+      <div class="day-col">
+        <div class="day-header">MON<span class="day-num">23</span></div>
+        <div class="hour-line"></div><div class="hour-line"></div>
+        <div class="cal-event blue" style="top:108px; height:55px"><div class="ev-title">Standup</div><div class="ev-time">9:00 - 9:30</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div>
+        <div class="cal-event green" style="top:228px; height:55px"><div class="ev-title">1:1 w/ Lisa</div><div class="ev-time">11:00 - 11:30</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+      </div>
+      <div class="day-col">
+        <div class="day-header">TUE<span class="day-num today">24</span></div>
+        <div class="hour-line"></div>
+        <div class="cal-event blue" style="top:108px; height:55px"><div class="ev-title">Standup</div><div class="ev-time">9:00 - 9:30</div></div>
+        <div class="hour-line"></div>
+        <div class="cal-event purple" style="top:168px; height:85px"><div class="ev-title">Partnership Call</div><div class="ev-time">10:00 - 11:00</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div>
+        <div class="cal-event green" style="top:348px; height:85px"><div class="ev-title">Sales Review</div><div class="ev-time">1:00 - 2:00</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+      </div>
+      <div class="day-col">
+        <div class="day-header">WED<span class="day-num">25</span></div>
+        <div class="hour-line"></div>
+        <div class="cal-event blue" style="top:108px; height:55px"><div class="ev-title">Standup</div><div class="ev-time">9:00 - 9:30</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+        <div class="cal-event purple" style="top:288px; height:85px"><div class="ev-title">Investor Update</div><div class="ev-time">12:00 - 1:00</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+      </div>
+      <div class="day-col">
+        <div class="day-header">THU<span class="day-num">26</span></div>
+        <div class="hour-line"></div><div class="hour-line"></div>
+        <div class="cal-event green" style="top:168px; height:55px"><div class="ev-title">Design Sync</div><div class="ev-time">10:00 - 10:30</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+        <div class="cal-event blue" style="top:408px; height:55px"><div class="ev-title">Sprint Planning</div><div class="ev-time">2:00 - 2:30</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+      </div>
+      <div class="day-col">
+        <div class="day-header">FRI<span class="day-num">27</span></div>
+        <div class="hour-line"></div>
+        <div class="cal-event blue" style="top:108px; height:55px"><div class="ev-title">Standup</div><div class="ev-time">9:00 - 9:30</div></div>
+        <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Event Detail Popup -->
+<div class="event-popup">
+  <div class="event-popup-header">
+    <div class="ev-title">Partnership Call</div>
+    <div class="ev-time">Tuesday, Mar 24 &middot; 10:00 - 11:00 AM</div>
+  </div>
+  <div class="event-popup-body">
+    <div class="section-label">Attendees</div>
+    <div class="attendee-row">
+      <div class="attendee-avatar av1">SR</div>
+      <div class="attendee-info">
+        <div class="attendee-name">Sarah Rodriguez</div>
+        <div class="attendee-email">sarah.rodriguez@nexusventures.com</div>
+      </div>
+      <button class="pm-brief-btn highlight"><span class="icon">&#128269;</span> Know Sarah</button>
+    </div>
+    <div class="attendee-row">
+      <div class="attendee-avatar av2">MK</div>
+      <div class="attendee-info">
+        <div class="attendee-name">Michael Kim</div>
+        <div class="attendee-email">m.kim@nexusventures.com</div>
+      </div>
+      <button class="pm-brief-btn highlight"><span class="icon">&#128269;</span> Know Michael</button>
+    </div>
+    <div class="attendee-row">
+      <div class="attendee-avatar av3">EW</div>
+      <div class="attendee-info">
+        <div class="attendee-name">Emily Walsh</div>
+        <div class="attendee-email">emily.w@aquilapartners.io</div>
+      </div>
+      <button class="pm-brief-btn highlight"><span class="icon">&#128269;</span> Know Emily</button>
+    </div>
+    <div class="attendee-row">
+      <div class="attendee-avatar av4">JT</div>
+      <div class="attendee-info">
+        <div class="attendee-name">James Torres (you)</div>
+        <div class="attendee-email">james@company.com</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Overlay Text -->
+<div class="overlay-bar">
+  <div class="overlay-text">One click to know who you're meeting</div>
+</div>
+
+</body>
+</html>

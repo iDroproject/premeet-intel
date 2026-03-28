@@ -73,7 +73,7 @@
 ---
 
 ### User Activity (network monitoring, clicks, mouse position, scroll, keystroke logging)
-**NO** — PreMeet does not monitor user input or behavior. The content script observes DOM mutations on Google Calendar to detect when event popups open, but does not log clicks, scrolls, keystrokes, or network traffic.
+**PARTIAL** — PreMeet tracks anonymous product usage events (e.g., "sidepanel opened", "brief completed") via Mixpanel for product improvement. It does NOT monitor clicks, mouse position, scrolls, keystrokes, or network traffic. Only high-level feature usage events are recorded.
 
 ---
 
@@ -131,7 +131,7 @@
           │  Auth (Google OAuth token)
           ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  BACKEND (Supabase Edge Functions on Deno Deploy)            │
+│  BACKEND (Deno Deploy Edge Functions)                        │
 │                                                              │
 │  auth-google    ──▶ Google Userinfo API (verify token)       │
 │                 ──▶ Neon DB (upsert user, create session)    │
@@ -177,10 +177,12 @@
 | **Gravatar (Automattic)** | SHA-256 hash of attendee email | Retrieve profile avatar image | Gravatar uses hash to look up registered avatars; cannot reverse hash to email | Public API, no contract needed |
 | **Google** | Google OAuth access token (during sign-in only) | Verify user identity for account creation | Google verifies token and returns user profile (email, name) | Google OAuth Terms of Service |
 | **Stripe** | User ID reference, subscription events | Payment processing for Pro subscriptions | Stripe processes payments and sends webhook events | Stripe Services Agreement |
+| **Mixpanel** | Anonymous event data (feature usage, errors), user plan type | Product analytics to improve the extension | Mixpanel aggregates events for product dashboards; no PII beyond hashed distinct_id | Mixpanel Terms of Service |
 
 **Key clarifications:**
-- BrightData API key is stored **server-side only**; the extension never has direct access.
-- No data is sold to or shared with data brokers, advertisers, or analytics providers.
+- BrightData API key is embedded at build time and used by the extension's background service worker to call BrightData directly.
+- Mixpanel receives anonymous product usage events (e.g., "sidepanel_opened", "brief_completed") and the user's plan type for segmentation. No attendee PII is sent to Mixpanel.
+- No data is sold to or shared with data brokers or advertisers.
 - No data is transferred for purposes unrelated to the extension's core functionality.
 - No data is used to determine creditworthiness or for lending purposes.
 
@@ -196,17 +198,17 @@
 | Permission | Justification |
 |------------|---------------|
 | `storage` | Store cached professional profiles and user preferences locally in the browser |
+| `identity` | Authenticate the user via Google OAuth for account management and billing |
 | `sidePanel` | Display attendee briefs in Chrome's side panel alongside Google Calendar |
-| `activeTab` | Get the active tab ID to coordinate content script and side panel |
-| `alarms` | Schedule periodic cache cleanup (can be removed if unused — audit found no active usage) |
 
 ### Host Permission Justifications
 
 | Host | Justification |
 |------|---------------|
 | `https://calendar.google.com/*` | Inject content script to read attendee names/emails from calendar event pages — the only site PreMeet operates on |
-| `https://api.brightdata.com/*` | **Recommend removing** — enrichment is now proxied through backend; this permission is no longer needed |
+| `https://api.brightdata.com/*` | Look up publicly available professional profile data for meeting attendees via the BrightData enrichment API. API key is injected at build time. |
 | `https://www.gravatar.com/*` | Fetch attendee avatar images using email hash |
+| `https://api-js.mixpanel.com/*` | Send anonymous product analytics events (feature usage, errors) to Mixpanel for product improvement. No PII is included in event payloads beyond the user's Mixpanel distinct_id. |
 
 ### Data Use Certification Checkboxes
 
@@ -221,7 +223,7 @@
 - [ ] Personal communications
 - [ ] Location
 - [ ] Web history
-- [ ] User activity
+- [x] User activity *(anonymous product usage events via Mixpanel — not input monitoring)*
 
 ### For Each YES — Required Disclosures
 
@@ -257,7 +259,7 @@
 | User settings | `chrome.storage.sync` | Until user changes | Cleared on uninstall |
 | User account | Neon `users` | Until account deletion | Manual deletion request |
 | Session records | Neon `sessions` | Until expiry (~30 days) | Auto-expired |
-| Enrichment requests | Neon `enrichment_requests` | Indefinite (audit log) | Manual deletion request |
+| Enrichment requests | Neon `enrichment_requests` | 90 days (auto-purged) | Automatic purge after 90 days; cascade delete on account deletion |
 | Subscription records | Neon `subscriptions` | Until account deletion | Cascade delete with user |
 | Billing events | Neon `billing_events` | Indefinite (audit log) | Manual deletion request |
 | Cache statistics | Neon `cache_stats` | Indefinite (aggregated, non-PII) | N/A (no PII) |
@@ -266,23 +268,21 @@
 
 ## 6. Recommendations / Action Items
 
-1. **Remove `https://api.brightdata.com/*` from `host_permissions`** — enrichment calls are now proxied through the backend (PRE-62). This permission is no longer needed and its presence may raise CWS reviewer questions.
+1. ~~**Remove `https://api.brightdata.com/*` from `host_permissions`**~~ — NOT applicable; the extension calls BrightData directly from `brightdata-proxy.ts` with a build-time API key. Permission is required.
 
-2. **Audit `alarms` permission** — no active usage found in the codebase. Remove if unused to minimize permission surface.
+2. ~~**Audit `alarms` permission**~~ ✅ Already removed — not present in manifest.json.
 
-3. **Update privacy policy** to disclose:
-   - Server-side storage in Neon (enrichment cache, user accounts)
-   - Stripe payment processing for Pro subscriptions
-   - Specific mention of BrightData as the enrichment data processor
-   - `enrichment_requests` audit log retention
+3. ~~**Update privacy policy**~~ ✅ Done (PRE-68) — privacy policy now discloses Neon server-side storage, BrightData as data processor, Stripe payment processing, and enrichment request log retention.
 
 4. **Consider adding a data deletion endpoint** — to support GDPR/CCPA right-to-erasure requests (delete user + cascade all related records).
 
-5. **Confirm CWS "limited use" compliance** — ensure the [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/limited-use/) limited use requirements are met:
+5. **CWS "limited use" compliance** ✅ Verified:
    - Data is not sold ✓
    - Data is not used for advertising ✓
    - Data is not transferred for creditworthiness ✓
    - Data use is related to core functionality ✓
+
+6. **Set real OAuth client_id in manifest** — currently a placeholder (`YOUR_GOOGLE_OAUTH_CLIENT_ID`). Blocked on [PRE-69](/PRE/issues/PRE-69).
 
 ---
 
@@ -294,4 +294,4 @@
 
 > "I certify my disclosures regarding data collection and use are accurate"
 
-**Assessment:** The disclosures in this document accurately reflect the current codebase as of 2026-03-25. The existing privacy policy (`cws-assets/privacy-policy.md`) should be updated to cover server-side storage and Stripe before certifying.
+**Assessment:** The disclosures in this document accurately reflect the current codebase as of 2026-03-25. The privacy policy (`cws-assets/privacy-policy.md`) has been updated (PRE-68) to disclose server-side storage, BrightData, Stripe, and enrichment request log retention.

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<title>PreMeet - Trust & Privacy</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 1280px; height: 800px; overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #F9FAFB; display: flex; align-items: center; justify-content: center;
+}
+
+/* Split layout */
+.split-container {
+  display: flex; gap: 48px; align-items: flex-start; padding: 40px 80px;
+  width: 100%; max-width: 1200px;
+}
+
+/* Left: Popup mockup */
+.popup-wrapper {
+  flex: 0 0 400px;
+}
+.popup-mock {
+  width: 400px; background: #fff; border-radius: 16px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+  overflow: hidden;
+}
+.pm-header {
+  background: #4F46E5; color: #fff; padding: 16px 20px;
+  display: flex; align-items: center; gap: 10px;
+}
+.pm-header-logo {
+  width: 32px; height: 32px; background: rgba(255,255,255,0.2); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px;
+}
+.pm-header-title { font-size: 18px; font-weight: 600; }
+.pm-header-credits {
+  margin-left: auto; background: rgba(255,255,255,0.18); border-radius: 10px;
+  padding: 2px 10px; font-size: 11px; font-weight: 500;
+}
+.pm-header-settings {
+  width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.15);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px;
+}
+
+/* Status section */
+.pm-status {
+  padding: 16px 20px; background: #F0FDF4; border-bottom: 1px solid #E5E7EB;
+}
+.pm-status-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.pm-status-row:last-child { margin-bottom: 0; }
+.pm-status-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.pm-status-dot.green { background: #059669; box-shadow: 0 0 6px rgba(5,150,105,0.4); }
+.pm-status-dot.blue { background: #4F46E5; }
+.pm-status-text { font-size: 13px; color: #374151; }
+.pm-status-text strong { font-weight: 600; }
+.pm-status-sub { font-size: 11px; color: #6B7280; margin-left: 20px; }
+
+/* Tabs */
+.pm-tabs {
+  display: flex; border-bottom: 1px solid #E5E7EB;
+}
+.pm-tab {
+  flex: 1; padding: 10px 0; font-size: 12px; font-weight: 500; color: #6B7280;
+  text-align: center; border-bottom: 2px solid transparent; cursor: pointer;
+}
+.pm-tab.active { color: #4F46E5; border-bottom-color: #4F46E5; }
+
+/* Attendee cards preview */
+.pm-card-list { padding: 12px 16px; }
+.pm-mini-card {
+  display: flex; align-items: center; padding: 8px 12px; gap: 10px;
+  background: #fff; border: 1px solid #E5E7EB; border-radius: 10px;
+  margin-bottom: 8px; border-left: 3px solid #059669;
+}
+.pm-avatar-xs {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 12px; font-weight: 600; flex-shrink: 0;
+}
+.pm-mini-name { font-size: 12px; font-weight: 600; color: #111827; }
+.pm-mini-title { font-size: 11px; color: #6B7280; }
+.pm-mini-badge {
+  margin-left: auto; background: #D1FAE5; color: #065F46;
+  padding: 2px 8px; border-radius: 8px; font-size: 10px; font-weight: 500;
+}
+
+/* Right: Privacy messaging */
+.privacy-panel {
+  flex: 1;
+}
+.privacy-title {
+  font-size: 32px; font-weight: 700; color: #111827; line-height: 1.2;
+  margin-bottom: 8px;
+}
+.privacy-subtitle {
+  font-size: 16px; color: #6B7280; margin-bottom: 32px; line-height: 1.5;
+}
+
+.privacy-item {
+  display: flex; gap: 16px; margin-bottom: 24px; align-items: flex-start;
+}
+.privacy-check {
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  background: #D1FAE5; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: #059669; font-weight: 700;
+}
+.privacy-item-content { flex: 1; }
+.privacy-item-title { font-size: 15px; font-weight: 600; color: #111827; margin-bottom: 4px; }
+.privacy-item-desc { font-size: 13px; color: #6B7280; line-height: 1.5; }
+
+.privacy-divider {
+  height: 1px; background: #E5E7EB; margin: 28px 0;
+}
+
+/* Not items */
+.not-section-title {
+  font-size: 13px; font-weight: 600; color: #DC2626; text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 16px;
+}
+.not-item {
+  display: flex; gap: 12px; margin-bottom: 12px; align-items: center;
+}
+.not-x {
+  width: 24px; height: 24px; border-radius: 50%; background: #FEE2E2;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: #DC2626; font-weight: 700; flex-shrink: 0;
+}
+.not-text { font-size: 13px; color: #6B7280; }
+
+/* Overlay */
+.overlay-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 60%, transparent 100%);
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 20px; z-index: 200;
+}
+.overlay-text { font-size: 26px; font-weight: 600; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.3); letter-spacing: -0.3px; }
+</style>
+</head>
+<body>
+
+<div class="split-container">
+  <!-- Left: Popup Mockup -->
+  <div class="popup-wrapper">
+    <div class="popup-mock">
+      <div class="pm-header">
+        <div class="pm-header-logo">P</div>
+        <div class="pm-header-title">PreMeet</div>
+        <span class="pm-header-credits">47 credits</span>
+        <div class="pm-header-settings">&#9881;</div>
+      </div>
+
+      <div class="pm-status">
+        <div class="pm-status-row">
+          <div class="pm-status-dot green"></div>
+          <div class="pm-status-text"><strong>Active</strong> on Google Calendar</div>
+        </div>
+        <div class="pm-status-sub">calendar.google.com &mdash; this is the only site we access</div>
+        <div class="pm-status-row" style="margin-top:8px">
+          <div class="pm-status-dot blue"></div>
+          <div class="pm-status-text">3 profiles cached locally</div>
+        </div>
+        <div class="pm-status-sub">All data stored in your browser. Nothing sent to external servers.</div>
+      </div>
+
+      <div class="pm-tabs">
+        <div class="pm-tab active">Attendees</div>
+        <div class="pm-tab">Activity</div>
+        <div class="pm-tab">Requests</div>
+      </div>
+
+      <div class="pm-card-list">
+        <div class="pm-mini-card">
+          <div class="pm-avatar-xs" style="background:linear-gradient(135deg,#EC4899,#8B5CF6)">SR</div>
+          <div>
+            <div class="pm-mini-name">Sarah Rodriguez</div>
+            <div class="pm-mini-title">VP of Strategic Partnerships</div>
+          </div>
+          <span class="pm-mini-badge">Enriched</span>
+        </div>
+        <div class="pm-mini-card">
+          <div class="pm-avatar-xs" style="background:linear-gradient(135deg,#3B82F6,#06B6D4)">MK</div>
+          <div>
+            <div class="pm-mini-name">Michael Kim</div>
+            <div class="pm-mini-title">Principal, Deal Operations</div>
+          </div>
+          <span class="pm-mini-badge">Enriched</span>
+        </div>
+        <div class="pm-mini-card">
+          <div class="pm-avatar-xs" style="background:linear-gradient(135deg,#F59E0B,#EF4444)">EW</div>
+          <div>
+            <div class="pm-mini-name">Emily Walsh</div>
+            <div class="pm-mini-title">Managing Partner</div>
+          </div>
+          <span class="pm-mini-badge">Enriched</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Privacy Messaging -->
+  <div class="privacy-panel">
+    <div class="privacy-title">Your data, your control.</div>
+    <div class="privacy-subtitle">PreMeet is built on a simple principle: transparency first, always.</div>
+
+    <div class="privacy-item">
+      <div class="privacy-check">&#10003;</div>
+      <div class="privacy-item-content">
+        <div class="privacy-item-title">Only public information</div>
+        <div class="privacy-item-desc">We only access publicly available professional data &mdash; the same information anyone can find with a search.</div>
+      </div>
+    </div>
+
+    <div class="privacy-item">
+      <div class="privacy-check">&#10003;</div>
+      <div class="privacy-item-content">
+        <div class="privacy-item-title">Stored locally in your browser</div>
+        <div class="privacy-item-desc">All profiles are cached in your browser's local storage. Your data never touches our servers.</div>
+      </div>
+    </div>
+
+    <div class="privacy-item">
+      <div class="privacy-check">&#10003;</div>
+      <div class="privacy-item-content">
+        <div class="privacy-item-title">Only active on Google Calendar</div>
+        <div class="privacy-item-desc">PreMeet activates exclusively on calendar.google.com. No other websites, no background tracking.</div>
+      </div>
+    </div>
+
+    <div class="privacy-divider"></div>
+
+    <div class="not-section-title">We never</div>
+    <div class="not-item">
+      <div class="not-x">&#10005;</div>
+      <span class="not-text">Read your emails or access other tabs</span>
+    </div>
+    <div class="not-item">
+      <div class="not-x">&#10005;</div>
+      <span class="not-text">Track your browsing activity</span>
+    </div>
+    <div class="not-item">
+      <div class="not-x">&#10005;</div>
+      <span class="not-text">Sell or share any data with third parties</span>
+    </div>
+  </div>
+</div>
+
+<div class="overlay-bar">
+  <div class="overlay-text">Only public data. Stored locally. Your browser, your control.</div>
+</div>
+
+</body>
+</html>

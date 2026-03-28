@@ -249,7 +249,9 @@ function extractAttendees(popup: Element): AttendeeRaw[] {
   ];
   const all: AttendeeRaw[] = [];
   for (const fn of strategies) {
-    try { all.push(...fn(popup)); } catch { /* ignore */ }
+    try { all.push(...fn(popup)); } catch (err) {
+      console.warn(LOG, `Extraction strategy "${fn.name}" threw:`, (err as Error).message);
+    }
   }
   // Deduplicate by email (fallback: name)
   const seen = new Map<string, AttendeeRaw>();

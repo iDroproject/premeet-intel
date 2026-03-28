@@ -46,6 +46,12 @@
       margin-bottom: 0.75rem;
       color: var(--pm-primary);
     }
+    h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-top: 1.25rem;
+      margin-bottom: 0.5rem;
+    }
     p { margin-bottom: 1rem; }
     ul {
       margin-bottom: 1rem;
@@ -85,12 +91,12 @@
 <body>
   <div class="container">
     <h1>Privacy Policy</h1>
-    <p class="effective-date">Effective date: March 24, 2026</p>
+    <p class="effective-date">Effective date: March 25, 2026</p>
 
     <p>PreMeet ("we", "us", or "our") is a Chrome extension that turns Google Calendar invites into professional briefs. This policy explains what data PreMeet accesses, how it is handled, and the control you have over it.</p>
 
     <div class="highlight">
-      <strong>The short version:</strong> PreMeet reads attendee names from your Google Calendar events, looks up publicly available professional information, and stores everything locally in your browser. We do not sell, share, or transfer your data to third parties.
+      <strong>The short version:</strong> PreMeet reads attendee names from your Google Calendar events and looks up publicly available professional information. Profile data is cached locally in your browser and on our server to speed up repeat lookups. We use third-party services (BrightData, Stripe, Gravatar) solely to power core features. We do not sell, share, or transfer your data for unrelated purposes.
     </div>
 
     <h2>1. What Data We Collect</h2>
@@ -123,6 +129,16 @@
           <td>Generated locally by the extension</td>
           <td>To let you revisit past lookups before follow-up meetings</td>
         </tr>
+        <tr>
+          <td>Google account info (email, name, Google user ID)</td>
+          <td>Google OAuth (at sign-in)</td>
+          <td>To create and manage your PreMeet account</td>
+        </tr>
+        <tr>
+          <td>Stripe customer and subscription IDs</td>
+          <td>Stripe (at checkout)</td>
+          <td>To manage Pro subscription billing</td>
+        </tr>
       </tbody>
     </table>
 
@@ -136,29 +152,75 @@
     </ul>
 
     <h2>3. How Data Is Stored</h2>
-    <p>All profile data and lookup history are stored <strong>locally in your browser</strong> using <code>chrome.storage.local</code>. Data never leaves your device except for the outbound API calls described in Section 4.</p>
+    <p>PreMeet stores data in two places:</p>
+
+    <h3>Local (your browser)</h3>
+    <p>Profile data and lookup history are stored locally using <code>chrome.storage.local</code>.</p>
     <ul>
       <li><strong>Cache TTL:</strong> Cached profile data expires automatically after 7 days.</li>
       <li><strong>Cache limit:</strong> A maximum of 500 entries are stored. When the limit is reached, the least-recently-used entries are evicted first (LRU).</li>
       <li><strong>Activity log:</strong> Up to 500 lookup history entries are kept, with oldest entries removed first (FIFO).</li>
     </ul>
 
-    <h2>4. External API Calls</h2>
-    <p>When you request a lookup, PreMeet makes outbound calls to retrieve publicly available professional information:</p>
+    <h3>Server-side (Neon Postgres)</h3>
+    <p>When you create a PreMeet account, certain data is also stored on our server hosted on <strong>Neon Serverless Postgres</strong>:</p>
     <ul>
-      <li><strong>Professional data APIs</strong> — to retrieve public LinkedIn profiles, company details, and related professional information.</li>
-      <li><strong>Gravatar</strong> — to fetch profile photos using a hashed version of the attendee's email address.</li>
+      <li><strong>User accounts</strong> — email, name, and Google OAuth identifier. Retained until you request account deletion.</li>
+      <li><strong>Enrichment cache</strong> — a shared cache of professional profile data retrieved from public sources, keyed by name/email. Entries expire automatically after <strong>7 days</strong>. This cache is shared across users to reduce redundant lookups.</li>
+      <li><strong>Enrichment request log</strong> — an audit record of each lookup you perform, including entity looked up, credit usage, and timestamp. Retained for <strong>90 days</strong> for billing reconciliation, then automatically purged.</li>
+      <li><strong>Sessions</strong> — hashed authentication tokens. Automatically expire after ~30 days.</li>
+      <li><strong>Subscriptions and billing events</strong> — Stripe reference IDs and webhook event records for payment traceability. Retained until account deletion (subscriptions) or for the duration of our record-keeping obligations (billing events).</li>
+      <li><strong>Cache statistics</strong> — aggregated, non-personally-identifiable hit/miss counters for monitoring. Contain no user data.</li>
     </ul>
-    <p>These calls transmit only the minimum data required (name, email, or email hash). No other personal data is sent.</p>
+
+    <h2>4. External API Calls and Third-Party Processors</h2>
+    <p>When you request a lookup, PreMeet makes outbound calls to retrieve publicly available professional information. All calls are made over HTTPS and transmit only the minimum data required.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Data Sent</th>
+          <th>Purpose</th>
+          <th>Data Handling</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>BrightData</strong></td>
+          <td>Attendee name, email, company name</td>
+          <td>Professional profile lookups from public sources (e.g., public LinkedIn profiles, company websites)</td>
+          <td>BrightData processes the query and returns results. Subject to BrightData's data processing terms.</td>
+        </tr>
+        <tr>
+          <td><strong>Gravatar</strong> (Automattic)</td>
+          <td>SHA-256 hash of attendee email</td>
+          <td>Profile photo retrieval</td>
+          <td>Gravatar matches the hash to registered avatars. The hash cannot be reversed to recover the email.</td>
+        </tr>
+        <tr>
+          <td><strong>Google</strong></td>
+          <td>Google OAuth access token (at sign-in only)</td>
+          <td>Verify user identity for account creation</td>
+          <td>Google verifies the token and returns your email and name. Subject to Google OAuth Terms of Service.</td>
+        </tr>
+        <tr>
+          <td><strong>Stripe</strong></td>
+          <td>User account reference (never your card number)</td>
+          <td>Payment processing for Pro subscriptions</td>
+          <td>Stripe handles all payment instrument data. PreMeet stores only Stripe reference IDs, never credit card numbers or bank details. Subject to the Stripe Services Agreement.</td>
+        </tr>
+      </tbody>
+    </table>
 
     <h2>5. Data Sharing and Sales</h2>
     <div class="highlight">
-      <strong>We do not sell, rent, or share your data with any third party.</strong>
+      <strong>We do not sell, rent, or share your data with any third party outside of the services described in Section 4.</strong>
     </div>
     <ul>
-      <li>Data is <strong>not</strong> sold to third parties, outside of the approved use cases.</li>
+      <li>Data is <strong>not</strong> sold to third parties, data brokers, or advertisers.</li>
       <li>Data is <strong>not</strong> used or transferred for purposes unrelated to the extension's core functionality.</li>
       <li>Data is <strong>not</strong> used or transferred to determine creditworthiness or for lending purposes.</li>
+      <li>The third-party services listed in Section 4 (BrightData, Gravatar, Google, Stripe) receive only the minimum data needed to perform their function.</li>
     </ul>
 
     <h2>6. Permissions Explained</h2>
@@ -192,13 +254,18 @@
     <h2>7. Your Control</h2>
     <p>You are in full control of your data at all times:</p>
     <ul>
-      <li><strong>Clear cache:</strong> You can clear all cached profiles at any time from the extension popup.</li>
+      <li><strong>Clear local cache:</strong> You can clear all cached profiles at any time from the extension popup.</li>
       <li><strong>Uninstall:</strong> Removing the extension deletes all locally stored data immediately.</li>
       <li><strong>No account required:</strong> Core lookup functionality works without creating an account.</li>
+      <li><strong>Account deletion:</strong> To delete your server-side account and all associated data (user record, sessions, enrichment request history, and subscription records), contact <a href="mailto:privacy@premeet.co">privacy@premeet.co</a>. Shared enrichment cache entries are not tied to individual users and expire automatically after 7 days.</li>
     </ul>
 
     <h2>8. Data Security</h2>
-    <p>PreMeet stores all data within Chrome's built-in sandboxed storage, which is isolated per-extension and inaccessible to other extensions or websites. All external API calls are made over HTTPS.</p>
+    <ul>
+      <li><strong>Local storage:</strong> PreMeet stores browser-side data within Chrome's built-in sandboxed storage, which is isolated per-extension and inaccessible to other extensions or websites.</li>
+      <li><strong>Server-side storage:</strong> Server data is stored in Neon Serverless Postgres with encrypted connections. Authentication tokens are stored as cryptographic hashes; raw tokens are never persisted.</li>
+      <li><strong>In transit:</strong> All external API calls are made over HTTPS.</li>
+    </ul>
 
     <h2>9. Children's Privacy</h2>
     <p>PreMeet is not intended for use by individuals under the age of 13. We do not knowingly collect personal information from children.</p>

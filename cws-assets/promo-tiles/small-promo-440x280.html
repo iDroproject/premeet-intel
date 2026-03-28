@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=440, height=280">
+<title>PreMeet - Small Promo Tile</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 440px; height: 280px; overflow: hidden;
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: linear-gradient(135deg, #4A90D9 0%, #5B6ABF 100%);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.container {
+  width: 100%; height: 100%; position: relative;
+  display: flex; align-items: center; padding: 0 36px;
+  gap: 28px;
+}
+
+/* Left side: text */
+.text-block {
+  flex: 1; z-index: 2;
+}
+.headline {
+  font-size: 22px; font-weight: 800; color: #fff;
+  line-height: 1.2; margin-bottom: 10px;
+  letter-spacing: -0.3px;
+}
+.subhead {
+  font-size: 12px; font-weight: 400; color: rgba(255,255,255,0.85);
+  line-height: 1.5; max-width: 200px;
+}
+
+/* Right side: visual */
+.visual {
+  flex-shrink: 0; z-index: 2;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+
+/* PreMeet icon */
+.pm-icon {
+  width: 56px; height: 56px; border-radius: 14px;
+  background: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+.pm-icon svg { width: 36px; height: 36px; }
+
+/* Mini profile card */
+.mini-card {
+  width: 140px; background: #fff; border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  padding: 14px; text-align: center;
+}
+.mini-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: linear-gradient(135deg, #4A90D9, #5B6ABF);
+  margin: 0 auto 8px; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 14px; font-weight: 700;
+}
+.mini-name { font-size: 11px; font-weight: 700; color: #1a1a2e; margin-bottom: 2px; }
+.mini-title { font-size: 9px; color: #6b7280; margin-bottom: 6px; line-height: 1.3; }
+.mini-stats {
+  display: flex; justify-content: center; gap: 12px;
+  font-size: 8px; color: #9ca3af;
+}
+.mini-stats .stat-val { font-weight: 700; color: #4A90D9; font-size: 10px; display: block; }
+
+/* Background decoration */
+.bg-circle {
+  position: absolute; border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+}
+.bg-c1 { width: 200px; height: 200px; top: -60px; right: -40px; }
+.bg-c2 { width: 120px; height: 120px; bottom: -30px; left: -20px; }
+.bg-c3 { width: 80px; height: 80px; top: 20px; right: 100px; background: rgba(255,255,255,0.04); }
+
+/* Calendar grid hint */
+.cal-hint {
+  position: absolute; bottom: 16px; left: 36px;
+  display: flex; gap: 3px; opacity: 0.3;
+}
+.cal-cell {
+  width: 8px; height: 8px; border-radius: 2px;
+  background: rgba(255,255,255,0.5);
+}
+.cal-cell.active { background: #fff; opacity: 0.8; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="bg-circle bg-c1"></div>
+  <div class="bg-circle bg-c2"></div>
+  <div class="bg-circle bg-c3"></div>
+
+  <div class="text-block">
+    <div class="headline">Know Who<br>You're Meeting</div>
+    <div class="subhead">LinkedIn profiles and company intel inside Google Calendar</div>
+  </div>
+
+  <div class="visual">
+    <div class="pm-icon">
+      <svg viewBox="0 0 48 48" fill="none">
+        <rect x="4" y="8" width="40" height="32" rx="4" fill="#4A90D9"/>
+        <rect x="8" y="4" width="4" height="8" rx="2" fill="#5B6ABF"/>
+        <rect x="36" y="4" width="4" height="8" rx="2" fill="#5B6ABF"/>
+        <circle cx="24" cy="22" r="6" fill="#fff"/>
+        <path d="M14 36c0-5.523 4.477-10 10-10s10 4.477 10 10" fill="rgba(255,255,255,0.6)"/>
+        <rect x="8" y="16" width="32" height="1" fill="rgba(255,255,255,0.3)"/>
+      </svg>
+    </div>
+    <div class="mini-card">
+      <div class="mini-avatar">SR</div>
+      <div class="mini-name">Sarah Rodriguez</div>
+      <div class="mini-title">VP of Partnerships<br>Nexus Ventures</div>
+      <div class="mini-stats">
+        <div><span class="stat-val">2.4k</span>connections</div>
+        <div><span class="stat-val">89%</span>confidence</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cal-hint">
+    <div class="cal-cell"></div>
+    <div class="cal-cell"></div>
+    <div class="cal-cell active"></div>
+    <div class="cal-cell"></div>
+    <div class="cal-cell"></div>
+    <div class="cal-cell"></div>
+    <div class="cal-cell"></div>
+  </div>
+</div>
+</body>
+</html>

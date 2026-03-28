@@ -13,12 +13,24 @@ let initialized = false;
  */
 export function initMixpanel(): void {
   if (initialized) return;
+
+  // Clear stale batch-queue entries from localStorage left over from previous
+  // configs (batch_requests was previously true). Corrupted queue data causes
+  // the SDK to send empty payloads → "data, missing or empty" errors.
+  const queuePrefix = `__mpq_${MIXPANEL_TOKEN}`;
+  for (const suffix of ['_ev', '_pp', '_gr']) {
+    try { localStorage.removeItem(queuePrefix + suffix); } catch (_) { /* extension storage quirks */ }
+  }
+
   mixpanel.init(MIXPANEL_TOKEN, {
     debug: false,
     track_pageview: false,       // Chrome extension, not a web page
     persistence: 'localStorage',
-    autocapture: true,
-    record_sessions_percent: 100,
+    autocapture: false,          // Autocapture events (clicks, scrolls) are not meaningful in extension pages
+    record_sessions_percent: 0,  // Session recording does not work reliably in Chrome extension contexts
+    batch_requests: false,       // Send events immediately — avoids batch-queue timing issues in extension lifecycle
+    ip: false,                   // Extension pages don't have meaningful IP context
+    ignore_dnt: true,            // Extension analytics should not be blocked by browser DNT settings
   });
   initialized = true;
 }

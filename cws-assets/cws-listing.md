@@ -46,7 +46,7 @@ KEY FEATURES
 
 • Lookup History — Revisit past profiles before follow-up meetings.
 
-• Privacy-First — All data stored locally in your browser. We only access publicly available information.
+• Privacy-First — Data cached locally and on our server with automatic expiry. We only access publicly available information and never sell your data.
 
 WHO IT'S FOR
 PreMeet is built for professionals who do external meetings regularly:
@@ -62,7 +62,7 @@ PreMeet only accesses publicly available professional information — the same d
 — We do NOT read your emails or access other tabs
 — We do NOT track your browsing activity
 — We do NOT sell or share any data
-— All profiles are cached locally in YOUR browser
+— Profiles are cached locally and on our server (auto-expires after 7 days)
 — PreMeet only activates on calendar.google.com
 
 GETTING STARTED
@@ -131,10 +131,10 @@ Look up publicly available professional profile data (LinkedIn profiles, company
 
 ## Privacy Practices
 
-- **Data collected:** Attendee names and email addresses from calendar events (used only for profile lookups)
-- **Data stored:** Cached profile data stored locally via `chrome.storage.local`; no data transmitted to PreMeet servers beyond what is needed for lookups
-- **Data shared:** No user data is sold or shared with third parties
-- **Data retention:** Cached profiles expire automatically; users can clear all data at any time
+- **Data collected:** Attendee names and email addresses from calendar events (used only for profile lookups); Google account info at sign-in for account management
+- **Data stored:** Cached profile data stored locally via `chrome.storage.local` (7-day TTL) and server-side in Neon Postgres (shared enrichment cache, 7-day TTL). User accounts, sessions, and billing references stored server-side.
+- **Data shared:** Attendee data sent to BrightData for professional lookups and Gravatar for avatars. Stripe processes payments (never receives user browsing data). No data is sold to third parties, data brokers, or advertisers.
+- **Data retention:** Local cached profiles expire after 7 days; server enrichment cache expires after 7 days; enrichment request logs retained 90 days; user accounts retained until deletion requested
 
 ---
 

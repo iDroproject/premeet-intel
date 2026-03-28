@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<title>PreMeet - Progressive Loading</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 1280px; height: 800px; overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #F1F3F4; display: flex;
+}
+.gcal-bg {
+  flex: 1; background: #fff; position: relative; opacity: 0.5; filter: blur(1px);
+}
+.gcal-topbar { height: 64px; background: #fff; border-bottom: 1px solid #DADCE0; display: flex; align-items: center; padding: 0 20px; }
+.gcal-topbar .logo { display: flex; align-items: center; gap: 8px; }
+.gcal-topbar .logo svg { width: 40px; height: 40px; }
+.gcal-topbar .logo span { font-size: 22px; color: #3C4043; }
+.gcal-content { padding: 20px; color: #70757A; }
+.gcal-event-block { background: #D2E3FC; border-left: 4px solid #4285F4; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; color: #174EA6; font-size: 13px; }
+
+.pm-sidepanel {
+  width: 420px; background: #F9FAFB; border-left: 1px solid #E5E7EB;
+  display: flex; flex-direction: column; height: 800px; overflow-y: auto;
+}
+.pm-header {
+  background: #4F46E5; color: #fff; padding: 14px 20px;
+  display: flex; align-items: center; gap: 10px;
+}
+.pm-header-logo { width: 32px; height: 32px; background: rgba(255,255,255,0.2); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; }
+.pm-header-title { font-size: 18px; font-weight: 600; }
+.pm-header-meeting { font-size: 12px; opacity: 0.85; margin-left: auto; }
+.pm-header-credits { background: rgba(255,255,255,0.18); border-radius: 10px; padding: 2px 10px; font-size: 11px; font-weight: 500; }
+
+/* Loading bar */
+.pm-loading-bar {
+  height: 3px; background: #E5E7EB; position: relative; overflow: hidden;
+}
+.pm-loading-bar::after {
+  content: ''; position: absolute; left: 0; top: 0; height: 100%; width: 60%;
+  background: linear-gradient(90deg, #4F46E5, #7C3AED);
+  border-radius: 2px;
+  animation: pm-slide 1.2s ease-in-out infinite;
+}
+@keyframes pm-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+/* Progress Stepper */
+.pm-stepper {
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px 24px; gap: 0; background: #fff; border-bottom: 1px solid #E5E7EB;
+}
+.pm-step {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  position: relative; z-index: 1;
+}
+.pm-step-dot {
+  width: 32px; height: 32px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-size: 14px; font-weight: 600;
+  transition: all 300ms;
+}
+.pm-step-dot.done { background: #059669; color: #fff; }
+.pm-step-dot.active { background: #4F46E5; color: #fff; animation: pm-dot-pulse 1.4s ease-in-out infinite; }
+.pm-step-dot.pending { background: #F3F4F6; color: #9CA3AF; }
+@keyframes pm-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79,70,229,0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(79,70,229,0); }
+}
+.pm-step-label { font-size: 10px; font-weight: 500; color: #6B7280; text-align: center; }
+.pm-step-label.done { color: #059669; }
+.pm-step-label.active { color: #4F46E5; font-weight: 600; }
+.pm-step-line {
+  width: 50px; height: 2px; margin: 0 -2px; margin-bottom: 18px;
+}
+.pm-step-line.done { background: #059669; }
+.pm-step-line.active { background: linear-gradient(90deg, #059669, #4F46E5); }
+.pm-step-line.pending { background: #E5E7EB; }
+
+/* Attendee counter - in progress */
+.pm-attendee-counter {
+  padding: 10px 20px; font-size: 12px; color: #4F46E5; font-weight: 500;
+  background: #EEF2FF; border-bottom: 1px solid #E5E7EB;
+}
+
+/* Cards with different states */
+.pm-card {
+  background: #fff; margin: 10px 16px; border-radius: 12px;
+  border: 1px solid #E5E7EB; overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.pm-card.usable { border-left: 3px solid #059669; }
+.pm-card.loading { border-left: 3px solid #4F46E5; }
+.pm-card.pending { border-left: 3px solid #E5E7EB; }
+
+.pm-card-header {
+  display: flex; padding: 14px 18px; gap: 12px; align-items: center;
+}
+.pm-avatar {
+  width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 16px; font-weight: 600; flex-shrink: 0;
+}
+.pm-card-body { flex: 1; min-width: 0; }
+.pm-card-name { font-size: 14px; font-weight: 600; color: #111827; }
+.pm-card-title { font-size: 12px; color: #6B7280; margin-top: 1px; }
+.pm-card-company { font-size: 12px; color: #6B7280; margin-top: 1px; }
+.pm-card-stats { display: flex; gap: 12px; margin-top: 6px; }
+.pm-stat { font-size: 11px; color: #6B7280; }
+.pm-stat strong { color: #111827; font-weight: 600; }
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-name { width: 140px; height: 16px; margin-bottom: 6px; }
+.skeleton-title { width: 100px; height: 12px; margin-bottom: 4px; }
+.skeleton-company { width: 80px; height: 12px; }
+
+/* Loading spinner badge */
+.pm-loading-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #EEF2FF; color: #4F46E5; padding: 2px 8px; border-radius: 10px;
+  font-size: 10px; font-weight: 500;
+}
+.pm-loading-badge .spinner {
+  width: 10px; height: 10px; border: 2px solid #E5E7EB; border-top-color: #4F46E5;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Confidence ring */
+.pm-confidence { width: 36px; height: 36px; flex-shrink: 0; position: relative; }
+.pm-confidence svg { width: 36px; height: 36px; }
+.pm-confidence-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 10px; font-weight: 700; color: #059669; }
+
+/* Quick section preview */
+.pm-section-preview { padding: 0 18px 12px; }
+.pm-section-label { font-size: 11px; color: #9CA3AF; font-weight: 500; margin-bottom: 4px; }
+.pm-section-text { font-size: 12px; color: #374151; line-height: 1.4; }
+
+.overlay-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 60%, transparent 100%);
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 20px; z-index: 200;
+}
+.overlay-text { font-size: 28px; font-weight: 600; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.3); letter-spacing: -0.3px; }
+</style>
+</head>
+<body>
+
+<div class="gcal-bg">
+  <div class="gcal-topbar">
+    <div class="logo">
+      <svg viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#4285F4"/><rect x="8" y="8" width="24" height="24" rx="4" fill="#fff"/></svg>
+      <span>Calendar</span>
+    </div>
+  </div>
+  <div class="gcal-content">
+    <div class="gcal-event-block">Partnership Call &middot; 10:00 - 11:00 AM</div>
+    <div class="gcal-event-block">Sales Review &middot; 1:00 - 2:00 PM</div>
+  </div>
+</div>
+
+<div class="pm-sidepanel">
+  <div class="pm-header">
+    <div class="pm-header-logo">P</div>
+    <div class="pm-header-title">PreMeet</div>
+    <span class="pm-header-meeting">Partnership Call</span>
+    <span class="pm-header-credits">47 credits</span>
+  </div>
+
+  <div class="pm-loading-bar"></div>
+
+  <!-- Progress Stepper -->
+  <div class="pm-stepper">
+    <div class="pm-step">
+      <div class="pm-step-dot done">&#10003;</div>
+      <div class="pm-step-label done">Searching</div>
+    </div>
+    <div class="pm-step-line done"></div>
+    <div class="pm-step">
+      <div class="pm-step-dot done">&#10003;</div>
+      <div class="pm-step-label done">Resolving</div>
+    </div>
+    <div class="pm-step-line active"></div>
+    <div class="pm-step">
+      <div class="pm-step-dot active">3</div>
+      <div class="pm-step-label active">Enriching</div>
+    </div>
+    <div class="pm-step-line pending"></div>
+    <div class="pm-step">
+      <div class="pm-step-dot pending">4</div>
+      <div class="pm-step-label">Complete</div>
+    </div>
+  </div>
+
+  <div class="pm-attendee-counter">&#9889; Enriching 2 of 3 attendees...</div>
+
+  <!-- Card 1: Complete -->
+  <div class="pm-card usable">
+    <div class="pm-card-header">
+      <div class="pm-avatar" style="background:linear-gradient(135deg,#EC4899,#8B5CF6)">SR</div>
+      <div class="pm-card-body">
+        <div class="pm-card-name">Sarah Rodriguez</div>
+        <div class="pm-card-title">VP of Strategic Partnerships</div>
+        <div class="pm-card-company">&#127970; Nexus Ventures</div>
+        <div class="pm-card-stats">
+          <span class="pm-stat"><strong>1,247</strong> connections</span>
+          <span class="pm-stat"><strong>892</strong> followers</span>
+        </div>
+      </div>
+      <div class="pm-confidence">
+        <svg viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="#E5E7EB" stroke-width="2.5"/>
+          <circle cx="18" cy="18" r="14" fill="none" stroke="#059669" stroke-width="2.5"
+            stroke-dasharray="77" stroke-dashoffset="9" stroke-linecap="round" transform="rotate(-90 18 18)"/>
+        </svg>
+        <span class="pm-confidence-text">89%</span>
+      </div>
+    </div>
+    <div class="pm-section-preview">
+      <div class="pm-section-label">Bio</div>
+      <div class="pm-section-text">Passionate about building strategic partnerships that drive growth. 12+ years in SaaS business development...</div>
+    </div>
+  </div>
+
+  <!-- Card 2: Loading (enriching) -->
+  <div class="pm-card loading">
+    <div class="pm-card-header">
+      <div class="pm-avatar" style="background:linear-gradient(135deg,#3B82F6,#06B6D4)">MK</div>
+      <div class="pm-card-body">
+        <div class="pm-card-name">Michael Kim <span class="pm-loading-badge"><span class="spinner"></span> Enriching</span></div>
+        <div class="pm-card-title">Principal, Deal Operations</div>
+        <div class="pm-card-company">&#127970; Nexus Ventures</div>
+        <div class="pm-card-stats">
+          <span class="pm-stat"><strong>856</strong> connections</span>
+        </div>
+      </div>
+    </div>
+    <div class="pm-section-preview">
+      <div class="skeleton skeleton-name" style="width:200px; height:12px; margin-top:4px"></div>
+      <div class="skeleton skeleton-title" style="width:260px; height:12px; margin-top:6px"></div>
+    </div>
+  </div>
+
+  <!-- Card 3: Pending (skeleton) -->
+  <div class="pm-card pending">
+    <div class="pm-card-header">
+      <div class="pm-avatar" style="background:#E5E7EB; color:#9CA3AF">EW</div>
+      <div class="pm-card-body">
+        <div class="skeleton skeleton-name"></div>
+        <div class="skeleton skeleton-title"></div>
+        <div class="skeleton skeleton-company"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay-bar">
+  <div class="overlay-text">Watch your brief build in real time</div>
+</div>
+
+</body>
+</html>

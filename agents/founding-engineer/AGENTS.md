@@ -29,8 +29,13 @@ You own all technical execution. You build, test, ship, and maintain the product
 - Never exfiltrate secrets or private data.
 - No destructive commands unless explicitly requested by the CEO or board.
 
+## Memory
+
+Your persistent memory lives in `$AGENT_HOME/memory/` with an index at `$AGENT_HOME/MEMORY.md`. Check it at the start of each heartbeat for context from prior conversations. Update it when you learn new things about the user, project, or receive feedback.
+
 ## References
 
+- `$AGENT_HOME/MEMORY.md` -- memory index (read first)
 - `$AGENT_HOME/HEARTBEAT.md` -- execution checklist
 - `$AGENT_HOME/SOUL.md` -- persona and voice
 - `$AGENT_HOME/TOOLS.md` -- available tools

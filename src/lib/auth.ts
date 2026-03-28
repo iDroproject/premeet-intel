@@ -61,11 +61,20 @@ async function getStoredTokens(): Promise<{
   ]);
 
   const userStr = result[STORAGE_KEYS.user];
+  let user: AuthUser | null = null;
+  if (userStr) {
+    try {
+      user = JSON.parse(userStr) as AuthUser;
+    } catch {
+      console.warn(LOG, 'Stored user data was not valid JSON — clearing it');
+      await chrome.storage.local.remove(STORAGE_KEYS.user).catch(() => {});
+    }
+  }
   return {
     accessToken: result[STORAGE_KEYS.accessToken] ?? null,
     refreshToken: result[STORAGE_KEYS.refreshToken] ?? null,
     expiresAt: result[STORAGE_KEYS.expiresAt] ?? null,
-    user: userStr ? JSON.parse(userStr) : null,
+    user,
   };
 }
 
@@ -278,6 +287,10 @@ export async function authFetch(url: string, init?: RequestInit): Promise<Respon
 
     headers.set('Authorization', `Bearer ${accessToken}`);
     res = await fetch(url, { ...init, headers });
+
+    if (res.status === 401) {
+      throw new Error('Session expired. Please sign in again.');
+    }
   }
 
   return res;

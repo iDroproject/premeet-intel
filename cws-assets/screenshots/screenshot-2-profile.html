@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, height=800">
+<title>PreMeet - Full Profile Card</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 1280px; height: 800px; overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: #F1F3F4;
+  display: flex;
+}
+
+/* Left side: Google Calendar (blurred/dimmed) */
+.gcal-bg {
+  flex: 1; background: #fff; position: relative; opacity: 0.5;
+  filter: blur(1px);
+}
+.gcal-bg-inner { padding: 20px; }
+.gcal-topbar { height: 64px; background: #fff; border-bottom: 1px solid #DADCE0; display: flex; align-items: center; padding: 0 20px; }
+.gcal-topbar .logo { display: flex; align-items: center; gap: 8px; }
+.gcal-topbar .logo svg { width: 40px; height: 40px; }
+.gcal-topbar .logo span { font-size: 22px; color: #3C4043; }
+.gcal-content { padding: 20px; color: #70757A; }
+.gcal-event-block {
+  background: #D2E3FC; border-left: 4px solid #4285F4; border-radius: 6px;
+  padding: 8px 12px; margin-bottom: 12px; color: #174EA6; font-size: 13px;
+}
+
+/* Right side: PreMeet Side Panel */
+.pm-sidepanel {
+  width: 420px; background: #F9FAFB; border-left: 1px solid #E5E7EB;
+  display: flex; flex-direction: column; height: 800px; overflow-y: auto;
+}
+
+/* Panel Header */
+.pm-header {
+  background: #4F46E5; color: #fff; padding: 14px 20px;
+  display: flex; align-items: center; gap: 10px;
+  position: sticky; top: 0; z-index: 10;
+}
+.pm-header-logo {
+  width: 32px; height: 32px; background: rgba(255,255,255,0.2); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px;
+}
+.pm-header-title { font-size: 18px; font-weight: 600; }
+.pm-header-meeting { font-size: 12px; opacity: 0.85; margin-left: auto; }
+.pm-header-credits {
+  background: rgba(255,255,255,0.18); border-radius: 10px; padding: 2px 10px;
+  font-size: 11px; font-weight: 500;
+}
+
+/* Attendee counter */
+.pm-attendee-counter {
+  padding: 10px 20px; font-size: 12px; color: #059669; font-weight: 500;
+  background: #D1FAE5; border-bottom: 1px solid #E5E7EB;
+}
+
+/* Profile Card */
+.pm-card {
+  background: #fff; margin: 12px 16px; border-radius: 12px;
+  border: 1px solid #E5E7EB; overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  border-left: 3px solid #059669;
+}
+.pm-card-header {
+  display: flex; padding: 16px 20px; gap: 14px;
+}
+.pm-avatar {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: linear-gradient(135deg, #4F46E5, #7C3AED);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 20px; font-weight: 600;
+  border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  flex-shrink: 0;
+}
+.pm-avatar img {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+}
+.pm-card-body { flex: 1; min-width: 0; }
+.pm-card-name {
+  font-size: 16px; font-weight: 600; color: #111827;
+  display: flex; align-items: center; gap: 6px;
+}
+.pm-card-name a { color: #4F46E5; text-decoration: none; }
+.pm-card-name .linkedin-icon { width: 16px; height: 16px; }
+.pm-card-title { font-size: 13px; color: #6B7280; margin-top: 2px; }
+.pm-card-company { font-size: 13px; color: #6B7280; margin-top: 2px; }
+.pm-card-location { font-size: 12px; color: #9CA3AF; margin-top: 2px; }
+.pm-card-email { font-size: 12px; color: #9CA3AF; margin-top: 2px; }
+
+.pm-card-stats {
+  display: flex; gap: 16px; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid #F3F4F6;
+}
+.pm-stat { font-size: 12px; color: #6B7280; }
+.pm-stat strong { color: #111827; font-weight: 600; }
+
+/* Confidence ring */
+.pm-confidence {
+  width: 44px; height: 44px; flex-shrink: 0; position: relative;
+}
+.pm-confidence svg { width: 44px; height: 44px; }
+.pm-confidence-text {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 11px; font-weight: 700; color: #059669;
+}
+
+/* Bio */
+.pm-bio {
+  padding: 0 20px 12px; font-size: 13px; color: #374151; line-height: 1.5;
+  border-bottom: 1px solid #F3F4F6;
+}
+
+/* Company Section */
+.pm-company {
+  padding: 14px 20px; border-bottom: 1px solid #F3F4F6;
+}
+.pm-company-header {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.pm-company-logo {
+  width: 28px; height: 28px; border-radius: 6px; background: #EEF2FF;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: #4F46E5;
+}
+.pm-company-name { font-size: 14px; font-weight: 600; color: #111827; }
+.pm-company-meta { font-size: 12px; color: #9CA3AF; margin-left: 4px; }
+.pm-company-desc { font-size: 12px; color: #6B7280; line-height: 1.5; margin-bottom: 8px; }
+.pm-company-link { font-size: 12px; color: #4F46E5; text-decoration: none; }
+
+/* Expandable Sections */
+.pm-section {
+  border-bottom: 1px solid #F3F4F6;
+}
+.pm-section-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 12px 20px; border: none; background: none;
+  font-size: 13px; font-weight: 600; color: #374151; cursor: pointer;
+  font-family: inherit;
+}
+.pm-section-arrow { font-size: 10px; color: #9CA3AF; }
+.pm-section-content { padding: 0 20px 14px; }
+
+/* Timeline */
+.pm-timeline { list-style: none; }
+.pm-timeline-item {
+  padding: 8px 0; border-left: 2px solid #E5E7EB; padding-left: 14px; margin-left: 6px;
+  position: relative;
+}
+.pm-timeline-item::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: #4F46E5; position: absolute; left: -5px; top: 12px;
+}
+.pm-timeline-item:first-child::before { background: #059669; }
+.pm-timeline-role { font-size: 13px; font-weight: 600; color: #111827; }
+.pm-timeline-company { font-size: 12px; color: #6B7280; }
+.pm-timeline-dates { font-size: 11px; color: #9CA3AF; }
+
+/* Education */
+.pm-edu { padding: 6px 0; }
+.pm-edu-school { font-size: 13px; font-weight: 600; color: #111827; }
+.pm-edu-degree { font-size: 12px; color: #6B7280; }
+.pm-edu-years { font-size: 11px; color: #9CA3AF; }
+
+/* Skills */
+.pm-skills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pm-skill-tag {
+  background: #EEF2FF; color: #4F46E5; padding: 3px 10px; border-radius: 12px;
+  font-size: 11px; font-weight: 500;
+}
+
+/* Overlay */
+.overlay-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.45) 60%, transparent 100%);
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 20px; z-index: 200;
+}
+.overlay-text {
+  font-family: 'Inter', sans-serif; font-size: 28px; font-weight: 600;
+  color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.3); letter-spacing: -0.3px;
+}
+</style>
+</head>
+<body>
+
+<!-- Calendar background (blurred) -->
+<div class="gcal-bg">
+  <div class="gcal-topbar">
+    <div class="logo">
+      <svg viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#4285F4"/><rect x="8" y="8" width="24" height="24" rx="4" fill="#fff"/></svg>
+      <span>Calendar</span>
+    </div>
+  </div>
+  <div class="gcal-content">
+    <div class="gcal-event-block">Partnership Call &middot; 10:00 - 11:00 AM</div>
+    <div class="gcal-event-block">Sales Review &middot; 1:00 - 2:00 PM</div>
+    <div class="gcal-event-block" style="background:#CEEAD6;border-color:#34A853;color:#137333">1:1 w/ Lisa &middot; 3:00 - 3:30 PM</div>
+  </div>
+</div>
+
+<!-- PreMeet Side Panel -->
+<div class="pm-sidepanel">
+  <div class="pm-header">
+    <div class="pm-header-logo">P</div>
+    <div class="pm-header-title">PreMeet</div>
+    <span class="pm-header-meeting">Partnership Call</span>
+    <span class="pm-header-credits">47 credits</span>
+  </div>
+
+  <div class="pm-attendee-counter">&#10003; 3 attendees enriched</div>
+
+  <!-- Main Profile Card -->
+  <div class="pm-card">
+    <div class="pm-card-header">
+      <div class="pm-avatar" style="background: linear-gradient(135deg, #EC4899, #8B5CF6);">SR</div>
+      <div class="pm-card-body">
+        <div class="pm-card-name">
+          <a href="#">Sarah Rodriguez</a>
+          <svg class="linkedin-icon" viewBox="0 0 16 16" fill="#0A66C2"><path d="M13.6 0H2.4C1.08 0 0 1.08 0 2.4v11.2C0 14.92 1.08 16 2.4 16h11.2c1.32 0 2.4-1.08 2.4-2.4V2.4C16 1.08 14.92 0 13.6 0zM4.8 13.6H2.4V6.4h2.4v7.2zM3.6 5.36c-.76 0-1.36-.6-1.36-1.36s.6-1.36 1.36-1.36S5 3.24 5 4s-.64 1.36-1.4 1.36zM13.6 13.6h-2.4V9.88c0-.88-.72-1.6-1.6-1.6s-1.6.72-1.6 1.6v3.72H5.6V6.4H8v1c.52-.8 1.48-1.32 2.4-1.32 1.72 0 3.2 1.48 3.2 3.2v4.32z"/></svg>
+        </div>
+        <div class="pm-card-title">VP of Strategic Partnerships</div>
+        <div class="pm-card-company">&#127970; Nexus Ventures</div>
+        <div class="pm-card-location">&#128205; San Francisco, CA</div>
+        <div class="pm-card-email">sarah.rodriguez@nexusventures.com</div>
+        <div class="pm-card-stats">
+          <span class="pm-stat"><strong>1,247</strong> connections</span>
+          <span class="pm-stat"><strong>892</strong> followers</span>
+        </div>
+      </div>
+      <div class="pm-confidence">
+        <svg viewBox="0 0 44 44">
+          <circle cx="22" cy="22" r="18" fill="none" stroke="#E5E7EB" stroke-width="3"/>
+          <circle cx="22" cy="22" r="18" fill="none" stroke="#059669" stroke-width="3"
+            stroke-dasharray="98" stroke-dashoffset="12" stroke-linecap="round"
+            transform="rotate(-90 22 22)"/>
+        </svg>
+        <span class="pm-confidence-text">89%</span>
+      </div>
+    </div>
+
+    <div class="pm-bio">
+      Passionate about building strategic partnerships that drive growth. 12+ years in SaaS business development, focused on enterprise sales and channel partnerships. Previously at Salesforce and HubSpot.
+    </div>
+
+    <!-- Company Section -->
+    <div class="pm-company">
+      <div class="pm-company-header">
+        <div class="pm-company-logo">N</div>
+        <span class="pm-company-name">Nexus Ventures</span>
+        <span class="pm-company-meta">&middot; Venture Capital</span>
+      </div>
+      <div class="pm-company-desc">Early-stage venture capital firm investing in B2B SaaS, AI/ML, and developer tools. $400M AUM across three funds.</div>
+      <a href="#" class="pm-company-link">nexusventures.com</a>
+    </div>
+
+    <!-- Work History -->
+    <div class="pm-section">
+      <button class="pm-section-toggle">&#128188; Work History <span class="pm-section-arrow">&#9660;</span></button>
+      <div class="pm-section-content">
+        <ul class="pm-timeline">
+          <li class="pm-timeline-item">
+            <div class="pm-timeline-role">VP of Strategic Partnerships</div>
+            <div class="pm-timeline-company">Nexus Ventures</div>
+            <div class="pm-timeline-dates">Jan 2023 &mdash; Present</div>
+          </li>
+          <li class="pm-timeline-item">
+            <div class="pm-timeline-role">Director, Business Development</div>
+            <div class="pm-timeline-company">Salesforce</div>
+            <div class="pm-timeline-dates">Mar 2019 &mdash; Dec 2022</div>
+          </li>
+          <li class="pm-timeline-item">
+            <div class="pm-timeline-role">Sr. Partnership Manager</div>
+            <div class="pm-timeline-company">HubSpot</div>
+            <div class="pm-timeline-dates">Jun 2016 &mdash; Feb 2019</div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Education -->
+    <div class="pm-section">
+      <button class="pm-section-toggle">&#127891; Education <span class="pm-section-arrow">&#9660;</span></button>
+      <div class="pm-section-content">
+        <div class="pm-edu">
+          <div class="pm-edu-school">Stanford University</div>
+          <div class="pm-edu-degree">MBA, Business Administration</div>
+          <div class="pm-edu-years">2014 &mdash; 2016</div>
+        </div>
+        <div class="pm-edu" style="margin-top:8px">
+          <div class="pm-edu-school">UC Berkeley</div>
+          <div class="pm-edu-degree">B.A. Economics</div>
+          <div class="pm-edu-years">2010 &mdash; 2014</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Skills -->
+    <div class="pm-section">
+      <button class="pm-section-toggle">&#9889; Skills <span class="pm-section-arrow">&#9660;</span></button>
+      <div class="pm-section-content">
+        <div class="pm-skills">
+          <span class="pm-skill-tag">Strategic Partnerships</span>
+          <span class="pm-skill-tag">Business Development</span>
+          <span class="pm-skill-tag">SaaS Sales</span>
+          <span class="pm-skill-tag">Enterprise Sales</span>
+          <span class="pm-skill-tag">Channel Partners</span>
+          <span class="pm-skill-tag">Venture Capital</span>
+          <span class="pm-skill-tag">Deal Structuring</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Overlay -->
+<div class="overlay-bar">
+  <div class="overlay-text">LinkedIn profiles delivered to your calendar</div>
+</div>
+
+</body>
+</html>

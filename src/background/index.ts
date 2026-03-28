@@ -40,7 +40,7 @@ function friendlyErrorMessage(rawMsg: string): string {
     return 'Found a LinkedIn profile but could not extract data. Please try again.';
   if (/credit limit/i.test(rawMsg))
     return 'Credit limit reached. Upgrade your plan or wait for monthly reset.';
-  return rawMsg;
+  return 'An unexpected error occurred. Please try again.';
 }
 
 // ─── Module-level Singletons ─────────────────────────────────────────────────
@@ -261,10 +261,32 @@ function buildLogEntry(
 
 // ─── Waterfall Enrichment Pipeline ───────────────────────────────────────────
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_FIELD_LENGTH = 200;
+
 async function handleFetchPersonBackground(
   payload: { name: string; email: string; company: string },
   senderTabId?: number,
 ): Promise<void> {
+  // Validate required fields before processing
+  if (!payload || typeof payload !== 'object') {
+    console.warn(LOG, 'handleFetchPersonBackground: invalid payload type');
+    return;
+  }
+  if (typeof payload.email !== 'string' || !EMAIL_RE.test(payload.email.trim())) {
+    console.warn(LOG, `handleFetchPersonBackground: invalid email "${payload.email}"`);
+    broadcastToPopups({ type: 'PERSON_BACKGROUND_RESULT', payload: { error: 'Invalid email address in request.' } });
+    return;
+  }
+  if (typeof payload.name === 'string' && payload.name.length > MAX_FIELD_LENGTH) {
+    console.warn(LOG, `handleFetchPersonBackground: name too long (${payload.name.length} chars), truncating`);
+    payload = { ...payload, name: payload.name.slice(0, MAX_FIELD_LENGTH) };
+  }
+  if (typeof payload.company === 'string' && payload.company.length > MAX_FIELD_LENGTH) {
+    console.warn(LOG, `handleFetchPersonBackground: company too long (${payload.company.length} chars), truncating`);
+    payload = { ...payload, company: payload.company.slice(0, MAX_FIELD_LENGTH) };
+  }
+
   console.log(LOG, `Waterfall fetch for: "${payload.name}" <${payload.email}>`);
   debugLog('Background', 'info', `Waterfall fetch started for "${payload.name}" <${payload.email}>`);
 
@@ -380,7 +402,9 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
   try {
     const settings = await getSettings();
     if (settings.autoSearchAttendees) {
-      autoSearchAllAttendees(senderTabId);
+      autoSearchAllAttendees(senderTabId).catch((err) => {
+        console.error(LOG, 'autoSearchAllAttendees error:', (err as Error).message);
+      });
     }
   } catch (err) {
     console.warn(LOG, 'Failed to check autoSearchAttendees setting:', err);

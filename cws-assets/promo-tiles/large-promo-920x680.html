@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=920, height=680">
+<title>PreMeet - Large Promo Tile</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 920px; height: 680px; overflow: hidden;
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: #0f1729;
+}
+
+.container {
+  width: 100%; height: 100%; position: relative;
+  display: flex; flex-direction: column;
+}
+
+/* Accent gradient overlay */
+.gradient-accent {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  background:
+    radial-gradient(ellipse at 10% 0%, rgba(74,144,217,0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 100%, rgba(91,106,191,0.12) 0%, transparent 50%);
+  z-index: 0;
+}
+
+/* Top section: text */
+.top-section {
+  z-index: 2; padding: 48px 56px 0;
+  display: flex; align-items: flex-start; justify-content: space-between;
+}
+.text-block { max-width: 440px; }
+.headline {
+  font-size: 36px; font-weight: 800; color: #fff;
+  line-height: 1.15; margin-bottom: 14px;
+  letter-spacing: -0.5px;
+}
+.headline span { color: #6B9FE8; }
+.subhead {
+  font-size: 15px; font-weight: 400; color: rgba(255,255,255,0.6);
+  line-height: 1.6; max-width: 380px;
+}
+
+.pm-badge {
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px; padding: 10px 18px;
+  margin-top: 8px;
+}
+.pm-badge-icon {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: linear-gradient(135deg, #4A90D9, #5B6ABF);
+  display: flex; align-items: center; justify-content: center;
+}
+.pm-badge-icon svg { width: 24px; height: 24px; }
+.pm-badge-text { font-size: 18px; font-weight: 700; color: #fff; }
+
+/* Bottom section: mockup */
+.mockup-section {
+  z-index: 2; flex: 1; position: relative;
+  padding: 28px 56px 0;
+  display: flex; gap: 0;
+}
+
+/* Calendar mockup */
+.cal-mockup {
+  flex: 1; background: #fff; border-radius: 12px 0 0 0;
+  box-shadow: 0 -4px 30px rgba(0,0,0,0.3);
+  overflow: hidden; position: relative;
+}
+.cal-topbar {
+  height: 44px; background: #fff; border-bottom: 1px solid #e5e7eb;
+  display: flex; align-items: center; padding: 0 16px; gap: 12px;
+}
+.cal-topbar .cal-logo {
+  width: 28px; height: 28px; background: #4285F4; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: #fff;
+}
+.cal-topbar .cal-title { font-size: 16px; font-weight: 500; color: #3c4043; }
+.cal-topbar .cal-date { font-size: 13px; color: #5f6368; margin-left: auto; }
+
+.cal-grid {
+  display: grid; grid-template-columns: 48px repeat(5, 1fr);
+  height: calc(100% - 44px);
+}
+.time-col {
+  border-right: 1px solid #e5e7eb; padding-top: 8px;
+}
+.time-label {
+  font-size: 9px; color: #70757a; text-align: right;
+  padding: 0 6px; height: 48px; display: flex; align-items: flex-start;
+  justify-content: flex-end;
+}
+.day-col {
+  border-right: 1px solid #f3f4f6; position: relative;
+}
+.day-header {
+  text-align: center; padding: 8px 0; border-bottom: 1px solid #e5e7eb;
+  font-size: 10px; color: #70757a;
+}
+.day-header .day-num {
+  display: block; font-size: 20px; font-weight: 500; color: #3c4043;
+  margin-top: 2px;
+}
+.day-header .day-num.today {
+  background: #4285F4; color: #fff; width: 32px; height: 32px;
+  border-radius: 50%; display: inline-flex; align-items: center;
+  justify-content: center; margin-top: 2px;
+}
+.hour-line { height: 48px; border-bottom: 1px solid #f3f4f6; }
+
+/* Calendar events */
+.cal-event {
+  position: absolute; left: 4px; right: 4px; border-radius: 4px;
+  padding: 4px 6px; font-size: 9px; font-weight: 500; overflow: hidden;
+}
+.cal-event.blue { background: #D2E3FC; color: #1967D2; border-left: 3px solid #4285F4; }
+.cal-event.green { background: #CEEAD6; color: #137333; border-left: 3px solid #34A853; }
+.cal-event.purple { background: #E8DAEF; color: #7B2D8E; border-left: 3px solid #9334E6; }
+
+/* Event popup (the key interaction) */
+.event-popup {
+  position: absolute; top: 80px; left: 140px;
+  width: 280px; background: #fff;
+  border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+  z-index: 10; padding: 20px;
+}
+.ep-title { font-size: 15px; font-weight: 600; color: #1a1a2e; margin-bottom: 4px; }
+.ep-time { font-size: 11px; color: #5f6368; margin-bottom: 14px; }
+.ep-label { font-size: 10px; font-weight: 600; color: #5f6368; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.ep-attendee {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.ep-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.ep-avatar.a1 { background: #F4B400; }
+.ep-avatar.a2 { background: #34A853; }
+.ep-avatar.a3 { background: #EA4335; }
+.ep-info { flex: 1; }
+.ep-name { font-size: 11px; font-weight: 600; color: #1a1a2e; }
+.ep-email { font-size: 9px; color: #9ca3af; }
+.know-btn {
+  font-size: 10px; font-weight: 600; color: #4A90D9;
+  background: #EBF4FF; border: 1px solid #C5DCF7;
+  border-radius: 14px; padding: 4px 12px; white-space: nowrap;
+  flex-shrink: 0;
+}
+.know-btn.active {
+  background: #4A90D9; color: #fff; border-color: #4A90D9;
+  box-shadow: 0 2px 8px rgba(74,144,217,0.3);
+}
+
+/* Side panel */
+.side-panel {
+  width: 280px; background: #f9fafb;
+  border-radius: 0 12px 0 0;
+  box-shadow: -2px -4px 30px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+.sp-header {
+  background: linear-gradient(135deg, #4A90D9, #5B6ABF);
+  padding: 20px 18px 16px; text-align: center;
+}
+.sp-avatar {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.5);
+  margin: 0 auto 10px; display: flex; align-items: center;
+  justify-content: center; font-size: 20px; font-weight: 700; color: #fff;
+}
+.sp-name { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+.sp-title-role { font-size: 11px; color: rgba(255,255,255,0.8); }
+.sp-company { font-size: 10px; color: rgba(255,255,255,0.6); margin-top: 2px; }
+
+.sp-stats {
+  display: flex; justify-content: center; gap: 20px;
+  padding: 12px 0;
+  background: rgba(255,255,255,0.1);
+  margin-top: 12px; border-radius: 8px;
+}
+.sp-stat { text-align: center; }
+.sp-stat-val { font-size: 14px; font-weight: 700; color: #fff; display: block; }
+.sp-stat-label { font-size: 8px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.3px; }
+
+.sp-body { padding: 14px 18px; }
+.sp-section { margin-bottom: 14px; }
+.sp-section-title {
+  font-size: 9px; font-weight: 700; color: #6b7280;
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;
+}
+.sp-detail {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 6px; font-size: 11px; color: #374151;
+}
+.sp-detail-icon {
+  width: 16px; height: 16px; border-radius: 4px;
+  background: #EBF4FF; display: flex; align-items: center;
+  justify-content: center; font-size: 8px; color: #4A90D9; flex-shrink: 0;
+}
+.sp-tag {
+  display: inline-block; font-size: 9px; padding: 3px 8px;
+  background: #EBF4FF; color: #4A90D9; border-radius: 10px;
+  margin-right: 4px; margin-bottom: 4px; font-weight: 500;
+}
+.confidence-bar {
+  width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px;
+  margin-top: 4px;
+}
+.confidence-fill {
+  height: 100%; width: 89%; background: linear-gradient(90deg, #4A90D9, #34A853);
+  border-radius: 2px;
+}
+
+/* Decorative elements */
+.dot-grid {
+  position: absolute; bottom: 40px; right: 20px;
+  display: grid; grid-template-columns: repeat(5, 6px); gap: 8px;
+  opacity: 0.1; z-index: 1;
+}
+.dot { width: 4px; height: 4px; border-radius: 50%; background: #fff; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="gradient-accent"></div>
+
+  <!-- Top text section -->
+  <div class="top-section">
+    <div class="text-block">
+      <div class="headline">Walk Into Every<br>Meeting <span>Prepared</span></div>
+      <div class="subhead">PreMeet surfaces attendee profiles, company intel, and recent activity — one click from your Google Calendar event</div>
+    </div>
+    <div class="pm-badge">
+      <div class="pm-badge-icon">
+        <svg viewBox="0 0 48 48" fill="none">
+          <rect x="4" y="8" width="40" height="32" rx="4" fill="rgba(255,255,255,0.9)"/>
+          <circle cx="24" cy="22" r="5" fill="#4A90D9"/>
+          <path d="M16 34c0-4.418 3.582-8 8-8s8 4.418 8 8" fill="rgba(74,144,217,0.4)"/>
+        </svg>
+      </div>
+      <div class="pm-badge-text">PreMeet</div>
+    </div>
+  </div>
+
+  <!-- Mockup section -->
+  <div class="mockup-section">
+    <!-- Calendar -->
+    <div class="cal-mockup">
+      <div class="cal-topbar">
+        <div class="cal-logo">C</div>
+        <div class="cal-title">Calendar</div>
+        <div class="cal-date">March 24, 2026</div>
+      </div>
+      <div class="cal-grid">
+        <!-- Time column -->
+        <div class="time-col">
+          <div class="time-label">9 AM</div>
+          <div class="time-label">10 AM</div>
+          <div class="time-label">11 AM</div>
+          <div class="time-label">12 PM</div>
+          <div class="time-label">1 PM</div>
+          <div class="time-label">2 PM</div>
+          <div class="time-label">3 PM</div>
+        </div>
+        <!-- Day columns -->
+        <div class="day-col">
+          <div class="day-header">MON<span class="day-num">23</span></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div>
+          <div class="cal-event blue" style="top:92px;height:44px;">Standup</div>
+        </div>
+        <div class="day-col">
+          <div class="day-header">TUE<span class="day-num today">24</span></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div>
+          <div class="cal-event blue" style="top:92px;height:44px;">Standup</div>
+          <div class="cal-event green" style="top:140px;height:44px;">Partnership Call</div>
+          <div class="cal-event purple" style="top:236px;height:44px;">Design Sync</div>
+        </div>
+        <div class="day-col">
+          <div class="day-header">WED<span class="day-num">25</span></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div>
+          <div class="cal-event green" style="top:188px;height:44px;">1:1 w/ Lisa</div>
+        </div>
+        <div class="day-col">
+          <div class="day-header">THU<span class="day-num">26</span></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div>
+          <div class="cal-event blue" style="top:92px;height:44px;">Standup</div>
+          <div class="cal-event purple" style="top:284px;height:44px;">Sprint Plan</div>
+        </div>
+        <div class="day-col">
+          <div class="day-header">FRI<span class="day-num">27</span></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div><div class="hour-line"></div><div class="hour-line"></div>
+          <div class="hour-line"></div>
+        </div>
+      </div>
+
+      <!-- Event popup -->
+      <div class="event-popup">
+        <div class="ep-title">Partnership Call</div>
+        <div class="ep-time">Tuesday, Mar 24 · 10:00 - 11:00 AM</div>
+        <div class="ep-label">Attendees</div>
+        <div class="ep-attendee">
+          <div class="ep-avatar a1">SR</div>
+          <div class="ep-info"><div class="ep-name">Sarah Rodriguez</div><div class="ep-email">s.rod@nexusventures.com</div></div>
+          <div class="know-btn active">Know Sarah ›</div>
+        </div>
+        <div class="ep-attendee">
+          <div class="ep-avatar a2">MK</div>
+          <div class="ep-info"><div class="ep-name">Michael Kim</div><div class="ep-email">m.kim@nexusventures.com</div></div>
+          <div class="know-btn">Know Michael</div>
+        </div>
+        <div class="ep-attendee">
+          <div class="ep-avatar a3">EW</div>
+          <div class="ep-info"><div class="ep-name">Emily Walsh</div><div class="ep-email">emily.w@apulse.io</div></div>
+          <div class="know-btn">Know Emily</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Side panel -->
+    <div class="side-panel">
+      <div class="sp-header">
+        <div class="sp-avatar">SR</div>
+        <div class="sp-name">Sarah Rodriguez</div>
+        <div class="sp-title-role">VP of Partnerships</div>
+        <div class="sp-company">Nexus Ventures · San Francisco, CA</div>
+        <div class="sp-stats">
+          <div class="sp-stat"><span class="sp-stat-val">2.4k</span><span class="sp-stat-label">Connections</span></div>
+          <div class="sp-stat"><span class="sp-stat-val">1.2k</span><span class="sp-stat-label">Followers</span></div>
+          <div class="sp-stat"><span class="sp-stat-val">89%</span><span class="sp-stat-label">Confidence</span></div>
+        </div>
+      </div>
+      <div class="sp-body">
+        <div class="sp-section">
+          <div class="sp-section-title">Current Role</div>
+          <div class="sp-detail">
+            <div class="sp-detail-icon">B</div>
+            <div>VP of Partnerships at Nexus Ventures<br><span style="font-size:9px;color:#9ca3af;">2023 - Present · 3 yrs</span></div>
+          </div>
+        </div>
+        <div class="sp-section">
+          <div class="sp-section-title">Company</div>
+          <div class="sp-detail">
+            <div class="sp-detail-icon">N</div>
+            <div>Nexus Ventures<br><span style="font-size:9px;color:#9ca3af;">VC · 51-200 employees</span></div>
+          </div>
+        </div>
+        <div class="sp-section">
+          <div class="sp-section-title">Skills</div>
+          <div>
+            <span class="sp-tag">Fundraising</span>
+            <span class="sp-tag">M&A</span>
+            <span class="sp-tag">Strategy</span>
+            <span class="sp-tag">BD</span>
+          </div>
+        </div>
+        <div class="sp-section">
+          <div class="sp-section-title">Match Confidence</div>
+          <div class="confidence-bar"><div class="confidence-fill"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dot grid decoration -->
+  <div class="dot-grid">
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+  </div>
+</div>
+</body>
+</html>

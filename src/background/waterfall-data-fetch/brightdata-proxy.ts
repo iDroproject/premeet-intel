@@ -1,6 +1,13 @@
 // PreMeet — BrightData API Client
 // Calls BrightData APIs directly with Bearer token authentication.
 // The API key is loaded from VITE_BRIGHTDATA_API_KEY at build time.
+//
+// TODO(security): The BrightData API key is currently bundled into the
+// extension at build time via VITE_BRIGHTDATA_API_KEY. This key should be
+// moved to a server-side proxy (e.g. a Supabase Edge Function) so that it
+// is never shipped in the extension package and cannot be extracted by users.
+// All BrightData requests should go through that proxy, authenticated with
+// the user's PreMeet session token.
 
 const LOG_PREFIX = '[PreMeet][BDProxy]';
 
