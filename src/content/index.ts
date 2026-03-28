@@ -225,7 +225,7 @@ function extractViaGuestSection(root: Element): AttendeeRaw[] {
     if (emailRe.test(text)) {
       const email = text.match(emailRe)![0];
       results.push({ name: nameFromEmail(email), email, company: companyFromEmail(email), element: (el.parentElement || el) as Element });
-    } else if (text.length > 1 && text.length < 60 && !/^\d+$/.test(text) && text !== 'Organizer') {
+    } else if (text.length > 1 && text.length < 60 && !/^\d+$/.test(text) && text !== 'Organizer' && isLikelyPersonName(text)) {
       const ariaEmail =
         el.getAttribute('data-email') ||
         (el.getAttribute('data-hovercard-id') || '').replace(/^contact:/, '');
@@ -263,11 +263,13 @@ function extractAttendees(popup: Element): AttendeeRaw[] {
     if (a.name && a.name.length > MAX_NAME_LENGTH) {
       a.name = a.email ? nameFromEmail(a.email) : a.name.slice(0, MAX_NAME_LENGTH);
     }
-    // If attendee has a valid email, keep them even with an odd name
+    // Reject entries whose name is clearly system/metadata text (e.g. "Transferred from",
+    // "2 guests1 yes1"), even if they carry a valid email address.
+    if (a.name && !isLikelyPersonName(a.name)) return false;
+    // If attendee has a valid email, keep them
     if (a.email && a.email.includes('@')) return true;
-    // Name-only attendees must pass the person-name check
-    if (!isLikelyPersonName(a.name)) return false;
-    return true;
+    // Name-only attendees must have a valid person name
+    return !!a.name;
   });
 }
 
