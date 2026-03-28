@@ -14,18 +14,20 @@
 // BRIGHTDATA_API_KEY secret.
 
 import { serve } from 'https://deno.land/std@0.208.0/http/server.ts';
-import { corsHeaders, corsResponse } from '../_shared/cors.ts';
+import { corsHeadersFor, corsResponse } from '../_shared/cors.ts';
 import { requireAuth } from '../_shared/auth-middleware.ts';
 
 const BRIGHTDATA_BASE = 'https://api.brightdata.com';
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return corsResponse();
+  const cors = corsHeadersFor(req);
+
+  if (req.method === 'OPTIONS') return corsResponse(req);
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -38,7 +40,7 @@ serve(async (req: Request) => {
   if (!brightdataApiKey) {
     return new Response(
       JSON.stringify({ error: 'Enrichment service not configured' }),
-      { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 503, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
@@ -49,14 +51,14 @@ serve(async (req: Request) => {
   } catch {
     return new Response(
       JSON.stringify({ error: 'Invalid JSON body' }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
   if (!proxyReq.path || typeof proxyReq.path !== 'string') {
     return new Response(
       JSON.stringify({ error: 'Missing required field: path' }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
@@ -64,7 +66,7 @@ serve(async (req: Request) => {
   if (!proxyReq.path.startsWith('/')) {
     return new Response(
       JSON.stringify({ error: 'path must start with /' }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
@@ -72,7 +74,7 @@ serve(async (req: Request) => {
   if (!['GET', 'POST'].includes(method)) {
     return new Response(
       JSON.stringify({ error: 'Only GET and POST methods are supported' }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
@@ -97,13 +99,13 @@ serve(async (req: Request) => {
   } catch (err) {
     return new Response(
       JSON.stringify({ error: `Upstream error: ${(err as Error).message}` }),
-      { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 502, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
   // Forward response headers we care about
   const responseHeaders: Record<string, string> = {
-    ...corsHeaders,
+    ...cors,
     'Content-Type': upstream.headers.get('content-type') || 'application/json',
   };
 
@@ -111,6 +113,12 @@ serve(async (req: Request) => {
   const xResponseId = upstream.headers.get('x-response-id');
   if (xResponseId) {
     responseHeaders['x-response-id'] = xResponseId;
+  }
+
+  // Preserve retry-after header (used by client retry logic)
+  const retryAfter = upstream.headers.get('retry-after');
+  if (retryAfter) {
+    responseHeaders['retry-after'] = retryAfter;
   }
 
   const body = await upstream.text();

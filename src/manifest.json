@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PreMeet",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Turn every calendar invite into a complete business brief.",
   "permissions": [
     "storage",
@@ -14,7 +14,6 @@
   "host_permissions": [
     "https://calendar.google.com/*",
     "https://www.gravatar.com/*",
-    "https://api.brightdata.com/*",
     "https://api-js.mixpanel.com/*"
   ],
   "background": {
