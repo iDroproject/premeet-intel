@@ -1,14 +1,14 @@
 # CEO Daily Briefing — PreMeet (gcal-meeting-intel)
-**Date:** 2026-03-29 | **Agent:** Daily Review Automation
+**Date:** 2026-03-30 | **Agent:** Daily Review Automation
 
 ---
 
 ## What Changed Since Yesterday
 
-- **Zero new commits** — no engineering work, no assets, no CWS prep, no outreach artifacts.
-- Only activity is two consecutive automated briefing commits (Mar 27, Mar 28).
-- All blockers from yesterday's briefing remain 100% unresolved.
-- **End-of-March deadline is TOMORROW (Mar 30).** This is the last working day.
+- **Zero new engineering commits.** Codebase frozen since Mar 4 (26 days of no code changes).
+- Three consecutive automated-only briefing commits (Mar 27, 28, 29) — no human activity in repo.
+- **Today IS the deadline** (end-of-March CWS submission target). It has arrived unmet.
+- All blockers from yesterday remain 100% open.
 
 ---
 
@@ -16,14 +16,13 @@
 
 | # | Blocker | Status | Severity |
 |---|---------|--------|----------|
-| 1 | CWS developer account ($5 one-time fee) | Unresolved | 🔴 Hard blocker for Store |
-| 2 | Privacy policy URL (required for CWS) | Unresolved — no file in repo | 🔴 Hard blocker for Store |
-| 3 | Freemium quota enforcement (5/mo free, Pro $9/mo) | Not implemented | 🔴 Required before paid tier |
-| 4 | Extension name: manifest says "Bright People Intel", strategy says "PreMeet" | Unresolved | 🟠 Brand confusion |
-| 5 | **Hardcoded live Bright Data API token** in `background/service-worker.js:37` | Still present (`30728b...`) | 🔴 Security — must remove before public release |
-| 6 | Zero users | No landing page, no waitlist, no outreach in repo | 🔴 Strategic failure |
-
-**Confirmed:** `API_TOKEN` at `service-worker.js:37` is a live credential hardcoded as a constant. Shipping this to the Store exposes the key publicly.
+| 1 | **Hardcoded live API token** in `background/service-worker.js:37` — `const API_TOKEN = '30728b...'` with storage fallback at :167 | Still present | 🔴 Must fix before any public distribution |
+| 2 | Extension name in manifest is "Bright People Intel" v2.0.0 — not "PreMeet" | Unresolved | 🔴 Brand mismatch |
+| 3 | CWS developer account ($5 one-time fee) | Unresolved | 🔴 Hard blocker for Store |
+| 4 | Privacy policy hosted URL | No file exists in repo | 🔴 Hard blocker for Store |
+| 5 | Freemium quota enforcement (5/mo free, Pro $9/mo) | Not implemented | 🟠 Required before paid tier |
+| 6 | `premeet-intel/` directory referenced in strategy does not exist — codebase is at repo root | Structural confusion | 🟡 Docs/strategy misaligned |
+| 7 | Zero users | No landing page, no waitlist, no outreach | 🔴 Strategic failure |
 
 ---
 
@@ -34,52 +33,53 @@
 - [x] Bright Data API integration + SERP pipeline
 - [x] Waterfall orchestrator with multi-layer fallback
 - [x] Side panel UI (experience, education, posts, confidence citations)
-- [x] Settings popup + manual search
+- [x] Settings popup + manual search + SET_API_TOKEN message handler
 - [x] Cache manager + migration logic
 - [x] Test suite (unit + integration)
 - [x] Extension context invalidation guard
-- [x] No loose TODO/FIXME/HACK comments in source
+- [x] No stray TODO/FIXME/HACK comments in source
 
-**Still blocking CWS submission (all open, deadline tomorrow):**
-- [ ] Freemium quota gate (5 lookups/mo; hard-stop + upgrade CTA)
-- [ ] Remove/vault hardcoded API token — load from `chrome.storage.sync` only, no fallback
+**Still blocking any public release (all open, deadline today):**
+- [ ] Remove hardcoded `API_TOKEN` fallback — `chrome.storage.sync` only, no constant default
+- [ ] Rename extension to "PreMeet" in manifest.json + all UI copy
+- [ ] Freemium quota gate (5 lookups/mo hard-stop + upgrade CTA)
 - [ ] Privacy policy hosted URL
-- [ ] Store listing assets (screenshots 1280x800, promo tile, description copy)
-- [ ] Extension name decision + manifest.json update
-- [ ] First-run onboarding / token setup flow
+- [ ] CWS listing assets (screenshots 1280x800, promo tile, description)
+- [ ] First-run onboarding flow (token setup prompt)
 
 ---
 
 ## User Acquisition Progress
 
 - **Target this week:** 10 real users
-- **Actual:** 0 — no install link, no landing page, no DMs sent (none visible in repo)
-- **Assessment:** CRITICAL FAILURE. Week ends tomorrow. The 10-user goal is not achievable via Store (submission alone takes days for review). Only path is sideloading: zip the repo, install via `chrome://extensions` developer mode, share with warm contacts today.
-- **CWS Store submission**: Mathematically possible today if $5 fee + privacy policy are done in the next 2 hours. Store review typically takes 1–3 days, so submission today ≠ live by Mar 30.
+- **Actual:** 0 — no install link, no landing page, no outreach artifacts in repo
+- **Assessment:** MISSED. The week is over. The 10-user goal was not achieved.
+- **Post-mortem:** Product works. Distribution was never started. Selling was deprioritized in favor of engineering that hasn't happened in 26 days. The extension is installable via developer mode *right now* — the only missing step was outreach.
+- **CWS timeline reality:** Even submitting today, Store review takes 1–3 days. Not live by Mar 30.
 
 ---
 
-## Top 3 Priorities Today (Last Day)
+## Top 3 Priorities Today
 
-1. **Sideload and DM 10 people — do this in the next 2 hours.**
-   - `zip -r premeet.zip . --exclude="*.git*" --exclude="agents/*" --exclude="tests/*"`
-   - Record a 3-minute Loom showing the panel working on a real GCal invite.
-   - DM 10 SDRs/AEs/recruiters: "Free beta — tells you who's in your next meeting before you walk in." Attach zip + Loom.
-   - This requires zero code changes. The core product works.
+1. **Vault the API token — non-negotiable before sharing any zip.**
+   - Remove `const API_TOKEN = '30728b24...'` at `background/service-worker.js:37`
+   - Remove the hardcoded fallback at line 167 (`return API_TOKEN`)
+   - Replace with `throw new Error('API token not configured')` so first-run flow triggers
+   - Takes ~30 minutes. Blocks all distribution paths if skipped.
 
-2. **Vault the API token (1-hour engineering task).**
-   - Remove `const API_TOKEN = '...'` hardcoded value from `service-worker.js:37`.
-   - Replace with `chrome.storage.sync.get('apiToken')` only — no fallback constant.
-   - Add first-run prompt in popup to paste token. This also doubles as onboarding.
-   - **Do not ship the current build publicly (even as zip) without this fix** — the token is extractable from any installed extension.
+2. **Sideload and reach 10 people today.**
+   - Token fix → zip the repo (exclude `.git/`, `agents/`, `tests/`) → install via `chrome://extensions`
+   - Record a 3-minute Loom: real GCal invite → click button → side panel loads profile
+   - DM 10 SDRs / AEs / recruiters: "Who's in your next meeting? Free beta." Attach zip + Loom.
+   - No landing page needed. No CWS needed. This works today.
 
-3. **Pay the $5 CWS fee + host privacy policy.**
-   - Unblocks Store submission. Takes 15 minutes.
-   - Use GitHub Pages or Notion for the privacy policy — one page is enough.
-   - Submit to Store today even if review won't complete by Mar 30; it signals real progress.
+3. **Pay $5 CWS fee + host a one-page privacy policy.**
+   - GitHub Pages or Notion — 15 minutes total
+   - Submit to Store immediately after; review won't complete today but submission is logged progress
+   - Also update manifest `name` from "Bright People Intel" → "PreMeet" before submitting
 
 ---
 
-**End-of-March deadline is tomorrow. CWS submission is possible but Store-live is not. Users via sideloading is the only path to the 10-user goal this week.**
+**Deadline passed. The product is ready; distribution never started. Today is about recovery: secure the token, zip the build, and talk to 10 people. That's the entire job.**
 
-*Next briefing: 2026-03-30*
+*Next briefing: 2026-03-31*
