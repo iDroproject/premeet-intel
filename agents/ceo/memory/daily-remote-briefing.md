@@ -1,14 +1,15 @@
 # CEO Daily Briefing — PreMeet (gcal-meeting-intel)
-**Date:** 2026-03-31 | **Agent:** Daily Review Automation
+**Date:** 2026-04-01 | **Agent:** Daily Review Automation
 
 ---
 
 ## What Changed Since Yesterday
 
-- **Zero new engineering commits.** Codebase frozen since Mar 4 (27 days of no code changes).
-- Four consecutive automated-only briefing commits (Mar 27–30) — no human activity in repo.
-- **End-of-March deadline has passed.** CWS submission target was not met.
+- **Zero new engineering commits.** Codebase frozen since Mar 4 — now **28 days** of no code changes.
+- Five consecutive automated-only briefing commits (Mar 27–31) — no human activity in repo.
+- **End-of-March deadline has been missed for 2 days.** No response, no action taken.
 - Every blocker from yesterday's briefing remains 100% open — nothing resolved.
+- Repo has no `premeet-intel/` or `src/` subdirectory split — extension lives at root.
 
 ---
 
@@ -37,8 +38,8 @@
 - [x] Test suite (unit + integration)
 - [x] Extension context invalidation guard
 
-**Still blocking any public release (all open, 27 days stalled):**
-- [ ] Remove hardcoded `API_TOKEN` constant — `chrome.storage.sync` only, no fallback default
+**Still blocking any public release (all open, 28 days stalled):**
+- [ ] Remove hardcoded `API_TOKEN` — `background/service-worker.js:37` and `:167`
 - [ ] Rename extension to "PreMeet" in `manifest.json` + all UI copy
 - [ ] Freemium quota gate (5 lookups/mo hard-stop + upgrade CTA)
 - [ ] Privacy policy hosted URL
@@ -51,19 +52,19 @@
 
 - **Target this week:** 10 real users
 - **Actual:** 0 — no install link, no landing page, no outreach artifacts in repo
-- **Assessment:** MISSED. Deadline passed. Not a single user acquired.
-- **Reality check:** The product works. The only thing preventing 10 users today is 30 minutes of engineering (token fix) and 1 hour of outreach. This is not a product problem.
-- **CWS timeline:** Submitting now still takes 1–3 days for Store review. Sideloading remains the fastest path to real users.
+- **Assessment:** CRITICAL MISS. March is over. April 1 — no users, no CWS submission, no pipeline.
+- **Reality check:** Every single remaining blocker is a matter of hours, not days. The product core works. This is purely an execution failure.
+- **Fastest path to users today:** Fix token → zip extension → sideload → DM 10 people. Zero CWS dependency.
 
 ---
 
 ## Top 3 Priorities Today
 
-1. **Fix the API token exposure — today, not tomorrow.**
+1. **Fix the API token exposure — this is now a security liability.**
    - Remove `const API_TOKEN = '30728b24...'` at `background/service-worker.js:37`
    - Remove the hardcoded fallback at line 167 (`return API_TOKEN`)
-   - Replace with: throw or prompt first-run onboarding so users enter their own token
-   - This is a 30-minute fix. It has been on the list for 2+ days. The extension cannot be distributed with a live credential hardcoded.
+   - Replace with first-run prompt: if no token in `chrome.storage.sync`, open settings with instructions
+   - This is 30 minutes of work. It has been on this list for 6 days.
 
 2. **Sideload + send to 10 people today.**
    - Token fix → zip (exclude `.git/`, `agents/`, `tests/`) → test install via `chrome://extensions`
@@ -71,13 +72,13 @@
    - DM 10 SDRs / AEs / recruiters: "Who's in your next meeting? Free beta." Attach zip + Loom link
    - No CWS, no landing page required. This works today.
 
-3. **Pay $5 CWS fee + host privacy policy.**
-   - GitHub Pages or Notion — 15 minutes total
-   - Update manifest `name` from "Bright People Intel" → "PreMeet"
+3. **Pay $5 CWS fee + host privacy policy + update manifest name.**
+   - GitHub Pages or Notion for privacy policy — 15 minutes
+   - Update `manifest.json` `name` from "Bright People Intel" → "PreMeet"
    - Submit to Store; begin the review clock even if approval takes days
 
 ---
 
-**27 days of engineering stall. 0 users. Deadline passed. The product is shippable pending one 30-minute security fix. Everything else — users, revenue, CWS listing — is unblocked the moment that token is removed. There is nothing left to plan or build. Execute.**
+**28 days of engineering stall. 0 users. March deadline missed. April starts now with the same unresolved blockers. The product works. One 30-minute security fix separates you from being able to ship to real users. There is nothing left to build, plan, or brief. Execute the token fix and send the zip to 10 people today.**
 
-*Next briefing: 2026-04-01*
+*Next briefing: 2026-04-02*
