@@ -1,5 +1,7 @@
 # PreMeet
 
+**v2.0.0**
+
 > Know who you're meeting before every call.
 
 PreMeet is a Chrome extension (Manifest V3) that surfaces LinkedIn profiles, company intelligence, and professional background on meeting attendees directly inside Google Calendar.
