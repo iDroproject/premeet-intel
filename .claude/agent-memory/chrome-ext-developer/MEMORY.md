@@ -1,6 +1,6 @@
 # Chrome Extension Developer – Agent Memory
 
-## Project: gcal-meeting-intel
+## Project: premeet-intel
 
 ### Architecture
 - Manifest V3 extension, service_worker uses `"type": "module"` (ES module imports work)
