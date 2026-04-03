@@ -10,8 +10,7 @@
 //
 // Returns: { phone, email, sources } or error
 
-// Node.js runtime — Deep Lookup polling can take 60s+
-export const config = { maxDuration: 60 };
+export const config = { runtime: 'edge' };
 
 import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { requireAuth } from './_shared/auth-middleware';
@@ -175,7 +174,7 @@ export default async function handler(req: Request): Promise<Response> {
     full_name: body.fullName,
   };
 
-  const result = await deepLookup(CONTACT_LOOKUP_SPEC, input, brightdataApiKey, 55_000);
+  const result = await deepLookup(CONTACT_LOOKUP_SPEC, input, brightdataApiKey, 20_000);
 
   if (!result.data) {
     await sql`
