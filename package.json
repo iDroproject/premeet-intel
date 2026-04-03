@@ -17,9 +17,13 @@
     "version:sync": "node -e \"const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf-8'));const m=JSON.parse(fs.readFileSync('src/manifest.json','utf-8'));m.version=p.version;fs.writeFileSync('src/manifest.json',JSON.stringify(m,null,2)+'\\n');\""
   },
   "devDependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "@types/chrome": "^0.0.268",
     "@types/mixpanel-browser": "^2.60.0",
+    "@types/node": "^25.5.0",
+    "jose": "^6.2.2",
     "puppeteer": "^24.40.0",
+    "stripe": "^21.0.1",
     "typescript": "^5.4.5",
     "vite": "^5.2.11",
     "vite-plugin-web-extension": "^4.1.1",
@@ -27,7 +31,6 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
-    "@neondatabase/serverless": "^1.0.2",
     "mixpanel-browser": "^2.77.0"
   }
 }
