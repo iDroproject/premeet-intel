@@ -6,7 +6,7 @@
 
 export const config = { runtime: 'edge' };
 
-import { corsHeaders } from './_shared/cors';
+// CORS not needed — Stripe webhooks are server-to-server, not browser requests
 import { sql } from './_shared/db';
 import { stripe, priceIdToTier, creditsLimitForTier } from './_shared/stripe';
 

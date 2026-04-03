@@ -12,7 +12,7 @@ const BASE_PATH = '/datasets/deep_lookup/v1';
 const POLL_INITIAL_MS = 1000;
 const POLL_MAX_MS = 5000;
 const POLL_BACKOFF = 1.5;
-const DEEP_LOOKUP_TIMEOUT_MS = 90_000;
+const DEEP_LOOKUP_TIMEOUT_MS = 25_000;
 
 // ─── Spec Definitions ────────────────────────────────────────────────────────
 
@@ -80,6 +80,7 @@ const COMPANY_INTELLIGENCE_SPEC: DeepLookupSpec = {
       company_name: { type: 'string', description: 'Name of the company the person works at' },
       job_title: { type: 'string', description: 'Current job title of the person' },
       linkedin_url: { type: 'string', description: 'LinkedIn profile URL of the person' },
+      linkedin_id: { type: 'string', description: 'LinkedIn profile slug/ID extracted from the profile URL' },
     },
   },
   output_schema: {
@@ -287,9 +288,21 @@ export async function deepLookupEnrich(
   linkedInId: string | null,
   name: string | null,
 ): Promise<Record<string, unknown> | null> {
-  const input: Record<string, string> = {};
-  if (linkedInUrl) input.linkedin_url = linkedInUrl;
-  if (linkedInId) input.linkedin_id = linkedInId;
+  // Extract linkedin_id from URL if not provided — BrightData requires it
+  let resolvedId = linkedInId;
+  if (!resolvedId && linkedInUrl) {
+    const match = linkedInUrl.match(/linkedin\.com\/in\/([a-zA-Z0-9\-_%]+)/i);
+    if (match) resolvedId = decodeURIComponent(match[1]).replace(/\/+$/, '');
+  }
+  if (!resolvedId) {
+    console.warn(LOG_PREFIX, 'Enrich skipped: no linkedin_id available');
+    return null;
+  }
+
+  const input: Record<string, string> = {
+    linkedin_url: linkedInUrl,
+    linkedin_id: resolvedId,
+  };
   if (name) input.full_name = name;
 
   try {
@@ -317,11 +330,24 @@ export async function deepLookupCompanyIntel(
     return null;
   }
 
-  const input = {
+  // Extract linkedin_id from URL — BrightData requires it
+  let linkedinId = '';
+  if (linkedInUrl) {
+    const match = linkedInUrl.match(/linkedin\.com\/in\/([a-zA-Z0-9\-_%]+)/i);
+    if (match) linkedinId = decodeURIComponent(match[1]).replace(/\/+$/, '');
+  }
+
+  if (!linkedinId) {
+    console.warn(LOG_PREFIX, 'Skipping company intel: no linkedin_id extractable from URL');
+    return null;
+  }
+
+  const input: Record<string, string> = {
     company_name: companyName,
     full_name: personName || 'Unknown',
     job_title: jobTitle || 'Unknown',
-    linkedin_url: linkedInUrl || 'Unknown',
+    linkedin_url: linkedInUrl || '',
+    linkedin_id: linkedinId,
   };
 
   try {

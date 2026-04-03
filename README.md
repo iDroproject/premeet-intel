@@ -1,6 +1,6 @@
 # PreMeet
 
-**v2.3.0**
+**v2.4.0**
 
 > Turn every calendar invite into a complete business brief.
 
@@ -40,6 +40,7 @@ Vercel Backend (TypeScript Edge/Serverless Functions)
 | 4a | **Deep Lookup — Enrichment** | Async | ~60-120s | Enrich entities (email, phone, funding, CEO) |
 | 4b | **Deep Lookup — Discovery** | Async | ~60-120s | Find entities matching business questions |
 | 5 | **Discover API** | Async | ~30-70s | Deeper SERP with reranking + intent |
+| 6 | **Web Scraper Google AI Mode** | Sync | ~10-16s | AI-generated company overview + products |
 
 ### Datasets
 
@@ -48,14 +49,16 @@ Vercel Backend (TypeScript Edge/Serverless Functions)
 | LinkedIn Profiles | `gd_l1viktl72bvl7bjuj0` | 668M | 34 | Person profile scrape (WSA) |
 | Enriched Employee | `gd_m18zt6ec11wfqohyrs` | 267M | 55 | Person enrichment (Dataset Filter) |
 | Enriched Company | `gd_m3fl0mwzmfpfn4cw4` | 58.71M | 331 | Company enrichment (Dataset Filter) |
+| Google AI Mode | `gd_mcswdt6z2elth3zqr2` | — | — | AI-generated company overview + products |
 
 ### Fallback Chains (Progressive Enrichment)
 
 **Person lookup:**
 1. SERP API (discover LinkedIn URL) → 2. WSA Scrape (real-time profile) → 3. Dataset Filter (enriched employee data) → 4. MCP (social media fallback) → 5. Deep Lookup (contact info, premium)
 
-**Company lookup:**
-1. SERP API (discover company LinkedIn URL/ID) → 2. Dataset Filter with `id_lc` (331 datapoints) → 3. MCP LinkedIn Company (fallback) → 4. MCP Crunchbase/ZoomInfo (supplementary)
+**Company lookup (hybrid progressive):**
+1. **Fast:** SERP API (discover LinkedIn URL/ID, ~3s) → basic profile card
+2. **Deep:** Dataset Filter with `id_lc` (331 datapoints) + Google AI Mode Web Scraper (overview, products) — run in parallel, merged into card
 
 **Custom search:**
 1. SERP (fast results) → 2. MCP social media (LinkedIn posts, X, Reddit) → 3. Discover API (deep reranked results)
@@ -86,9 +89,13 @@ premeet-intel/
 │   │   └── stripe.ts            # Stripe SDK wrapper
 │   ├── auth-*.ts                # Auth endpoints (Google OAuth, refresh, logout)
 │   ├── billing-*.ts             # Billing endpoints (Stripe checkout, usage)
-│   ├── enrichment-company.ts    # Company enrichment with fallback chain
+│   ├── enrichment-company.ts    # Company basic profile (fast SERP, ~3s)
+│   ├── enrichment-company-deep.ts # Company deep enrichment (Dataset Filter + AI Mode)
 │   ├── enrichment-contact.ts    # Contact info via Deep Lookup (premium)
 │   ├── enrichment-custom.ts     # Custom search with MCP social media
+│   ├── enrichment-hiring-signals.ts  # Hiring signals (stub, coming soon)
+│   ├── enrichment-stakeholder-map.ts # Stakeholder map (stub, coming soon)
+│   ├── enrichment-social-pulse.ts    # Social pulse (stub, coming soon)
 │   ├── enrichment-proxy.ts      # BrightData API proxy (keeps key server-side)
 │   ├── enrichment-mcp/          # MCP aggregator (Crunchbase + ZoomInfo)
 │   └── stripe-webhook.ts        # Stripe webhook handler

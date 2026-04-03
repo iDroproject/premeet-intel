@@ -7,17 +7,18 @@
 
 export const config = { runtime: 'edge' };
 
-import { corsHeaders, corsResponse } from './_shared/cors';
+import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { sql } from './_shared/db';
 import { verifyToken, createAccessToken, hashToken } from './_shared/jwt';
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return corsResponse();
+  const cors = corsHeadersFor(req);
+  if (req.method === 'OPTIONS') return corsResponse(req);
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -27,7 +28,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (!refreshToken || typeof refreshToken !== 'string') {
       return new Response(
         JSON.stringify({ error: 'Missing refreshToken in request body' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 
@@ -37,7 +38,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (payload.type !== 'refresh') {
       return new Response(
         JSON.stringify({ error: 'Invalid token type. Expected a refresh token.' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 
@@ -53,7 +54,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (sessions.length === 0) {
       return new Response(
         JSON.stringify({ error: 'Session not found or token mismatch' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 
@@ -63,7 +64,7 @@ export default async function handler(req: Request): Promise<Response> {
       await sql`DELETE FROM sessions WHERE id = ${session.id}`;
       return new Response(
         JSON.stringify({ error: 'Session expired. Please sign in again.' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 
@@ -75,7 +76,7 @@ export default async function handler(req: Request): Promise<Response> {
     if (users.length === 0) {
       return new Response(
         JSON.stringify({ error: 'User not found' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 
@@ -92,13 +93,13 @@ export default async function handler(req: Request): Promise<Response> {
 
     return new Response(
       JSON.stringify({ accessToken }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   } catch (err) {
     console.error('Refresh error:', (err as Error).message);
     return new Response(
       JSON.stringify({ error: 'Token refresh failed' }),
-      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 }

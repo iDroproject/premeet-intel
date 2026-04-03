@@ -6,18 +6,19 @@
 
 export const config = { runtime: 'edge' };
 
-import { corsHeaders, corsResponse } from './_shared/cors';
+import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { sql } from './_shared/db';
 import { requireAuth } from './_shared/auth-middleware';
 import { stripe } from './_shared/stripe';
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return corsResponse();
+  const cors = corsHeadersFor(req);
+  if (req.method === 'OPTIONS') return corsResponse(req);
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -32,14 +33,14 @@ export default async function handler(req: Request): Promise<Response> {
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
       status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
   if (!body.returnUrl) {
     return new Response(JSON.stringify({ error: 'returnUrl is required.' }), {
       status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -51,7 +52,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (subs.length === 0 || !subs[0].stripe_customer_id) {
     return new Response(
       JSON.stringify({ error: 'No billing account found. Subscribe to a plan first.' }),
-      { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 404, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
@@ -62,6 +63,6 @@ export default async function handler(req: Request): Promise<Response> {
 
   return new Response(
     JSON.stringify({ url: portalSession.url }),
-    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } },
   );
 }

@@ -731,46 +731,13 @@ async function handleGenerateBrief(email: string, _senderTabId?: number): Promis
 // MCP enrichment feature flag — when enabled, fetches richer data from
 // Crunchbase + ZoomInfo via the enrichment-mcp endpoint instead of
 // the single-source enrichment-company endpoint.
-const MCP_ENRICHMENT_ENABLED = (import.meta.env.VITE_MCP_ENRICHMENT ?? 'true') !== 'false';
-
-/** Map MCP CompanyIntel response to the CompanyData shape the sidepanel renders. */
-function mcpIntelToCompanyData(
-  intel: Record<string, unknown>,
-  companyName: string,
-): CompanyData {
-  const investors = Array.isArray(intel.investors)
-    ? (intel.investors as Array<{ name: string }>).map((i) => i.name)
-    : [];
-  const lastRound = intel.lastFundingRound as { type?: string; amount?: string; date?: string } | null;
-
-  return {
-    name: companyName,
-    linkedinUrl: null,
-    logo: null,
-    industry: null,
-    sizeRange: intel.employeeCount ? `~${intel.employeeCount} employees` : null,
-    revenueRange: null,
-    website: null,
-    foundedYear: null,
-    hqAddress: null,
-    description: null,
-    fundingTotal: (intel.totalFunding as string) ?? null,
-    fundingLastRound: lastRound ? `${lastRound.type ?? ''} ${lastRound.amount ?? ''}`.trim() || null : null,
-    fundingInvestors: investors,
-    products: [],
-    technologies: Array.isArray(intel.techStack) ? (intel.techStack as string[]) : [],
-    recentNews: [],
-    intentSignals: Array.isArray(intel.intentTopics)
-      ? (intel.intentTopics as string[]).map((t) => ({ signal: 'Intent', detail: t }))
-      : [],
-  };
-}
+// MCP enrichment disabled — using hybrid fast SERP + deep (Dataset Filter + Google AI Mode) instead.
 
 async function handleFetchCompanyIntel(
   payload: { email: string; companyName: string; linkedinUrl?: string; website?: string },
 ): Promise<void> {
   const { email, companyName, linkedinUrl, website } = payload;
-  console.log(LOG, `Company intel fetch (mcp=${MCP_ENRICHMENT_ENABLED})`);
+  console.log(LOG, 'Company intel fetch (hybrid: fast SERP + deep)');
 
   const apiBase = import.meta.env.VITE_API_BASE_URL as string;
   if (!apiBase) {
@@ -778,94 +745,100 @@ async function handleFetchCompanyIntel(
     return;
   }
 
-  // Choose endpoint based on feature flag
-  const useMcp = MCP_ENRICHMENT_ENABLED;
-  const url = useMcp ? `${apiBase}/enrichment-mcp` : `${apiBase}/enrichment-company`;
+  // Phase 1: Fast SERP basic profile (~3s)
+  const fastBody: Record<string, string> = { companyName };
+  if (linkedinUrl) fastBody.linkedinUrl = linkedinUrl;
+  if (website) fastBody.website = website;
 
-  const body: Record<string, string> = { companyName };
-  if (useMcp) {
-    // MCP endpoint uses companyDomain instead of linkedinUrl/website
-    if (website) body.companyDomain = website.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  } else {
-    if (linkedinUrl) body.linkedinUrl = linkedinUrl;
-    if (website) body.website = website;
+  let basicData: CompanyData | null = null;
+
+  try {
+    const fastRes = await authFetch(`${apiBase}/enrichment-company`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fastBody),
+    });
+
+    if (fastRes.ok) {
+      const fastJson = await fastRes.json() as { data: CompanyData; cached: boolean };
+      basicData = fastJson.data;
+      console.log(LOG, `Company fast profile for "${companyName}" (cached: ${fastJson.cached})`);
+      // Broadcast basic result immediately so UI renders fast
+      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: basicData, cached: fastJson.cached } });
+    } else {
+      const errBody = await fastRes.json().catch(() => ({ error: `HTTP ${fastRes.status}` }));
+      console.warn(LOG, 'Company fast profile failed:', (errBody as { error?: string }).error);
+    }
+  } catch (err) {
+    console.warn(LOG, 'Company fast profile error:', (err as Error).message);
+  }
+
+  // Phase 2: Deep enrichment (Dataset Filter 331pts + Google AI Mode) — runs in background
+  const discoveredLinkedinId = basicData?.linkedinId
+    || (linkedinUrl?.match(/linkedin\.com\/company\/([a-zA-Z0-9\-_%]+)/i)?.[1] ?? null);
+
+  if (!discoveredLinkedinId) {
+    console.log(LOG, `No LinkedIn company ID for "${companyName}" — skipping deep enrichment`);
+    if (!basicData) {
+      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: 'No company data found' } });
+    }
+    return;
   }
 
   try {
-    const res = await authFetch(url, {
+    const deepBody: Record<string, string> = {
+      companyName,
+      linkedinId: discoveredLinkedinId,
+    };
+    if (linkedinUrl) deepBody.linkedinUrl = linkedinUrl;
+    if (website) deepBody.website = website;
+
+    const deepRes = await authFetch(`${apiBase}/enrichment-company-deep`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(deepBody),
     });
 
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      const errMsg = (errBody as { error?: string }).error || `HTTP ${res.status}`;
-      console.error(LOG, 'Company intel error:', errMsg);
+    if (deepRes.ok) {
+      const deepJson = await deepRes.json() as { data: CompanyData; cached: boolean; sourceLog?: unknown[] };
+      console.log(LOG, `Company deep enrichment for "${companyName}" complete`, deepJson.sourceLog);
 
-      // Fall back to legacy endpoint if MCP fails
-      if (useMcp) {
-        console.warn(LOG, 'MCP failed, falling back to enrichment-company');
-        return handleFetchCompanyIntelLegacy(payload);
+      // Merge: deep data overwrites basic data for non-null fields
+      const mergedData: CompanyData = { ...(basicData || {} as CompanyData) };
+      const deep = deepJson.data;
+      if (deep.name) mergedData.name = deep.name;
+      if (deep.linkedinUrl) mergedData.linkedinUrl = deep.linkedinUrl;
+      if (deep.linkedinId) mergedData.linkedinId = deep.linkedinId;
+      if (deep.logo) mergedData.logo = deep.logo;
+      if (deep.industry) mergedData.industry = deep.industry;
+      if (deep.sizeRange) mergedData.sizeRange = deep.sizeRange;
+      if (deep.revenueRange) mergedData.revenueRange = deep.revenueRange;
+      if (deep.website) mergedData.website = deep.website;
+      if (deep.foundedYear) mergedData.foundedYear = deep.foundedYear;
+      if (deep.hqAddress) mergedData.hqAddress = deep.hqAddress;
+      if (deep.description) mergedData.description = deep.description;
+      if (deep.fundingTotal) mergedData.fundingTotal = deep.fundingTotal;
+      if (deep.fundingLastRound) mergedData.fundingLastRound = deep.fundingLastRound;
+      if (deep.fundingInvestors?.length) mergedData.fundingInvestors = deep.fundingInvestors;
+      if (deep.products?.length) mergedData.products = deep.products;
+      if (deep.technologies?.length) mergedData.technologies = deep.technologies;
+      if (deep.recentNews?.length) mergedData.recentNews = deep.recentNews;
+      if (deep.intentSignals?.length) mergedData.intentSignals = deep.intentSignals;
+      // Attach AI overview if available
+      if ((deep as CompanyData & { aiOverview?: string }).aiOverview) {
+        (mergedData as CompanyData & { aiOverview?: string }).aiOverview = (deep as CompanyData & { aiOverview?: string }).aiOverview;
       }
 
-      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
-      return;
-    }
-
-    const json = await res.json();
-
-    if (useMcp) {
-      // Map MCP CompanyIntel → CompanyData for sidepanel compatibility
-      const data = mcpIntelToCompanyData(json.data as Record<string, unknown>, companyName);
-      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data, cached: json.cached ?? false } });
+      // Broadcast the enriched update — UI should merge/replace
+      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: mergedData, cached: deepJson.cached, deep: true } });
     } else {
-      const typed = json as { data: CompanyData; cached: boolean };
-      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: typed.data, cached: typed.cached } });
+      const errBody = await deepRes.json().catch(() => ({ error: `HTTP ${deepRes.status}` }));
+      console.warn(LOG, 'Company deep enrichment failed:', (errBody as { error?: string }).error);
+      // Not fatal — basic data was already broadcast
     }
   } catch (err) {
-    const errMsg = (err as Error).message;
-    console.error(LOG, 'Company intel fetch failed:', errMsg);
-
-    // Fall back to legacy endpoint if MCP throws
-    if (useMcp) {
-      console.warn(LOG, 'MCP failed, falling back to enrichment-company');
-      return handleFetchCompanyIntelLegacy(payload);
-    }
-
-    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
-  }
-}
-
-/** Legacy company intel fetch via enrichment-company endpoint (fallback). */
-async function handleFetchCompanyIntelLegacy(
-  payload: { email: string; companyName: string; linkedinUrl?: string; website?: string },
-): Promise<void> {
-  const { email, companyName, linkedinUrl, website } = payload;
-  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
-  const url = `${apiBase}/enrichment-company`;
-  const body: Record<string, string> = { companyName };
-  if (linkedinUrl) body.linkedinUrl = linkedinUrl;
-  if (website) body.website = website;
-
-  try {
-    const res = await authFetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      const errMsg = (errBody as { error?: string }).error || `HTTP ${res.status}`;
-      broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: errMsg } });
-      return;
-    }
-
-    const json = await res.json() as { data: CompanyData; cached: boolean };
-    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: json.data, cached: json.cached } });
-  } catch (err) {
-    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: (err as Error).message } });
+    console.warn(LOG, 'Company deep enrichment error:', (err as Error).message);
+    // Not fatal — basic data was already broadcast
   }
 }
 

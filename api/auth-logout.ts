@@ -7,17 +7,18 @@
 
 export const config = { runtime: 'edge' };
 
-import { corsHeaders, corsResponse } from './_shared/cors';
+import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { sql } from './_shared/db';
 import { requireAuth } from './_shared/auth-middleware';
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return corsResponse();
+  const cors = corsHeadersFor(req);
+  if (req.method === 'OPTIONS') return corsResponse(req);
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -33,12 +34,12 @@ export default async function handler(req: Request): Promise<Response> {
     console.error('Logout error:', (err as Error).message);
     return new Response(
       JSON.stringify({ error: 'Failed to invalidate session' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
   return new Response(
     JSON.stringify({ ok: true }),
-    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } },
   );
 }

@@ -1,6 +1,6 @@
 {
   "name": "premeet-extension",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "PreMeet Chrome Extension — turn every calendar invite into a complete business brief",
   "private": true,
   "scripts": {

@@ -34,10 +34,10 @@ const ENRICH_STEPS: Array<Omit<StepState, 'status'>> = [
 ];
 
 const LAYER_TIMEOUTS = {
-  serpDiscovery: 35_000,   // POST + poll loop; matches reference implementation
-  deepLookup: 90_000,
-  linkedInScraper: 60_000,
-  filterEnrich: 130_000,   // Matches reference implementation
+  serpDiscovery: 20_000,   // SERP is fast (~2-3s); 20s is generous
+  deepLookup: 30_000,     // Deep Lookup discovery; fail fast, SERP usually wins the race
+  linkedInScraper: 25_000, // WSA scrape; Vercel edge limit is 25s anyway
+  filterEnrich: 30_000,   // Dataset Filter; timeout before it blocks UX too long
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -453,7 +453,7 @@ export class WaterfallOrchestrator {
     console.log(LOG_PREFIX, `Search started for: "${identifier}"`);
 
     // Layer 1: Cache — if we have full PersonData cached, extract a SearchResult
-    const cacheResult = await this._runLayer('cache', 'cache', () => this._layerCache(cacheKey), 500);
+    const cacheResult = await this._runLayer('cache', 'cache', () => this._layerCache(cacheKey), 5000);
     if (cacheResult.success && (cacheResult as CacheLayerResult & { elapsedMs: number })._cachedData) {
       console.log(LOG_PREFIX, `Search cache hit for "${identifier}"`);
       for (const step of this._stepsState) {
@@ -640,7 +640,7 @@ export class WaterfallOrchestrator {
     console.log(LOG_PREFIX, `Waterfall started for: "${identifier}"`);
 
     // Layer 1: Cache
-    const cacheResult = await this._runLayer('cache', 'cache', () => this._layerCache(cacheKey), 500);
+    const cacheResult = await this._runLayer('cache', 'cache', () => this._layerCache(cacheKey), 5000);
     if (cacheResult.success && (cacheResult as CacheLayerResult & { elapsedMs: number })._cachedData) {
       console.log(LOG_PREFIX, `Cache hit for "${identifier}"`);
       for (const step of this._stepsState) {

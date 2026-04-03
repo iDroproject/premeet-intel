@@ -13,7 +13,7 @@ const DEFAULT_DATASET_ID = 'gd_l1viktl72bvl7bjuj0';
 const POLL_INITIAL_MS = 800;
 const POLL_MAX_MS = 4000;
 const POLL_BACKOFF = 1.5;
-const FILTER_TIMEOUT_MS = 90_000;
+const FILTER_TIMEOUT_MS = 25_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

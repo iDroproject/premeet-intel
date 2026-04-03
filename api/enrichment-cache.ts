@@ -6,14 +6,17 @@
 
 export const config = { runtime: 'edge' };
 
-import { corsHeaders, corsResponse } from './_shared/cors';
+import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { requireAuth } from './_shared/auth-middleware';
 import { sql } from './_shared/db';
+
+// cors headers are set per-request in the main handler and threaded through
+let _cors: Record<string, string> = {};
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ..._cors, 'Content-Type': 'application/json' },
   });
 }
 
@@ -179,7 +182,8 @@ async function handleStats(payload: StatsPayload): Promise<Response> {
 type ActionPayload = GetPayload | PutPayload | InvalidatePayload | StatsPayload;
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return corsResponse();
+  _cors = corsHeadersFor(req);
+  if (req.method === 'OPTIONS') return corsResponse(req);
 
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405);

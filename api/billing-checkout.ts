@@ -6,18 +6,19 @@
 
 export const config = { runtime: 'edge' };
 
-import { corsHeaders, corsResponse } from './_shared/cors';
+import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { sql } from './_shared/db';
 import { requireAuth } from './_shared/auth-middleware';
 import { stripe, TIER_CONFIG, type TierName } from './_shared/stripe';
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return corsResponse();
+  const cors = corsHeadersFor(req);
+  if (req.method === 'OPTIONS') return corsResponse(req);
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -32,7 +33,7 @@ export default async function handler(req: Request): Promise<Response> {
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
       status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -41,14 +42,14 @@ export default async function handler(req: Request): Promise<Response> {
   if (tier !== 'pro' && tier !== 'enterprise') {
     return new Response(JSON.stringify({ error: 'Invalid tier. Must be "pro" or "enterprise".' }), {
       status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
   if (!successUrl || !cancelUrl) {
     return new Response(JSON.stringify({ error: 'successUrl and cancelUrl are required.' }), {
       status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -56,7 +57,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (!priceId) {
     return new Response(JSON.stringify({ error: `Price not configured for tier: ${tier}` }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -91,6 +92,6 @@ export default async function handler(req: Request): Promise<Response> {
 
   return new Response(
     JSON.stringify({ sessionId: session.id, url: session.url }),
-    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } },
   );
 }
