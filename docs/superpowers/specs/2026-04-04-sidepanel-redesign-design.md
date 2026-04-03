@@ -274,14 +274,85 @@ No backend changes needed. No new endpoints. No message type changes.
 
 ---
 
+## ui-ux-pro-max Design Rules (mandatory)
+
+All implementation must follow these rules from the ui-ux-pro-max skill:
+
+### Icons
+- **SVG icons only** (Lucide or Heroicons). Replace all emojis used as icons (🏢, 📊, 👥, 📢, ⭐, 📞, 🔍).
+- Consistent icon style: same stroke width, corner radius across all icons.
+- Icon-only buttons must have `aria-label`.
+
+### Touch & Interaction
+- All clickable elements min **44x44px** touch target.
+- **8px minimum** spacing between touch targets.
+- **cursor: pointer** on all clickable elements.
+- **touch-action: manipulation** to remove 300ms tap delay.
+- Visual press feedback: subtle scale (0.97) on mousedown, restore on release.
+
+### Accessibility
+- **4.5:1** contrast ratio for all text.
+- Visible focus rings (2-4px) on interactive elements.
+- `aria-label` on icon-only buttons.
+- Sequential heading hierarchy (h1 → h2 → h3).
+- `prefers-reduced-motion`: disable all animations, show content instantly.
+- Confidence dot must use icon/text alongside color (color-not-only rule).
+
+### Typography
+- Body text: **16px** minimum.
+- Line height: **1.5** for body.
+- Font scale: 12, 14, 16, 18, 24 (no arbitrary sizes).
+- Truncation: ellipsis + tooltip for full text.
+- Semantic color tokens in CSS, no raw hex in components.
+
+### Spacing
+- **4px/8px** spacing scale throughout.
+- Consistent padding: 8, 12, 16, 24px.
+
+### Animation (all durations)
+- Micro-interactions: **150-300ms**.
+- Complex transitions: max **400ms**.
+- Easing: **ease-out** for enter, **ease-in** for exit.
+- Stagger list items: **30-50ms** per item.
+- Exit animations: **60-70%** of enter duration.
+- Crossfade for content replacement within same container.
+- Scale feedback: 0.97 on press, 1.0 on release.
+- Transform/opacity only — never animate width/height.
+- Animations must be interruptible by user action.
+- `prefers-reduced-motion` disables all motion.
+
+### Loading
+- Skeleton/shimmer for any loading state >300ms.
+- Reserve space for async content (no layout shift / CLS).
+- Progressive loading: show content as it arrives, don't block on full load.
+
+### Forms & Feedback
+- Error messages: state cause + how to fix (not just "Error").
+- Error recovery: always include retry path.
+- Disabled elements: 0.38-0.5 opacity + cursor change.
+- Success feedback: brief visual confirmation (checkmark, color flash).
+
+### Navigation
+- Active tab: visually highlighted (color, weight, underline indicator).
+- Tab count: max 5 visible.
+- "Coming Soon" tabs: explain why unavailable, don't silently hide from Pro users.
+
+### Style
+- One primary CTA per screen (the "Get Meeting Brief" button).
+- Elevation: consistent shadow scale for cards.
+- No mixing of style paradigms (flat + skeuomorphic).
+
+---
+
 ## Implementation Notes
 
-- Use the **ui-ux-pro-max** design skill for all CSS and visual implementation.
+- Use the **ui-ux-pro-max** design skill rules above for all CSS and visual implementation.
 - The sidepanel is vanilla TypeScript (no React). Follow the existing pattern of string-based HTML rendering with `innerHTML`.
 - The file `index.ts` is ~1,700 lines. The redesign will modify most rendering functions but should not increase file size significantly — the tab system replaces the current stacked sections, it doesn't add on top.
 - Test in Chrome extension sidepanel context (~400px wide). Verify on both Mac and Windows Chrome.
-- Skeleton animations should use CSS only (no JS timers for shimmer).
+- Skeleton animations should use CSS only (`transform` and `opacity` — no JS timers for shimmer).
 - The `mailto:` error reporting uses `encodeURIComponent` for all dynamic values to prevent injection.
+- Replace all emoji icons with inline SVGs from Lucide (building, chart-bar, users, megaphone, star, phone, search, briefcase, graduation-cap, tag).
 
 ---
 
@@ -291,5 +362,5 @@ No backend changes needed. No new endpoints. No message type changes.
 - New API endpoints or backend changes
 - Implementing the "Coming Soon" features (Hiring, Stakeholders, Social, Reputation)
 - AI-powered post summarization (future Pro feature)
-- Dark mode
+- Dark mode (future spec)
 - Mobile/responsive (sidepanel is fixed-width)
