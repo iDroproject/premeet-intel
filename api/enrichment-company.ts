@@ -72,16 +72,18 @@ function normalizeCompanyData(raw: Record<string, unknown>): CompanyData {
   }
 
   const technologies: string[] = [];
-  if (Array.isArray(raw.technologies || raw.techStack || raw.tech_stack)) {
-    for (const t of (raw.technologies || raw.techStack || raw.tech_stack) as unknown[]) {
+  const techSource = [raw.technologies, raw.techStack, raw.tech_stack].find(Array.isArray);
+  if (techSource) {
+    for (const t of techSource as unknown[]) {
       if (typeof t === 'string') technologies.push(t);
       else if (t && typeof t === 'object' && 'name' in (t as Record<string, unknown>)) technologies.push(String((t as Record<string, unknown>).name));
     }
   }
 
   const recentNews: Array<{ title: string; url: string; date: string }> = [];
-  if (Array.isArray(raw.recent_news || raw.news)) {
-    for (const n of (raw.recent_news || raw.news) as Array<Record<string, unknown>>) {
+  const newsSource = [raw.recent_news, raw.news].find(Array.isArray);
+  if (newsSource) {
+    for (const n of newsSource as Array<Record<string, unknown>>) {
       if (n && typeof n === 'object' && n.title) {
         recentNews.push({
           title: String(n.title),
@@ -93,8 +95,9 @@ function normalizeCompanyData(raw: Record<string, unknown>): CompanyData {
   }
 
   const intentSignals: Array<{ signal: string; detail: string }> = [];
-  if (Array.isArray(raw.intent_signals || raw.signals || raw.intentTopics)) {
-    for (const s of (raw.intent_signals || raw.signals || raw.intentTopics) as Array<Record<string, unknown> | string>) {
+  const signalSource = [raw.intent_signals, raw.signals, raw.intentTopics].find(Array.isArray);
+  if (signalSource) {
+    for (const s of signalSource as Array<Record<string, unknown> | string>) {
       if (typeof s === 'string') {
         intentSignals.push({ signal: s, detail: '' });
       } else if (s && typeof s === 'object' && (s.signal || s.type)) {

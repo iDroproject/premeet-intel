@@ -103,7 +103,7 @@ export default async function handler(req: Request): Promise<Response> {
   } catch (err) {
     console.error('Dev auth error:', (err as Error).message);
     return new Response(
-      JSON.stringify({ error: 'Dev auth failed', detail: (err as Error).message }),
+      JSON.stringify({ error: 'Dev auth failed' }),
       { status: 500, headers },
     );
   }

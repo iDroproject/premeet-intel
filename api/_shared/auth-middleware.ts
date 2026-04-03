@@ -4,7 +4,7 @@
 
 import { verifyToken, type PreMeetJwtPayload } from './jwt';
 import { sql } from './db';
-import { corsHeaders } from './cors';
+import { getCorsHeaders } from './cors';
 
 export interface AuthContext {
   userId: string;
@@ -18,13 +18,14 @@ export type AuthResult =
   | { ok: false; response: Response };
 
 export async function requireAuth(req: Request): Promise<AuthResult> {
+  const cors = getCorsHeaders(req.headers.get('origin'));
   const authHeader = req.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return {
       ok: false,
       response: new Response(
         JSON.stringify({ error: 'Missing or invalid Authorization header' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       ),
     };
   }
@@ -39,7 +40,7 @@ export async function requireAuth(req: Request): Promise<AuthResult> {
       ok: false,
       response: new Response(
         JSON.stringify({ error: 'Invalid or expired token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       ),
     };
   }
@@ -49,7 +50,7 @@ export async function requireAuth(req: Request): Promise<AuthResult> {
       ok: false,
       response: new Response(
         JSON.stringify({ error: 'Invalid token type. Use an access token.' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       ),
     };
   }
@@ -64,7 +65,7 @@ export async function requireAuth(req: Request): Promise<AuthResult> {
       ok: false,
       response: new Response(
         JSON.stringify({ error: 'Session not found or expired' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       ),
     };
   }
@@ -78,7 +79,7 @@ export async function requireAuth(req: Request): Promise<AuthResult> {
       ok: false,
       response: new Response(
         JSON.stringify({ error: 'Session expired' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { status: 401, headers: { ...cors, 'Content-Type': 'application/json' } },
       ),
     };
   }

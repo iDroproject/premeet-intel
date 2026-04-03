@@ -81,7 +81,7 @@ export async function callMcpTool(
       headers: { 'Content-Type': 'application/json' },
       body: callPayload,
       signal: controller.signal,
-    }).catch(() => {}); // errors handled via SSE timeout
+    }).catch((e) => console.warn(`MCP POST to ${toolName} failed:`, (e as Error).message));
 
     // Step 3: Read SSE stream until we get the result (id=1 response)
     let resultData: Record<string, unknown> | null = null;

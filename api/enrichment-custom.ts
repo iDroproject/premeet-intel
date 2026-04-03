@@ -9,7 +9,8 @@
 //
 // Returns: { results: Array<{ title, snippet, url, date? }>, summary: string }
 
-export const config = { runtime: 'edge' };
+// Node.js runtime — MCP SSE calls can chain to 30s+
+export const config = { maxDuration: 60 };
 
 import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { requireAuth } from './_shared/auth-middleware';
@@ -25,12 +26,6 @@ const CREDITS_PER_SEARCH = 2;
 const MAX_PROMPT_LENGTH = 500;
 const MAX_QUERIES = 3;
 
-// MCP social media tools available for custom search enrichment
-const SOCIAL_MEDIA_TOOLS = [
-  { tool: 'web_data_linkedin_posts', argKey: 'url', urlPrefix: 'linkedin.com' },
-  { tool: 'web_data_x_posts', argKey: 'url', urlPrefix: 'x.com' },
-  { tool: 'web_data_reddit_posts', argKey: 'url', urlPrefix: 'reddit.com' },
-] as const;
 
 interface CustomSearchRequest {
   linkedinUrl: string;
