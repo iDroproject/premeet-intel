@@ -7,6 +7,7 @@ import type { PersonData, SearchResult, ExperienceEntry, EducationEntry, Confide
 import { getCredits, remainingCredits } from '../utils/credits';
 import { maskPersonData, skillsPreviewCount } from '../utils/masking';
 import { initMixpanel, identifyUser, resetUser, track } from '../lib/mixpanel';
+import { icon } from './icons';
 
 const LOG = '[PreMeet][SidePanel]';
 
@@ -356,6 +357,16 @@ function renderSearchConfidenceBadge(score: number, label: string): string {
     </div>`;
 }
 
+function renderConfidenceDot(score: number | null, explanation?: string): string {
+  if (score === null || score === undefined) return '';
+  const level = score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red';
+  const label = score >= 70 ? 'High confidence' : score >= 50 ? 'Medium confidence' : 'Low confidence';
+  const tooltipText = explanation || label;
+  return `<span class="pm-confidence-dot pm-confidence-dot--${level}" aria-label="${label}: ${score}%">
+    <span class="pm-confidence-tooltip">${escapeHtml(tooltipText)}</span>
+  </span>`;
+}
+
 function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
 }
@@ -539,7 +550,7 @@ function renderCompanyIntelSection(key: string, pd: PersonData): string {
   return `
     <div class="pm-section" data-section="intel" data-attendee="${escapeHtml(key)}">
       <button class="pm-intel-fetch-btn" data-fetch-intel="${escapeHtml(key)}">
-        <span class="pm-intel-fetch-btn__icon">🏢</span>
+        <span class="pm-intel-fetch-btn__icon">${icon('building', 14)}</span>
         Company Intel
         <span class="pm-intel-fetch-btn__arrow">→</span>
       </button>
@@ -661,7 +672,7 @@ const POWER_UPS: PowerUpConfig[] = [
   {
     id: 'hiring',
     label: 'Hiring Signals',
-    icon: '\uD83D\uDCCA',
+    icon: icon('chart-bar', 14),
     cost: '0.5 cr',
     stateMap: hiringSignalsState as Map<string, PowerUpState<unknown>>,
     messageType: 'FETCH_HIRING_SIGNALS',
@@ -676,7 +687,7 @@ const POWER_UPS: PowerUpConfig[] = [
   {
     id: 'stakeholder',
     label: 'Stakeholder Map',
-    icon: '\uD83D\uDC65',
+    icon: icon('users', 14),
     cost: '1 cr',
     stateMap: stakeholderMapState as Map<string, PowerUpState<unknown>>,
     messageType: 'FETCH_STAKEHOLDER_MAP',
@@ -690,7 +701,7 @@ const POWER_UPS: PowerUpConfig[] = [
   {
     id: 'social',
     label: 'Social Pulse',
-    icon: '\uD83D\uDCE2',
+    icon: icon('megaphone', 14),
     cost: '0.5 cr',
     stateMap: socialPulseState as Map<string, PowerUpState<unknown>>,
     messageType: 'FETCH_SOCIAL_PULSE',
@@ -704,7 +715,7 @@ const POWER_UPS: PowerUpConfig[] = [
   {
     id: 'reputation',
     label: 'Reputation',
-    icon: '\u2B50',
+    icon: icon('star', 14),
     cost: '0.5 cr',
     stateMap: reputationState as Map<string, PowerUpState<unknown>>,
     messageType: 'FETCH_REPUTATION',
@@ -1028,12 +1039,14 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   let confidenceWarning = '';
   const confScore = pd?._confidenceScore ?? sr?.confidenceScore;
   if (hasRichData && pd._confidenceScore != null) {
-    confidenceHtml = renderConfidenceBadge(pd);
+    const citations = pd._confidenceCitations || [];
+    const explanation = citations.map(c => `${c.factor}: ${c.points >= 0 ? '+' : ''}${c.points}`).join(', ');
+    confidenceHtml = renderConfidenceDot(pd._confidenceScore, explanation);
     if (pd._confidenceScore < 50) {
       confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
     }
   } else if (isSearched && sr && sr.confidenceScore != null) {
-    confidenceHtml = renderSearchConfidenceBadge(sr.confidenceScore, sr.confidence);
+    confidenceHtml = renderConfidenceDot(sr.confidenceScore, sr.confidence);
     if (sr.confidenceScore < 50) {
       confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
     }
