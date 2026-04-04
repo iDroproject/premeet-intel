@@ -1,6 +1,6 @@
 # PreMeet
 
-**v2.5.0**
+**v2.5.1**
 
 > Turn every calendar invite into a complete business brief.
 
