@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PreMeet",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwutFDAC5FuYmtVx1YUh4zBfV/dyCQyjyf5C43FhHPP5DG/wopx3QT0BrQG6o2CHFDwzGTdzNnMkfe47vOJKSz4XY01q3n9Cm7SrrJAuhOFtOwFEqvFCjQlrRwlkpgB6jpWuTbn+a3oUs6agisfE4ZbMlsr8bRaSp3n6KERdFhx7jWweH2yrE2945vXpVxJwU9D/ft15fLe/fcEWelzuur9/WB63mCUYyunqRBeWpH/fJe8e+h+jX51Me5XK+RhlKX6CNaU87bbkxUdCZXi47GY4wEpdkufcFTerEXbYylAPqaRmwLoWCeik4X0e0RM9wq2CubR4lsPB5DViI4gzMvwIDAQAB",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "Turn every calendar invite into a complete business brief.",
   "permissions": [
     "storage",
