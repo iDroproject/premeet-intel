@@ -169,6 +169,7 @@
       .pm-avatar img {
         width: 100%; height: 100%; object-fit: cover;
       }
+      .pm-avatar--compact { width: 40px; height: 40px; font-size: 14px; }
 
       .pm-card__body { flex: 1; min-width: 0; }
       .pm-card__name {
@@ -1344,6 +1345,7 @@
         <div class="pm-header__meeting" id="pm-attendee-count" style="font-size:11px;opacity:0.7;"></div>
       </div>
       <div class="pm-credits pm-hidden" id="pm-credits"></div>
+      <div class="pm-progress-bar" id="pm-progress" style="width:0%;"></div>
     </header>
 
     <div class="pm-loading-bar pm-hidden" id="pm-loading-bar"></div>
@@ -1365,6 +1367,9 @@
         <div class="pm-step__label">Complete</div>
       </div>
     </div>
+
+    <!-- Credit banner (injected dynamically) -->
+    <div id="pm-credit-banner-slot"></div>
 
     <!-- Attendee counter -->
     <div class="pm-counter pm-hidden" id="pm-counter"></div>

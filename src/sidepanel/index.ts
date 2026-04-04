@@ -37,6 +37,13 @@ const Els = {
 let currentMeeting: MeetingEvent | null = null;
 let attendeeMap = new Map<string, EnrichedAttendee>();
 let isAuthenticated = false;
+let cachedUserTier: 'free' | 'pro' = 'free';
+
+/** Read the user tier from the credits/storage system and cache it. */
+async function refreshUserTier(): Promise<void> {
+  const credits = await getCredits();
+  cachedUserTier = credits.plan === 'pro' ? 'pro' : 'free';
+}
 
 // Track which expandable sections are open per attendee
 const expandedSections = new Map<string, Set<string>>();
@@ -228,14 +235,30 @@ function updateCtaBanner(): void {
 async function refreshCredits(): Promise<void> {
   if (!Els.credits) return;
   const credits = await getCredits();
+  cachedUserTier = credits.plan === 'pro' ? 'pro' : 'free';
   const remaining = remainingCredits(credits);
-  if (credits.plan === 'pro') {
-    Els.credits.textContent = 'Pro';
-    Els.credits.classList.remove('pm-hidden', 'pm-credits--low');
-  } else {
-    Els.credits.textContent = `${remaining}/${credits.limit} left`;
-    Els.credits.classList.remove('pm-hidden');
-    Els.credits.classList.toggle('pm-credits--low', remaining <= 2);
+
+  // Update header credits display using renderCreditsDisplay
+  Els.credits.innerHTML = renderCreditsDisplay(credits.used, credits.limit, cachedUserTier);
+  Els.credits.classList.remove('pm-hidden');
+  Els.credits.classList.toggle('pm-credits--low', cachedUserTier !== 'pro' && remaining <= 2);
+
+  // Update credit banner slot
+  const bannerSlot = document.getElementById('pm-credit-banner-slot');
+  if (bannerSlot) {
+    bannerSlot.innerHTML = renderCreditBanner(credits.used, credits.limit, cachedUserTier);
+    // Wire dismiss button if banner is shown
+    const dismissBtn = bannerSlot.querySelector('[data-dismiss-banner]');
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => { bannerSlot.innerHTML = ''; });
+    }
+    const upgradeBtn = bannerSlot.querySelector('[data-upgrade]');
+    if (upgradeBtn) {
+      upgradeBtn.addEventListener('click', () => {
+        track('upgrade_clicked', { source: 'credit_banner' });
+        chrome.runtime.sendMessage({ type: 'OPEN_UPGRADE' });
+      });
+    }
   }
 }
 
@@ -1089,7 +1112,7 @@ function renderTabBar(key: string, userTier: string): string {
     </button>`;
   }).join('');
 
-  return `<div class="pm-tab-bar" data-tab-bar="${escapeAttr(key)}">${buttons}</div>`;
+  return `<div class="pm-tabs" data-tab-bar="${escapeAttr(key)}">${buttons}</div>`;
 }
 
 function renderTabContent(key: string, attendee: EnrichedAttendee): string {
@@ -1221,7 +1244,7 @@ function handleTabClick(card: HTMLElement, key: string, tabId: string): void {
   // Re-render tab bar in place
   const barEl = card.querySelector<HTMLElement>(`[data-tab-bar="${CSS.escape(key)}"]`);
   if (barEl) {
-    const userTier = 'free'; // Phase 1: default tier
+    const userTier = cachedUserTier;
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = renderTabBar(key, userTier);
     const newBar = tempDiv.firstElementChild;
@@ -1322,9 +1345,9 @@ function renderBriefBlock(key: string, attendee: EnrichedAttendee): string {
     return `
       <div class="pm-brief">
         <div class="pm-brief__title">${icon('sparkles', 16)} Meeting Brief</div>
-        <div class="pm-skeleton pm-skeleton--line" style="width:90%;"></div>
-        <div class="pm-skeleton pm-skeleton--line" style="width:75%;"></div>
-        <div class="pm-skeleton pm-skeleton--line" style="width:60%;"></div>
+        <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:90%;"></div>
+        <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:75%;"></div>
+        <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:60%;"></div>
       </div>`;
   }
 
@@ -1391,11 +1414,11 @@ function renderErrorCard(errorMessage: string, context: string, attendeeKey: str
 
   return `
     <div class="pm-error-card pm-error-card--unexpected">
-      <div class="pm-error-card__icon">${icon('alert-triangle', 16)}</div>
+      <div class="pm-error-card__icon">${icon('alert-circle', 16)}</div>
       <div class="pm-error-card__message">Something went wrong.</div>
       <div class="pm-error-card__actions">
-        <button class="pm-error-card__retry" data-retry="${escapeAttr(attendeeKey)}">Try Again</button>
-        <a class="pm-error-card__report" href="${mailto}" target="_blank" rel="noopener">Report Issue</a>
+        <button class="pm-error-card__btn pm-error-card__btn--retry" data-retry="${escapeAttr(attendeeKey)}">Try Again</button>
+        <a class="pm-error-card__btn pm-error-card__btn--report" href="${mailto}" target="_blank" rel="noopener">Report Issue</a>
       </div>
     </div>`;
 }
@@ -1406,10 +1429,10 @@ function renderSkeletonCard(index: number): string {
   const delay = index * 40;
   return `
     <div class="pm-card pm-card-enter pm-skeleton-card" style="animation-delay:${delay}ms">
-      <div class="pm-skeleton pm-skeleton--avatar" style="width:56px;height:56px;border-radius:50%;"></div>
-      <div class="pm-skeleton pm-skeleton--line" style="width:60%;height:14px;margin-top:12px;"></div>
-      <div class="pm-skeleton pm-skeleton--line" style="width:45%;height:12px;margin-top:8px;"></div>
-      <div class="pm-skeleton pm-skeleton--line" style="width:35%;height:12px;margin-top:8px;"></div>
+      <div class="pm-skeleton pm-skeleton pm-skeleton--circle" style="width:56px;height:56px;border-radius:50%;"></div>
+      <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:60%;height:14px;margin-top:12px;"></div>
+      <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:45%;height:12px;margin-top:8px;"></div>
+      <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:35%;height:12px;margin-top:8px;"></div>
     </div>`;
 }
 
@@ -1470,7 +1493,7 @@ function renderCreditBanner(creditsUsed: number, creditsLimit: number, tier: str
   return `
     <div class="pm-credit-banner">
       <div class="pm-credit-banner__text">You've used all ${creditsLimit} free briefs</div>
-      <button class="pm-credit-banner__upgrade" data-upgrade>Upgrade to Pro</button>
+      <button class="pm-credit-banner__cta" data-upgrade>Upgrade to Pro</button>
       <button class="pm-credit-banner__dismiss" data-dismiss-banner aria-label="Dismiss">&times;</button>
     </div>`;
 }
@@ -1478,19 +1501,15 @@ function renderCreditBanner(creditsUsed: number, creditsLimit: number, tier: str
 function renderCTAButton(key: string, creditsExhausted: boolean): string {
   if (creditsExhausted) {
     return `
-      <div class="pm-cta">
-        <button class="pm-cta__btn pm-cta__btn--disabled" disabled>
-          ${icon('lock', 14)} Upgrade to unlock
-        </button>
-      </div>`;
+      <button class="pm-cta pm-cta--disabled" disabled>
+        ${icon('lock', 14)} Upgrade to unlock
+      </button>`;
   }
   return `
-    <div class="pm-cta">
-      <button class="pm-cta__btn" data-enrich="${escapeAttr(key)}">
-        Get Meeting Brief
-      </button>
+    <button class="pm-cta" data-enrich="${escapeAttr(key)}">
+      Get Meeting Brief
       <span class="pm-cta__hint">Uses 1 credit</span>
-    </div>`;
+    </button>`;
 }
 
 function renderCreditsDisplay(creditsUsed: number, creditsLimit: number, tier: string): string {
@@ -1686,8 +1705,8 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
       ${compactHeader}
       <div class="pm-microcopy-container" id="${microcopyId}"></div>
       ${briefSkeleton}
-      <div class="pm-tab-bar pm-tab-bar--skeleton">
-        <div class="pm-skeleton pm-skeleton--line" style="width:100%;height:28px;border-radius:6px;"></div>
+      <div class="pm-tabs pm-tabs--skeleton">
+        <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:100%;height:28px;border-radius:6px;"></div>
       </div>
     `;
 
@@ -1702,7 +1721,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   // ── Complete state: compact header + brief block + tab bar + tab content ──
   if (isDone && hasRichData) {
     stopMicrocopy();
-    const userTier = 'free'; // Phase 1: default tier
+    const userTier = cachedUserTier;
     const compactHeader = renderCompactProfileHeader(key, attendee);
     const briefBlock = renderBriefBlock(key, attendee);
     const tabBar = renderTabBar(key, userTier);
@@ -2110,6 +2129,13 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
     }
     updateSingleAttendee(email, attendee);
     refreshCredits();
+
+    // Update progress bar based on enrichment completion
+    const total = attendeeMap.size;
+    if (total > 0) {
+      const done = [...attendeeMap.values()].filter((a) => a.status === 'done' || a.status === 'error').length;
+      updateProgressBar(Math.round((done / total) * 100));
+    }
   }
 
   if (msg.type === 'COMPANY_INTEL_RESULT') {
@@ -2251,6 +2277,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Check auth state for freemium preview mode
   isAuthenticated = await checkAuthState();
+  await refreshUserTier();
   updateCtaBanner();
 
   track('sidepanel_opened');
