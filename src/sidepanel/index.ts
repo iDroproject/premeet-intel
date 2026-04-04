@@ -226,8 +226,8 @@ async function checkAuthState(): Promise<boolean> {
 
 function updateCtaBanner(): void {
   if (!Els.ctaBanner) return;
-  // Phase 1: always hide CTA banner — no auth gate on search
-  Els.ctaBanner.classList.add('pm-hidden');
+  // Show sign-in banner when not authenticated
+  Els.ctaBanner.classList.toggle('pm-hidden', isAuthenticated);
 }
 
 // ─── Credits Display ────────────────────────────────────────────────────────
@@ -775,6 +775,7 @@ function renderPowerUpButton(key: string, pu: PowerUpConfig, pd: PersonData): st
         <div class="pm-section" data-section="${escapeHtml(pu.id)}" data-attendee="${escapeHtml(key)}">
           <div class="pm-pro-prompt">
             <strong>Pro feature</strong> — Upgrade to access ${escapeHtml(pu.label.toLowerCase())}.
+            <button class="pm-pro-prompt__btn" data-open-upgrade>Upgrade to Pro</button>
           </div>
         </div>`;
     }
@@ -844,8 +845,9 @@ function renderContactInfoSection(key: string, pd: PersonData): string {
     if (state.error.includes('Pro subscription required') || state.error.includes('Pro plan')) {
       return `
         <div class="pm-section" data-section="contact" data-attendee="${escapeHtml(key)}">
-          <div style="padding:10px 12px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;font-size:12px;color:#9A3412;line-height:1.5;">
+          <div class="pm-pro-prompt">
             <strong>Pro feature</strong> — Upgrade to access direct phone and email.
+            <button class="pm-pro-prompt__btn" data-open-upgrade>Upgrade to Pro</button>
           </div>
         </div>`;
     }
@@ -930,6 +932,7 @@ function renderCustomEnrichSection(key: string, pd: PersonData): string {
         <div class="pm-custom-enrich">
           <div class="pm-pro-prompt">
             <strong>Pro feature</strong> — Upgrade to access custom research queries.
+            <button class="pm-pro-prompt__btn" data-open-upgrade>Upgrade to Pro</button>
           </div>
         </div>`;
     }
@@ -1176,16 +1179,37 @@ function renderTabContent(key: string, attendee: EnrichedAttendee): string {
         inner = '<div style="font-size:12px;color:#9ca3af;">No recent posts found.</div>';
         break;
       }
-      const posts = pd.recentPosts.slice(0, 3);
-      inner = posts.map((p) => {
-        const title = p.title || 'Untitled post';
-        const titleHtml = p.link
-          ? `<a href="${escapeHtml(p.link)}" target="_blank" rel="noopener">${escapeHtml(title)}</a>`
-          : escapeHtml(title);
-        const interaction = p.interaction ? `<div class="pm-post-snippet__meta">${escapeHtml(p.interaction)}</div>` : '';
+      const posts = pd.recentPosts.slice(0, 5);
+      inner = posts.map((p, idx) => {
+        const title = p.title || '';
+        const postId = `${key}-post-${idx}`;
+
+        // Image thumbnail
+        const imageHtml = p.imageUrl
+          ? `<img src="${escapeHtml(p.imageUrl)}" alt="" class="pm-post-snippet__image" loading="lazy" data-hide-on-error>`
+          : '';
+
+        // Post text with 2-line clamp + show more/less
+        const textHtml = title
+          ? `<div class="pm-post-snippet__text" data-post-text="${escapeAttr(postId)}">${escapeHtml(title)}</div>
+             <button class="pm-post-snippet__toggle pm-hidden" data-post-toggle="${escapeAttr(postId)}">Show more</button>`
+          : '';
+
+        // Metadata line: interaction (e.g. "shared", "liked") + engagement
+        const interaction = p.interaction ? `<span>${escapeHtml(p.interaction)}</span>` : '';
+
+        // Link to original post
+        const linkHtml = p.link
+          ? `<a href="${escapeHtml(p.link)}" target="_blank" rel="noopener" class="pm-post-snippet__link">View post &rarr;</a>`
+          : '';
+
         return `<div class="pm-post-snippet">
-          <div class="pm-post-snippet__title">${titleHtml}</div>
-          ${interaction}
+          ${imageHtml}
+          ${textHtml}
+          <div class="pm-post-snippet__meta">
+            ${interaction}
+            ${linkHtml}
+          </div>
         </div>`;
       }).join('');
       break;
@@ -1381,10 +1405,28 @@ function renderBriefBlock(key: string, attendee: EnrichedAttendee): string {
     companyHtml = `<div class="pm-brief__company">${logo}${escapeHtml(pd.currentCompany)}${escapeHtml(metaStr)}</div>`;
   }
 
+  // AI overview from company intel (deep enrichment)
+  let aiOverviewHtml = '';
+  if (compState && typeof compState === 'object' && 'data' in compState) {
+    const aiOverview = (compState.data as CompanyData & { aiOverview?: string }).aiOverview;
+    if (aiOverview) {
+      aiOverviewHtml = `<li class="pm-brief__point">${escapeHtml(aiOverview)}</li>`;
+    }
+  }
+
+  // Show skeleton hint when company intel is still loading
+  let searchingHtml = '';
+  if (compState === 'loading') {
+    searchingHtml = `<li class="pm-brief__point" style="color:var(--pm-text-tertiary);font-style:italic;">
+      <span class="pm-skeleton" style="display:inline-block;width:70%;height:12px;border-radius:4px;vertical-align:middle;"></span>
+      Searching for more insights&hellip;
+    </li>`;
+  }
+
   return `
     <div class="pm-brief">
       <div class="pm-brief__title">${icon('sparkles', 16)} Meeting Brief</div>
-      ${pointsHtml ? `<ul class="pm-brief__points">${pointsHtml}</ul>` : ''}
+      ${pointsHtml || aiOverviewHtml || searchingHtml ? `<ul class="pm-brief__points">${pointsHtml}${aiOverviewHtml}${searchingHtml}</ul>` : ''}
       ${companyHtml}
     </div>`;
 }
@@ -1655,14 +1697,10 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
       statsHtml = `<div class="pm-card__stats pm-fadein">${parts.join('')}</div>`;
     }
 
-    // Confidence dot
+    // Confidence dot (tooltip on hover provides the same info as the old warning)
     let confidenceHtml = '';
-    let confidenceWarning = '';
     if (sr?.confidenceScore != null) {
       confidenceHtml = renderConfidenceDot(sr.confidenceScore, sr.confidence);
-      if (sr.confidenceScore < 50) {
-        confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
-      }
     }
 
     // CTA button (replaces old "Generate Brief" button)
@@ -1686,7 +1724,6 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
           ${locationHtml}
           ${email ? `<div class="pm-card__email">${escapeHtml(email)}</div>` : ''}
           ${statsHtml}
-          ${confidenceWarning}
         </div>
       </div>
       ${ctaHtml}
@@ -2040,6 +2077,37 @@ function attachCardListeners(card: HTMLElement, key: string): void {
     });
   });
 
+  // Upgrade to Pro buttons
+  const upgradeBtns = card.querySelectorAll<HTMLButtonElement>('[data-open-upgrade]');
+  upgradeBtns.forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      track('upgrade_clicked', { source: 'pro_prompt' });
+      chrome.runtime.sendMessage({ type: 'OPEN_UPGRADE' });
+    });
+  });
+
+  // Post "Show more / Show less" toggle
+  const postToggles = card.querySelectorAll<HTMLButtonElement>('[data-post-toggle]');
+  postToggles.forEach((toggle) => {
+    const postId = toggle.dataset.postToggle;
+    if (!postId) return;
+    const textEl = card.querySelector<HTMLElement>(`[data-post-text="${CSS.escape(postId)}"]`);
+    if (!textEl) return;
+    // Show toggle only when text is actually clamped (scrollHeight > clientHeight)
+    requestAnimationFrame(() => {
+      if (textEl.scrollHeight > textEl.clientHeight + 2) {
+        toggle.classList.remove('pm-hidden');
+      }
+    });
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isExpanded = textEl.classList.contains('pm-post-snippet__text--expanded');
+      textEl.classList.toggle('pm-post-snippet__text--expanded');
+      toggle.textContent = isExpanded ? 'Show more' : 'Show less';
+    });
+  });
+
   // Freemium lock CTA: clicking any lock overlay triggers sign-in
   const lockCtas = card.querySelectorAll<HTMLElement>('[data-lock-signin]');
   lockCtas.forEach((cta) => {
@@ -2126,6 +2194,23 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
         from_cache: attendee.fromCache ?? false,
         has_linkedin: !!attendee.hasLinkedIn,
       });
+
+      // Auto-trigger company intel fetch when enrichment completes
+      const aKey = (email || attendee.name).toLowerCase();
+      const ciState = companyIntelState.get(aKey);
+      const pd = attendee.personData;
+      if (pd.currentCompany && (!ciState || ciState === 'idle')) {
+        companyIntelState.set(aKey, 'loading');
+        chrome.runtime.sendMessage({
+          type: 'FETCH_COMPANY_INTEL',
+          payload: {
+            email,
+            companyName: pd.currentCompany,
+            linkedinUrl: pd.companyLinkedinUrl || undefined,
+            website: pd.companyWebsite || undefined,
+          },
+        });
+      }
     }
     updateSingleAttendee(email, attendee);
     refreshCredits();

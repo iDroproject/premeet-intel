@@ -129,6 +129,7 @@
         border-radius: var(--pm-radius);
         transition: box-shadow var(--pm-transition), border-color var(--pm-transition);
         animation: pm-fadeInUp var(--pm-transition) ease-out both;
+        overflow: visible;
       }
       .pm-card:hover {
         box-shadow: 0 2px 8px rgba(0,0,0,0.06);
@@ -174,7 +175,7 @@
       .pm-card__body { flex: 1; min-width: 0; }
       .pm-card__name {
         font-weight: 600; font-size: 15px; color: var(--pm-text);
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; overflow: visible; text-overflow: ellipsis;
       }
       .pm-card__name a {
         color: inherit; text-decoration: none;
@@ -936,6 +937,18 @@
         border-radius: 8px; font-size: 12px;
         color: #9A3412; line-height: 1.5;
       }
+      .pm-pro-prompt__btn {
+        display: inline-flex; align-items: center; gap: 4px;
+        margin-top: 8px;
+        padding: 8px 16px;
+        background: var(--pm-primary); color: #fff;
+        border: none; border-radius: 6px;
+        font-size: 12px; font-weight: 600;
+        font-family: var(--pm-font);
+        cursor: pointer;
+        transition: background var(--pm-transition);
+      }
+      .pm-pro-prompt__btn:hover { background: var(--pm-primary-hover); }
 
       /* ── Global interaction (ui-ux-pro-max) ── */
       button, [role="button"], .pm-clickable {
@@ -1206,8 +1219,9 @@
         border-radius: 6px;
         max-width: 250px;
         white-space: normal;
-        z-index: 100;
+        z-index: 1000;
         box-shadow: var(--pm-shadow-md);
+        pointer-events: none;
       }
       .pm-confidence-tooltip::after {
         content: '';
@@ -1263,6 +1277,23 @@
         margin-top: 6px;
         font-size: 12px;
         color: var(--pm-text-tertiary);
+      }
+      .pm-post-snippet__text--expanded {
+        display: block;
+        -webkit-line-clamp: unset;
+      }
+      .pm-post-snippet__toggle {
+        font-size: 11px; color: var(--pm-primary); cursor: pointer;
+        border: none; background: none; padding: 2px 0; margin-top: 2px;
+        font-family: var(--pm-font); font-weight: 500;
+      }
+      .pm-post-snippet__toggle:hover { text-decoration: underline; }
+      .pm-post-snippet__image {
+        max-height: 120px;
+        border-radius: 6px;
+        object-fit: cover;
+        width: 100%;
+        margin-bottom: 8px;
       }
       .pm-post-snippet__link {
         color: var(--pm-primary);
@@ -1399,11 +1430,11 @@
       </div>
     </div>
 
-    <!-- Freemium sign-in CTA -->
+    <!-- Sign-in CTA banner -->
     <div class="pm-cta-banner pm-hidden" id="pm-cta-banner">
-      <div class="pm-cta-banner__icon">&#128274;</div>
-      <div class="pm-cta-banner__title">Unlock full profiles</div>
-      <div class="pm-cta-banner__body">Sign in with Google to see complete job titles, work history, education, skills, and more.</div>
+      <div class="pm-cta-banner__icon">&#128100;</div>
+      <div class="pm-cta-banner__title">Sign in to view meeting briefs</div>
+      <div class="pm-cta-banner__body">Sign in with Google to get attendee profiles, company intel, and AI-powered meeting prep.</div>
       <button class="pm-cta-banner__btn" id="pm-cta-signin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1Z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23Z" fill="#34A853"/><path d="M5.84 14.09A6.97 6.97 0 0 1 5.48 12c0-.72.13-1.43.36-2.09V7.07H2.18A11.96 11.96 0 0 0 0 12c0 1.94.46 3.77 1.28 5.4l3.56-2.77.01-.54Z" fill="#FBBC05"/><path d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.09 14.97 0 12 0 7.7 0 3.99 2.47 2.18 6.07l3.66 2.84c.87-2.6 3.3-4.16 6.16-4.16Z" fill="#EA4335"/></svg>
         Sign in with Google
