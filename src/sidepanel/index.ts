@@ -971,6 +971,305 @@ function renderRecentPosts(pd: PersonData): string {
   }).join('');
 }
 
+// ─── Tab System ─────────────────────────────────────────────────────────────
+
+// Track which tab is active per attendee card
+const activeTab = new Map<string, string>();
+
+interface TabDef {
+  id: string;
+  label: string;
+  iconName: string;
+  dataCheck: (key: string, attendee: EnrichedAttendee) => boolean;
+  proOnly?: boolean;
+  comingSoon?: boolean;
+}
+
+const TAB_DEFS: TabDef[] = [
+  {
+    id: 'overview',
+    label: 'Overview',
+    iconName: 'briefcase',
+    dataCheck: (_key, attendee) => {
+      const pd = attendee.personData;
+      if (!pd) return false;
+      return !!(pd.experience?.length || pd.education?.length || pd.skills?.length || pd.bio);
+    },
+  },
+  {
+    id: 'company',
+    label: 'Company',
+    iconName: 'building',
+    dataCheck: (key, attendee) => {
+      const state = companyIntelState.get(key);
+      return !!attendee.personData?.currentCompany || state === 'loading' || (typeof state === 'object' && ('data' in state || 'error' in state));
+    },
+  },
+  {
+    id: 'posts',
+    label: 'Posts',
+    iconName: 'message-square',
+    dataCheck: (_key, attendee) => {
+      const pd = attendee.personData;
+      return !!(pd?.recentPosts && pd.recentPosts.length > 0);
+    },
+  },
+  {
+    id: 'contact',
+    label: 'Contact',
+    iconName: 'phone',
+    dataCheck: (key, attendee) => {
+      const state = contactInfoState.get(key);
+      return !!attendee.personData?.linkedinUrl || state === 'loading' || (typeof state === 'object' && ('data' in state || 'error' in state));
+    },
+  },
+  {
+    id: 'research',
+    label: 'Research',
+    iconName: 'search',
+    dataCheck: () => true, // always available
+  },
+  {
+    id: 'hiring',
+    label: 'Hiring',
+    iconName: 'chart-bar',
+    proOnly: true,
+    comingSoon: true,
+    dataCheck: () => true,
+  },
+  {
+    id: 'stakeholders',
+    label: 'Stakeholders',
+    iconName: 'users',
+    proOnly: true,
+    comingSoon: true,
+    dataCheck: () => true,
+  },
+  {
+    id: 'social',
+    label: 'Social',
+    iconName: 'megaphone',
+    proOnly: true,
+    comingSoon: true,
+    dataCheck: () => true,
+  },
+  {
+    id: 'reputation',
+    label: 'Reputation',
+    iconName: 'star',
+    proOnly: true,
+    comingSoon: true,
+    dataCheck: () => true,
+  },
+];
+
+function renderTabBar(key: string, userTier: string): string {
+  const attendee = attendeeMap.get(key);
+  if (!attendee) return '';
+
+  const current = activeTab.get(key) || 'overview';
+
+  const tabs = TAB_DEFS.filter((tab) => {
+    // Hide comingSoon tabs for non-Pro users
+    if (tab.comingSoon && userTier !== 'pro') return false;
+    // Show tabs whose data is available, plus always-visible ones
+    return tab.dataCheck(key, attendee);
+  });
+
+  const buttons = tabs.map((tab) => {
+    const isActive = tab.id === current;
+    const isDisabled = !!tab.comingSoon;
+    let cls = 'pm-tab';
+    if (isActive) cls += ' pm-tab--active';
+    if (isDisabled) cls += ' pm-tab--disabled';
+    const badge = tab.comingSoon ? ' <span class="pm-tab__badge">Soon</span>' : '';
+    return `<button class="${cls}" data-tab="${escapeAttr(tab.id)}" data-tab-key="${escapeAttr(key)}"${isDisabled ? ' disabled' : ''}>
+      ${icon(tab.iconName, 14)}
+      <span class="pm-tab__label">${escapeHtml(tab.label)}</span>${badge}
+    </button>`;
+  }).join('');
+
+  return `<div class="pm-tab-bar" data-tab-bar="${escapeAttr(key)}">${buttons}</div>`;
+}
+
+function renderTabContent(key: string, attendee: EnrichedAttendee): string {
+  const tabId = activeTab.get(key) || 'overview';
+  const pd = attendee.personData;
+
+  let inner = '';
+
+  switch (tabId) {
+    case 'overview': {
+      if (!pd) {
+        inner = '<div style="font-size:12px;color:#9ca3af;">No profile data available yet.</div>';
+        break;
+      }
+      const parts: string[] = [];
+      if (pd.bio) {
+        parts.push(renderBio(pd.bio, key));
+      }
+      if (pd.experience && pd.experience.length > 0) {
+        parts.push(renderExpandableSection(key, 'work', 'Work History', renderWorkHistory(pd.experience)));
+      }
+      if (pd.education && pd.education.length > 0) {
+        parts.push(renderExpandableSection(key, 'education', 'Education', renderEducation(pd.education)));
+      }
+      if (pd.skills && pd.skills.length > 0) {
+        parts.push(renderExpandableSection(key, 'skills', 'Skills', renderSkills(pd.skills)));
+      }
+      inner = parts.length > 0 ? parts.join('') : '<div style="font-size:12px;color:#9ca3af;">No overview data available.</div>';
+      break;
+    }
+
+    case 'company': {
+      const state = companyIntelState.get(key);
+      if (state === 'loading') {
+        inner = `<div class="pm-intel-skeleton">
+          <div class="pm-skeleton-row pm-skeleton-row--wide"></div>
+          <div class="pm-skeleton-row pm-skeleton-row--medium"></div>
+          <div class="pm-skeleton-row pm-skeleton-row--wide"></div>
+          <div class="pm-skeleton-row pm-skeleton-row--short"></div>
+          <div class="pm-skeleton-row pm-skeleton-row--medium"></div>
+        </div>`;
+      } else if (typeof state === 'object' && 'data' in state) {
+        inner = renderCompanyIntelFromData(state.data);
+      } else if (typeof state === 'object' && 'error' in state) {
+        inner = `<div class="pm-error-card" style="font-size:12px;color:#991B1B;padding:8px;background:#FEF2F2;border-radius:6px;">${escapeHtml(state.error)}</div>`;
+      } else if (pd?.currentCompany) {
+        // idle — show fetch button
+        inner = `<button class="pm-intel-fetch-btn" data-fetch-intel="${escapeAttr(key)}">
+          <span class="pm-intel-fetch-btn__icon">${icon('building', 14)}</span>
+          Load Company Intel
+          <span class="pm-intel-fetch-btn__arrow">\u2192</span>
+        </button>`;
+      } else {
+        inner = '<div style="font-size:12px;color:#9ca3af;">No company data available.</div>';
+      }
+      break;
+    }
+
+    case 'posts': {
+      if (!pd?.recentPosts || pd.recentPosts.length === 0) {
+        inner = '<div style="font-size:12px;color:#9ca3af;">No recent posts found.</div>';
+        break;
+      }
+      const posts = pd.recentPosts.slice(0, 3);
+      inner = posts.map((p) => {
+        const title = p.title || 'Untitled post';
+        const titleHtml = p.link
+          ? `<a href="${escapeHtml(p.link)}" target="_blank" rel="noopener">${escapeHtml(title)}</a>`
+          : escapeHtml(title);
+        const interaction = p.interaction ? `<div class="pm-post-snippet__meta">${escapeHtml(p.interaction)}</div>` : '';
+        return `<div class="pm-post-snippet">
+          <div class="pm-post-snippet__title">${titleHtml}</div>
+          ${interaction}
+        </div>`;
+      }).join('');
+      break;
+    }
+
+    case 'contact': {
+      if (!pd) {
+        inner = '<div style="font-size:12px;color:#9ca3af;">No contact data available.</div>';
+        break;
+      }
+      inner = renderContactInfoSection(key, pd);
+      break;
+    }
+
+    case 'research': {
+      if (!pd) {
+        inner = '<div style="font-size:12px;color:#9ca3af;">Enrich this attendee first to use custom research.</div>';
+        break;
+      }
+      inner = renderCustomEnrichSection(key, pd);
+      break;
+    }
+
+    // Coming Soon tabs
+    case 'hiring':
+    case 'stakeholders':
+    case 'social':
+    case 'reputation': {
+      const tabDef = TAB_DEFS.find((t) => t.id === tabId);
+      const label = tabDef?.label || tabId;
+      inner = `<div style="padding:20px 12px;text-align:center;color:#9ca3af;font-size:13px;">
+        ${icon(tabDef?.iconName || 'star', 24, 'pm-coming-soon-icon')}
+        <div style="margin-top:8px;">We're building <strong>${escapeHtml(label)}</strong>. Stay tuned.</div>
+      </div>`;
+      break;
+    }
+
+    default:
+      inner = '<div style="font-size:12px;color:#9ca3af;">Unknown tab.</div>';
+  }
+
+  return `<div class="pm-tab-content" data-tab-content="${escapeAttr(key)}">${inner}</div>`;
+}
+
+/**
+ * Handle tab click events within a card. Call this from attachCardListeners.
+ * Updates the active tab and re-renders the tab bar + content area in place.
+ */
+function handleTabClick(card: HTMLElement, key: string, tabId: string): void {
+  // Don't switch to disabled (coming soon) tabs
+  const tabDef = TAB_DEFS.find((t) => t.id === tabId);
+  if (tabDef?.comingSoon) return;
+
+  activeTab.set(key, tabId);
+
+  // Re-render tab bar in place
+  const barEl = card.querySelector<HTMLElement>(`[data-tab-bar="${CSS.escape(key)}"]`);
+  if (barEl) {
+    const userTier = 'free'; // Phase 1: default tier
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = renderTabBar(key, userTier);
+    const newBar = tempDiv.firstElementChild;
+    if (newBar) {
+      barEl.replaceWith(newBar);
+      // Attach click listeners to new tab buttons
+      newBar.querySelectorAll<HTMLButtonElement>('.pm-tab[data-tab]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const clickedTab = btn.dataset.tab;
+          if (clickedTab) handleTabClick(card, key, clickedTab);
+        });
+      });
+    }
+  }
+
+  // Re-render tab content in place
+  const contentEl = card.querySelector<HTMLElement>(`[data-tab-content="${CSS.escape(key)}"]`);
+  if (contentEl) {
+    const attendee = attendeeMap.get(key);
+    if (attendee) {
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = renderTabContent(key, attendee);
+      const newContent = tempDiv.firstElementChild;
+      if (newContent) {
+        contentEl.replaceWith(newContent);
+        // Re-attach card listeners for interactive elements inside tab content
+        attachCardListeners(card, key);
+      }
+    }
+  }
+}
+
+/**
+ * Attach tab click listeners to all tab buttons within a card.
+ * Should be called from attachCardListeners.
+ */
+function attachTabListeners(card: HTMLElement, key: string): void {
+  const tabBtns = card.querySelectorAll<HTMLButtonElement>('.pm-tab[data-tab]');
+  tabBtns.forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tabId = btn.dataset.tab;
+      if (tabId) handleTabClick(card, key, tabId);
+    });
+  });
+}
+
 // ─── Card Rendering ──────────────────────────────────────────────────────────
 
 function createCardElement(attendee: EnrichedAttendee): HTMLElement {
