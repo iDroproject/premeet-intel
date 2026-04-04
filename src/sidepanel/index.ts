@@ -1503,6 +1503,56 @@ function renderCreditsDisplay(creditsUsed: number, creditsLimit: number, tier: s
 
 // ─── Card Rendering ──────────────────────────────────────────────────────────
 
+/**
+ * Compact profile header used in enriching and complete states.
+ * 40px avatar, name as LinkedIn link + confidence dot, title at company.
+ */
+function renderCompactProfileHeader(key: string, attendee: EnrichedAttendee): string {
+  const pd = attendee.personData;
+  const sr = attendee.searchResult;
+  const name = pd?.name || sr?.name || attendee.person?.name || attendee.name;
+  const title = pd?.currentTitle || sr?.currentTitle || attendee.person?.title || '';
+  const company = pd?.currentCompany || sr?.currentCompany || attendee.person?.company?.name || attendee.company || '';
+  const linkedinUrl = pd?.linkedinUrl || sr?.linkedinUrl;
+
+  const nameHtml = linkedinUrl
+    ? `<a href="${escapeHtml(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
+    : escapeHtml(name);
+
+  // Confidence dot
+  let confidenceHtml = '';
+  if (pd?._confidenceScore != null) {
+    const citations = pd._confidenceCitations || [];
+    const explanation = citations.map(c => `${c.factor}: ${c.points >= 0 ? '+' : ''}${c.points}`).join(', ');
+    confidenceHtml = renderConfidenceDot(pd._confidenceScore, explanation);
+  } else if (sr?.confidenceScore != null) {
+    confidenceHtml = renderConfidenceDot(sr.confidenceScore, sr.confidence);
+  }
+
+  // Title at Company
+  const titleCompanyParts: string[] = [];
+  if (title) titleCompanyParts.push(escapeHtml(title));
+  if (company) titleCompanyParts.push(escapeHtml(company));
+  const titleCompanyHtml = titleCompanyParts.length > 0
+    ? `<div class="pm-card__title">${titleCompanyParts.join(' at ')}</div>`
+    : '';
+
+  // Avatar — 40px compact
+  const avatarUrl = pd?.avatarUrl || sr?.avatarUrl;
+  const avatarInner = avatarUrl
+    ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" data-fallback-text="${escapeAttr(initials(name))}">`
+    : escapeHtml(initials(name || '?'));
+
+  return `
+    <div class="pm-card__header pm-card__header--compact">
+      <div class="pm-avatar pm-avatar--compact">${avatarInner}</div>
+      <div class="pm-card__body">
+        <div class="pm-card__name">${nameHtml} ${confidenceHtml}</div>
+        ${titleCompanyHtml}
+      </div>
+    </div>`;
+}
+
 function createCardElement(attendee: EnrichedAttendee): HTMLElement {
   const card = document.createElement('div');
   const key = attendeeKey(attendee);
@@ -1519,7 +1569,6 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   const isDone = attendee.status === 'done';
   const isPreview = false; // Phase 1: no auth gate on search — show full data always
   const pd = attendee.personData;
-  const originalPd = attendee.personData;
   const sr = attendee.searchResult; // search-phase preview data
   const name = pd?.name || sr?.name || attendee.person?.name || attendee.name;
   const title = pd?.currentTitle || sr?.currentTitle || attendee.person?.title || '';
@@ -1538,178 +1587,158 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   if (attendee.fromCache) classes.push('pm-card--cache-hit');
   if (attendee.hasLinkedIn && !isDone) classes.push('pm-card--usable');
   if (isDone && !attendee.error) classes.push('pm-card--complete');
-  // isPreview is always false in Phase 1 — no preview class needed
 
   card.className = classes.join(' ');
 
-  const fadeClass = (!isPending && !isEnriching) ? ' pm-fadein' : '';
+  // ── Pending state: skeleton card ──
+  if (isPending) {
+    const idx = Array.from(card.parentElement?.children || []).indexOf(card);
+    card.innerHTML = renderSkeletonCard(idx >= 0 ? idx : 0);
+    return;
+  }
 
-  // ── Build the always-visible header ──
+  // ── Error state: use renderErrorCard ──
+  if (isError && attendee.error) {
+    const errorContent = renderErrorCard(attendee.error, 'enrichment', key);
+    card.innerHTML = `
+      <div class="pm-card__header">
+        <div class="pm-avatar">${renderAvatar(name, pd, sr)}</div>
+        <div class="pm-card__body">
+          <div class="pm-card__name">${escapeHtml(name)}</div>
+          ${title ? `<div class="pm-card__title">${escapeHtml(title)}</div>` : ''}
+          ${email ? `<div class="pm-card__email">${escapeHtml(email)}</div>` : ''}
+        </div>
+      </div>
+      ${errorContent}
+    `;
+    attachCardListeners(card, key);
+    return;
+  }
+
+  // ── Searched state: profile header + confidence dot + CTA button ──
+  if (isSearched) {
+    const linkedinUrl = pd?.linkedinUrl || sr?.linkedinUrl;
+    const nameHtml = linkedinUrl
+      ? `<a href="${escapeHtml(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
+      : escapeHtml(name);
+
+    const location = pd?.location || sr?.location;
+    const locationHtml = location ? `<div class="pm-card__location pm-fadein">${escapeHtml(location)}</div>` : '';
+
+    // Stats
+    let statsHtml = '';
+    const statsConn = pd?.connections ?? sr?.connections;
+    const statsFoll = pd?.followers ?? sr?.followers;
+    if (statsConn != null || statsFoll != null) {
+      const parts: string[] = [];
+      if (statsConn != null) parts.push(`<span class="pm-card__stat"><strong>${formatNumber(statsConn)}</strong> connections</span>`);
+      if (statsFoll != null) parts.push(`<span class="pm-card__stat"><strong>${formatNumber(statsFoll)}</strong> followers</span>`);
+      statsHtml = `<div class="pm-card__stats pm-fadein">${parts.join('')}</div>`;
+    }
+
+    // Confidence dot
+    let confidenceHtml = '';
+    let confidenceWarning = '';
+    if (sr?.confidenceScore != null) {
+      confidenceHtml = renderConfidenceDot(sr.confidenceScore, sr.confidence);
+      if (sr.confidenceScore < 50) {
+        confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
+      }
+    }
+
+    // CTA button (replaces old "Generate Brief" button)
+    let ctaHtml = '';
+    if (sr?.linkedinUrl) {
+      ctaHtml = renderCTAButton(key, false);
+    } else {
+      ctaHtml = `
+        <div class="pm-cta">
+          <div class="pm-cta__hint" style="color:var(--pm-error)">No LinkedIn profile found</div>
+        </div>`;
+    }
+
+    card.innerHTML = `
+      <div class="pm-card__header">
+        <div class="pm-avatar">${renderAvatar(name, pd, sr)}</div>
+        <div class="pm-card__body">
+          <div class="pm-card__name pm-fadein">${nameHtml} ${confidenceHtml}</div>
+          ${title ? `<div class="pm-card__title pm-fadein">${escapeHtml(title)}</div>` : ''}
+          ${company ? `<div class="pm-card__company pm-fadein">${icon('building', 12)} ${escapeHtml(company)}</div>` : ''}
+          ${locationHtml}
+          ${email ? `<div class="pm-card__email">${escapeHtml(email)}</div>` : ''}
+          ${statsHtml}
+          ${confidenceWarning}
+        </div>
+      </div>
+      ${ctaHtml}
+    `;
+    attachCardListeners(card, key);
+    return;
+  }
+
+  // ── Enriching state: compact header + brief skeleton + tab bar skeleton ──
+  if (isEnriching) {
+    const compactHeader = renderCompactProfileHeader(key, attendee);
+    const briefSkeleton = renderBriefBlock(key, attendee); // returns skeleton when no pd
+    const microcopyId = `pm-microcopy-${escapeAttr(key)}`;
+
+    card.innerHTML = `
+      ${compactHeader}
+      <div class="pm-microcopy-container" id="${microcopyId}"></div>
+      ${briefSkeleton}
+      <div class="pm-tab-bar pm-tab-bar--skeleton">
+        <div class="pm-skeleton pm-skeleton--line" style="width:100%;height:28px;border-radius:6px;"></div>
+      </div>
+    `;
+
+    // Start rotating microcopy messages
+    const microcopyEl = card.querySelector<HTMLElement>(`#${CSS.escape(microcopyId)}`);
+    if (microcopyEl) startMicrocopy(microcopyEl);
+
+    attachCardListeners(card, key);
+    return;
+  }
+
+  // ── Complete state: compact header + brief block + tab bar + tab content ──
+  if (isDone && hasRichData) {
+    stopMicrocopy();
+    const userTier = 'free'; // Phase 1: default tier
+    const compactHeader = renderCompactProfileHeader(key, attendee);
+    const briefBlock = renderBriefBlock(key, attendee);
+    const tabBar = renderTabBar(key, userTier);
+    const tabContent = renderTabContent(key, attendee);
+
+    card.innerHTML = `
+      ${compactHeader}
+      ${briefBlock}
+      ${tabBar}
+      ${tabContent}
+    `;
+
+    attachCardListeners(card, key);
+    attachTabListeners(card, key);
+    return;
+  }
+
+  // ── Idle / fallback state: full header ──
+  const fadeClass = ' pm-fadein';
   const linkedinUrl = pd?.linkedinUrl || sr?.linkedinUrl;
   const nameHtml = linkedinUrl
     ? `<a href="${escapeHtml(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
     : escapeHtml(name);
-
-  const location = pd?.location || sr?.location;
-  const locationHtml = location ? `<div class="pm-card__location${fadeClass}">${escapeHtml(location)}</div>` : '';
-
-  // Quick stats — show from search result or full data
-  let statsHtml = '';
-  const statsConn = pd?.connections ?? sr?.connections;
-  const statsFoll = pd?.followers ?? sr?.followers;
-  if (statsConn != null || statsFoll != null) {
-    const parts: string[] = [];
-    if (statsConn != null) parts.push(`<span class="pm-card__stat"><strong>${formatNumber(statsConn)}</strong> connections</span>`);
-    if (statsFoll != null) parts.push(`<span class="pm-card__stat"><strong>${formatNumber(statsFoll)}</strong> followers</span>`);
-    statsHtml = `<div class="pm-card__stats${fadeClass}">${parts.join('')}</div>`;
-  }
-
-  // Confidence badge — show from search result or full data
-  let confidenceHtml = '';
-  let confidenceWarning = '';
-  const confScore = pd?._confidenceScore ?? sr?.confidenceScore;
-  if (hasRichData && pd._confidenceScore != null) {
-    const citations = pd._confidenceCitations || [];
-    const explanation = citations.map(c => `${c.factor}: ${c.points >= 0 ? '+' : ''}${c.points}`).join(', ');
-    confidenceHtml = renderConfidenceDot(pd._confidenceScore, explanation);
-    if (pd._confidenceScore < 50) {
-      confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
-    }
-  } else if (isSearched && sr && sr.confidenceScore != null) {
-    confidenceHtml = renderConfidenceDot(sr.confidenceScore, sr.confidence);
-    if (sr.confidenceScore < 50) {
-      confidenceWarning = '<div class="pm-confidence__warning">This profile may not be the right person. Verify before using.</div>';
-    }
-  }
-
-  // ── "Generate Brief" CTA for searched state ──
-  let generateBriefHtml = '';
-  if (isSearched && sr?.linkedinUrl) {
-    generateBriefHtml = `
-      <div class="pm-generate-brief">
-        <button class="pm-generate-brief__btn" data-generate-brief="${escapeAttr(key)}">
-          Generate Brief
-        </button>
-        <div class="pm-generate-brief__hint">Uses 1 credit</div>
-      </div>`;
-  } else if (isSearched && !sr?.linkedinUrl) {
-    generateBriefHtml = `
-      <div class="pm-generate-brief">
-        <div class="pm-generate-brief__hint" style="color:var(--pm-error)">No LinkedIn profile found</div>
-      </div>`;
-  }
-
-  // ── Skeleton sections for enriching state ──
-  let skeletonHtml = '';
-  if (isEnriching) {
-    skeletonHtml = `
-      <div class="pm-skeleton-sections">
-        <div class="pm-skeleton-block pm-skeleton-shimmer" style="height:60px"></div>
-        <div class="pm-skeleton-block pm-skeleton-shimmer" style="height:40px"></div>
-        <div class="pm-skeleton-block pm-skeleton-shimmer" style="height:80px"></div>
-        <div class="pm-skeleton-block pm-skeleton-shimmer" style="height:40px"></div>
-      </div>`;
-  }
-
-  // ── Build rich sections (only when data available and not pending/enriching) ──
-  let companySectionHtml = '';
-  let bioHtml = '';
-  let expandableSectionsHtml = '';
-
-  if (hasRichData && !isPending && !isEnriching) {
-    companySectionHtml = renderCompanySection(pd);
-
-    if (pd.bio) {
-      if (isPreview) {
-        bioHtml = renderLockedSection(renderBio(pd.bio, key), 'full bio');
-      } else {
-        bioHtml = renderBio(pd.bio, key);
-      }
-    }
-
-    // Expandable sections
-    const sections: string[] = [];
-    if (pd.experience && pd.experience.length > 0) {
-      const workContent = renderExpandableSection(key, 'work', 'Work History', renderWorkHistory(pd.experience));
-      sections.push(isPreview ? renderLockedSection(workContent, 'work history') : workContent);
-    }
-    if (pd.education && pd.education.length > 0) {
-      const eduContent = renderExpandableSection(key, 'education', 'Education', renderEducation(pd.education));
-      sections.push(isPreview ? renderLockedSection(eduContent, 'education') : eduContent);
-    }
-    if (isPreview && originalPd && originalPd.skills && originalPd.skills.length > 0) {
-      const count = skillsPreviewCount(originalPd);
-      sections.push(renderExpandableSection(key, 'skills', 'Skills',
-        renderLockedSection(
-          `<div class="pm-skills-preview">${count} skills available</div>`,
-          'skills'
-        )
-      ));
-    } else if (pd.skills && pd.skills.length > 0) {
-      sections.push(renderExpandableSection(key, 'skills', 'Skills', renderSkills(pd.skills)));
-    }
-    if (pd.currentCompany) {
-      sections.push(renderCompanyIntelSection(key, pd));
-    }
-    // Power-up add-on buttons
-    if (pd.currentCompany) {
-      sections.push(renderPowerUpsSection(key, pd));
-    }
-    if (pd.linkedinUrl) {
-      sections.push(renderContactInfoSection(key, pd));
-    }
-    if (pd.linkedinUrl) {
-      sections.push(renderCustomEnrichSection(key, pd));
-    }
-    if (pd.recentPosts && pd.recentPosts.length > 0) {
-      sections.push(renderExpandableSection(key, 'posts', 'Recent Posts', renderRecentPosts(pd)));
-    }
-    expandableSectionsHtml = sections.join('');
-
-    // Track freemium preview impression
-    if (isPreview && !previewTracked.has(key)) {
-      previewTracked.add(key);
-      track('freemium_preview_viewed', { email: attendee.email });
-    }
-  }
-
-  // ── Skeleton placeholders for pending state ──
-  const showSkeleton = isPending || isEnriching;
-  const titleHtml = title
-    ? `<div class="pm-card__title${fadeClass}">${escapeHtml(title)}</div>`
-    : showSkeleton ? '<div class="pm-card__title pm-skeleton-shimmer">&nbsp;</div>' : '';
-  const companyHtml = company
-    ? `<div class="pm-card__company${fadeClass}">\uD83C\uDFE2 ${escapeHtml(company)}</div>`
-    : showSkeleton ? '<div class="pm-card__company pm-skeleton-shimmer">&nbsp;</div>' : '';
-
-  // Error message for failed enrichment
-  const errorHtml = attendee.status === 'error' && attendee.error
-    ? `<div style="margin-top:8px;padding:8px 12px;background:#FEF2F2;border:1px solid #FECACA;border-radius:6px;font-size:12px;color:#991B1B;line-height:1.5;">${escapeHtml(attendee.error)}</div>`
-    : '';
 
   card.innerHTML = `
     <div class="pm-card__header">
       <div class="pm-avatar">${renderAvatar(name, pd, sr)}</div>
       <div class="pm-card__body">
         <div class="pm-card__name${fadeClass}">${nameHtml}</div>
-        ${titleHtml}
-        ${companyHtml}
-        ${locationHtml}
+        ${title ? `<div class="pm-card__title${fadeClass}">${escapeHtml(title)}</div>` : ''}
+        ${company ? `<div class="pm-card__company${fadeClass}">${icon('building', 12)} ${escapeHtml(company)}</div>` : ''}
         ${email ? `<div class="pm-card__email">${escapeHtml(email)}</div>` : ''}
-        ${statsHtml}
-        ${confidenceWarning}
       </div>
-      ${confidenceHtml}
     </div>
-    ${errorHtml}
-    ${generateBriefHtml}
-    ${skeletonHtml}
-    ${companySectionHtml}
-    ${bioHtml}
-    ${expandableSectionsHtml}
   `;
 
-  // Attach event listeners for interactive elements
   attachCardListeners(card, key);
 }
 
@@ -1738,7 +1767,7 @@ function attachCardListeners(card: HTMLElement, key: string): void {
     });
   }
 
-  // "Generate Brief" button click
+  // "Generate Brief" button click (legacy selector)
   const briefBtn = card.querySelector<HTMLButtonElement>(`[data-generate-brief="${CSS.escape(key)}"]`);
   if (briefBtn) {
     briefBtn.addEventListener('click', (e) => {
@@ -1746,6 +1775,32 @@ function attachCardListeners(card: HTMLElement, key: string): void {
       const attendee = attendeeMap.get(key);
       if (!attendee || attendee.status !== 'searched') return;
       chrome.runtime.sendMessage({ type: 'GENERATE_BRIEF', payload: { email: attendee.email } });
+    });
+  }
+
+  // CTA "Get Meeting Brief" button click (new renderCTAButton)
+  const ctaEnrichBtn = card.querySelector<HTMLButtonElement>(`[data-enrich="${CSS.escape(key)}"]`);
+  if (ctaEnrichBtn) {
+    ctaEnrichBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const attendee = attendeeMap.get(key);
+      if (!attendee || attendee.status !== 'searched') return;
+      chrome.runtime.sendMessage({ type: 'GENERATE_BRIEF', payload: { email: attendee.email } });
+    });
+  }
+
+  // Retry button from error card
+  const retryBtn = card.querySelector<HTMLButtonElement>(`[data-retry="${CSS.escape(key)}"]`);
+  if (retryBtn) {
+    retryBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const attendee = attendeeMap.get(key);
+      if (!attendee) return;
+      // Reset to idle and re-trigger enrichment
+      attendee.status = 'idle';
+      attendee.error = undefined;
+      attendeeMap.set(key, attendee);
+      chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: attendee.email } });
     });
   }
 
