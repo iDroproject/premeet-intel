@@ -2514,23 +2514,31 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         }
         updateCtaBanner();
-        // Re-render all attendees with full data and unmasking animation
-        if (currentMeeting) {
-          const attendees = [...attendeeMap.values()];
-          renderAllAttendees(currentMeeting, attendees);
-          // Apply unmasking animation after re-render
-          if (wasPreview) {
-            document.querySelectorAll('.pm-card').forEach((el) => {
-              el.classList.add('pm-card--unmasking');
-            });
-            setTimeout(() => {
-              document.querySelectorAll('.pm-card--unmasking').forEach((el) => {
-                el.classList.remove('pm-card--unmasking');
-              });
-            }, 500);
-          }
-        }
         refreshCredits();
+
+        // Re-trigger meeting search now that we're authenticated
+        // This re-fetches the current meeting and auto-searches all attendees
+        chrome.runtime.sendMessage({ type: 'GET_CURRENT_MEETING' }, (meetingResponse) => {
+          if (chrome.runtime.lastError || !meetingResponse?.meeting) {
+            // Fallback: re-render existing attendees and trigger search manually
+            if (currentMeeting) {
+              const attendees = [...attendeeMap.values()];
+              renderAllAttendees(currentMeeting, attendees);
+              // Trigger search for each idle attendee
+              for (const a of attendees) {
+                if (a.status === 'idle' || a.status === 'error') {
+                  chrome.runtime.sendMessage({ type: 'ENRICH_ATTENDEE', payload: { email: a.email } });
+                }
+              }
+            }
+            return;
+          }
+          // Full re-render with meeting data — background will auto-search
+          const { meeting, attendees } = meetingResponse;
+          if (meeting && attendees) {
+            renderAllAttendees(meeting, attendees);
+          }
+        });
       }
     });
   });
