@@ -1270,6 +1270,237 @@ function attachTabListeners(card: HTMLElement, key: string): void {
   });
 }
 
+// ─── Meeting Brief Block (Task 5) ───────────────────────────────────────────
+
+function deriveBriefPoints(attendee: EnrichedAttendee): string[] {
+  const pd = attendee.personData;
+  if (!pd) return [];
+  const points: string[] = [];
+
+  // Point 1 — Role: current title + company + tenure from work history
+  if (pd.currentTitle && pd.currentCompany) {
+    let tenure = '';
+    const currentJob = pd.experience?.[0];
+    if (currentJob?.startDate) {
+      tenure = ` since ${currentJob.startDate}`;
+    }
+    points.push(`${pd.currentTitle} at ${pd.currentCompany}${tenure}`);
+  }
+
+  // Point 2 — Background: most notable prior role or education
+  if (points.length < 3) {
+    const priorRole = pd.experience?.find(
+      (e) => e.company && e.company !== pd.currentCompany,
+    );
+    if (priorRole?.title && priorRole?.company) {
+      points.push(`Previously ${priorRole.title} at ${priorRole.company}`);
+    } else if (pd.education?.length > 0) {
+      const edu = pd.education[0];
+      const parts = [edu.degree, edu.field].filter(Boolean).join(' in ');
+      if (edu.institution) {
+        points.push(parts ? `${parts} from ${edu.institution}` : edu.institution);
+      }
+    }
+  }
+
+  // Point 3 — Personal: first sentence of bio
+  if (points.length < 3 && pd.bio) {
+    const firstSentence = pd.bio.split(/(?<=[.!?])\s+/)[0];
+    if (firstSentence) points.push(firstSentence);
+  }
+
+  return points.slice(0, 3);
+}
+
+function renderBriefBlock(key: string, attendee: EnrichedAttendee): string {
+  const pd = attendee.personData;
+  const points = deriveBriefPoints(attendee);
+  const compState = companyIntelState.get(key);
+
+  // Skeleton state — no person data yet
+  if (!pd) {
+    return `
+      <div class="pm-brief">
+        <div class="pm-brief__title">${icon('sparkles', 16)} Meeting Brief</div>
+        <div class="pm-skeleton pm-skeleton--line" style="width:90%;"></div>
+        <div class="pm-skeleton pm-skeleton--line" style="width:75%;"></div>
+        <div class="pm-skeleton pm-skeleton--line" style="width:60%;"></div>
+      </div>`;
+  }
+
+  // Ice-breaker points
+  const pointsHtml = points.length > 0
+    ? points.map((p) => `<li class="pm-brief__point">${escapeHtml(p)}</li>`).join('')
+    : '';
+
+  // Company 1-liner
+  let companyHtml = '';
+  if (compState && typeof compState === 'object' && 'data' in compState) {
+    const cd = compState.data;
+    const logo = cd.logo
+      ? `<img class="pm-brief__company-logo" src="${escapeAttr(cd.logo)}" alt="" data-hide-on-error>`
+      : '';
+    const meta: string[] = [];
+    if (cd.foundedYear) meta.push(`Founded ${cd.foundedYear}`);
+    if (cd.hqAddress) meta.push(cd.hqAddress);
+    if (cd.sizeRange) meta.push(cd.sizeRange);
+    const metaStr = meta.length > 0 ? ` · ${meta.join(' · ')}` : '';
+    companyHtml = `<div class="pm-brief__company">${logo}${escapeHtml(cd.name)}${escapeHtml(metaStr)}</div>`;
+  } else if (pd.currentCompany) {
+    const meta: string[] = [];
+    if (pd.companyFounded) meta.push(`Founded ${pd.companyFounded}`);
+    if (pd.companyHeadquarters) meta.push(pd.companyHeadquarters);
+    if (pd.companySize) meta.push(pd.companySize);
+    const metaStr = meta.length > 0 ? ` · ${meta.join(' · ')}` : '';
+    const logo = pd.companyLogoUrl
+      ? `<img class="pm-brief__company-logo" src="${escapeAttr(pd.companyLogoUrl)}" alt="" data-hide-on-error>`
+      : '';
+    companyHtml = `<div class="pm-brief__company">${logo}${escapeHtml(pd.currentCompany)}${escapeHtml(metaStr)}</div>`;
+  }
+
+  return `
+    <div class="pm-brief">
+      <div class="pm-brief__title">${icon('sparkles', 16)} Meeting Brief</div>
+      ${pointsHtml ? `<ul class="pm-brief__points">${pointsHtml}</ul>` : ''}
+      ${companyHtml}
+    </div>`;
+}
+
+// ─── Error Handling with Report Issue (Task 6) ──────────────────────────────
+
+const REPORT_EMAIL = 'contact@danielroren.com';
+const EXT_VERSION = chrome.runtime.getManifest().version;
+
+function renderErrorCard(errorMessage: string, context: string, attendeeKey: string): string {
+  const expectedPatterns = ["couldn't find", 'No ', 'not found', 'not yet available', 'coming soon'];
+  const isExpected = expectedPatterns.some((p) => errorMessage.toLowerCase().includes(p.toLowerCase()));
+
+  if (isExpected) {
+    return `
+      <div class="pm-error-card pm-error-card--expected">
+        <div class="pm-error-card__icon">${icon('info', 16)}</div>
+        <div class="pm-error-card__message">${escapeHtml(errorMessage)}</div>
+      </div>`;
+  }
+
+  const subject = encodeURIComponent(`[PreMeet Bug] ${context} — v${EXT_VERSION}`);
+  const body = encodeURIComponent(
+    `Error: ${errorMessage}\nContext: ${context}\nAttendee: ${attendeeKey}\nTimestamp: ${new Date().toISOString()}\nVersion: ${EXT_VERSION}\nUserAgent: ${navigator.userAgent}`,
+  );
+  const mailto = `mailto:${REPORT_EMAIL}?subject=${subject}&body=${body}`;
+
+  return `
+    <div class="pm-error-card pm-error-card--unexpected">
+      <div class="pm-error-card__icon">${icon('alert-triangle', 16)}</div>
+      <div class="pm-error-card__message">Something went wrong.</div>
+      <div class="pm-error-card__actions">
+        <button class="pm-error-card__retry" data-retry="${escapeAttr(attendeeKey)}">Try Again</button>
+        <a class="pm-error-card__report" href="${mailto}" target="_blank" rel="noopener">Report Issue</a>
+      </div>
+    </div>`;
+}
+
+// ─── Skeleton Cards & Progress Bar (Task 7) ─────────────────────────────────
+
+function renderSkeletonCard(index: number): string {
+  const delay = index * 40;
+  return `
+    <div class="pm-card pm-card-enter pm-skeleton-card" style="animation-delay:${delay}ms">
+      <div class="pm-skeleton pm-skeleton--avatar" style="width:56px;height:56px;border-radius:50%;"></div>
+      <div class="pm-skeleton pm-skeleton--line" style="width:60%;height:14px;margin-top:12px;"></div>
+      <div class="pm-skeleton pm-skeleton--line" style="width:45%;height:12px;margin-top:8px;"></div>
+      <div class="pm-skeleton pm-skeleton--line" style="width:35%;height:12px;margin-top:8px;"></div>
+    </div>`;
+}
+
+const MICROCOPY_MESSAGES = [
+  'Searching Google...',
+  'Finding LinkedIn profile...',
+  'Reading profile details...',
+  'Analyzing background...',
+  'Preparing your brief...',
+];
+
+let microcopyInterval: ReturnType<typeof setInterval> | null = null;
+let microcopyIndex = 0;
+
+function startMicrocopy(container: HTMLElement): void {
+  stopMicrocopy();
+  microcopyIndex = 0;
+  container.textContent = MICROCOPY_MESSAGES[0];
+  container.classList.add('pm-microcopy');
+  microcopyInterval = setInterval(() => {
+    microcopyIndex = (microcopyIndex + 1) % MICROCOPY_MESSAGES.length;
+    container.textContent = MICROCOPY_MESSAGES[microcopyIndex];
+  }, 2500);
+}
+
+function stopMicrocopy(): void {
+  if (microcopyInterval !== null) {
+    clearInterval(microcopyInterval);
+    microcopyInterval = null;
+  }
+}
+
+function updateProgressBar(percent: number): void {
+  const bar = document.getElementById('pm-progress');
+  if (!bar) return;
+  if (percent <= 0) {
+    bar.style.width = '0%';
+    bar.parentElement?.classList.add('pm-hidden');
+    return;
+  }
+  bar.parentElement?.classList.remove('pm-hidden');
+  bar.style.width = `${Math.min(percent, 100)}%`;
+  if (percent >= 100) {
+    setTimeout(() => {
+      bar.style.width = '0%';
+      bar.parentElement?.classList.add('pm-hidden');
+    }, 600);
+  }
+}
+
+// ─── Credit Banner & Pro State (Task 8) ─────────────────────────────────────
+
+function renderCreditBanner(creditsUsed: number, creditsLimit: number, tier: string): string {
+  if (tier === 'pro') return '';
+  const remaining = creditsLimit - creditsUsed;
+  if (remaining > 0) return '';
+
+  return `
+    <div class="pm-credit-banner">
+      <div class="pm-credit-banner__text">You've used all ${creditsLimit} free briefs</div>
+      <button class="pm-credit-banner__upgrade" data-upgrade>Upgrade to Pro</button>
+      <button class="pm-credit-banner__dismiss" data-dismiss-banner aria-label="Dismiss">&times;</button>
+    </div>`;
+}
+
+function renderCTAButton(key: string, creditsExhausted: boolean): string {
+  if (creditsExhausted) {
+    return `
+      <div class="pm-cta">
+        <button class="pm-cta__btn pm-cta__btn--disabled" disabled>
+          ${icon('lock', 14)} Upgrade to unlock
+        </button>
+      </div>`;
+  }
+  return `
+    <div class="pm-cta">
+      <button class="pm-cta__btn" data-enrich="${escapeAttr(key)}">
+        Get Meeting Brief
+      </button>
+      <span class="pm-cta__hint">Uses 1 credit</span>
+    </div>`;
+}
+
+function renderCreditsDisplay(creditsUsed: number, creditsLimit: number, tier: string): string {
+  if (tier === 'pro') {
+    return `<span class="pm-credits--pro">${icon('zap', 12)} Pro</span>`;
+  }
+  const remaining = creditsLimit - creditsUsed;
+  return `<span class="pm-credits">${remaining}/${creditsLimit} left</span>`;
+}
+
 // ─── Card Rendering ──────────────────────────────────────────────────────────
 
 function createCardElement(attendee: EnrichedAttendee): HTMLElement {
