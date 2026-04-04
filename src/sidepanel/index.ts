@@ -386,10 +386,18 @@ function renderSearchConfidenceBadge(score: number, label: string): string {
 function renderConfidenceDot(score: number | null, explanation?: string): string {
   if (score === null || score === undefined) return '';
   const level = score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red';
-  const label = score >= 70 ? 'High confidence' : score >= 50 ? 'Medium confidence' : 'Low confidence';
-  const tooltipText = explanation || label;
-  return `<span class="pm-confidence-dot pm-confidence-dot--${level}" aria-label="${label}: ${score}%">
-    <span class="pm-confidence-tooltip">${escapeHtml(tooltipText)}</span>
+  const levelLabel = score >= 70 ? 'High' : score >= 50 ? 'Medium' : 'Low';
+  // Build multi-line tooltip: percentage + level, then breakdown
+  let tooltipLines = `${score}% \u2014 ${levelLabel} confidence`;
+  if (explanation) {
+    // Split comma-separated factors onto separate lines
+    const factors = explanation.split(/,\s*/).map((f) => f.trim()).filter(Boolean);
+    if (factors.length > 0) {
+      tooltipLines += '\n' + factors.join('\n');
+    }
+  }
+  return `<span class="pm-confidence-dot pm-confidence-dot--${level}" aria-label="${levelLabel} confidence: ${score}%">
+    <span class="pm-confidence-tooltip">${escapeHtml(tooltipLines)}</span>
   </span>`;
 }
 
@@ -504,46 +512,82 @@ function renderLockedSection(content: string, label: string): string {
 }
 
 function renderCompanyIntelFromData(cd: CompanyData): string {
-  const rows: string[] = [];
+  const sections: string[] = [];
 
-  if (cd.industry) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Industry:</span> ${escapeHtml(cd.industry)}</div>`);
+  // ── Header: logo + name + industry tag ──
+  const logoHtml = cd.logo
+    ? `<img class="pm-intel__logo" src="${escapeHtml(cd.logo)}" alt="" data-hide-on-error>`
+    : '';
+  const industryTag = cd.industry
+    ? `<span class="pm-intel__industry-tag">${escapeHtml(cd.industry)}</span>`
+    : '';
+  if (cd.name) {
+    sections.push(`<div class="pm-intel__header">${logoHtml}<span class="pm-intel__company-name">${escapeHtml(cd.name)}</span>${industryTag}</div>`);
+  }
+
+  // ── Description ──
+  if (cd.description) {
+    sections.push(`<div class="pm-intel__description">${escapeHtml(cd.description)}</div>`);
+  }
+
+  // ── Key facts grid ──
+  const rows: string[] = [];
   if (cd.sizeRange) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Size:</span> ${escapeHtml(cd.sizeRange)}</div>`);
   if (cd.foundedYear) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Founded:</span> ${cd.foundedYear}</div>`);
   if (cd.hqAddress) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">HQ:</span> ${escapeHtml(cd.hqAddress)}</div>`);
   if (cd.revenueRange) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Revenue:</span> ${escapeHtml(cd.revenueRange)}</div>`);
-  if (cd.website) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Website:</span> <a href="${escapeHtml(cd.website)}" target="_blank" rel="noopener">${escapeHtml(cd.website)}</a></div>`);
+  if (cd.website) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Website:</span> <a href="${escapeHtml(cd.website)}" target="_blank" rel="noopener">${escapeHtml(cd.website.replace(/^https?:\/\//, ''))}</a></div>`);
+  if (cd.linkedinUrl) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">LinkedIn:</span> <a href="${escapeHtml(cd.linkedinUrl)}" target="_blank" rel="noopener">View profile</a></div>`);
 
-  // Funding
+  if (rows.length > 0) sections.push(`<div class="pm-intel__facts">${rows.join('')}</div>`);
+
+  // ── Funding ──
   const fundingParts: string[] = [];
   if (cd.fundingTotal) fundingParts.push(`Total: ${escapeHtml(cd.fundingTotal)}`);
   if (cd.fundingLastRound) fundingParts.push(`Last round: ${escapeHtml(cd.fundingLastRound)}`);
-  if (fundingParts.length > 0) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Funding:</span> ${fundingParts.join(' · ')}</div>`);
-  if (cd.fundingInvestors.length > 0) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Investors:</span> ${cd.fundingInvestors.map(escapeHtml).join(', ')}</div>`);
+  if (fundingParts.length > 0 || cd.fundingInvestors.length > 0) {
+    let fundingHtml = '';
+    if (fundingParts.length > 0) fundingHtml += `<div class="pm-intel__row">${fundingParts.join(' &middot; ')}</div>`;
+    if (cd.fundingInvestors.length > 0) fundingHtml += `<div class="pm-intel__row"><span class="pm-intel__label">Investors:</span> ${cd.fundingInvestors.map(escapeHtml).join(', ')}</div>`;
+    sections.push(`<div class="pm-intel__group"><div class="pm-intel__group-title">Funding</div>${fundingHtml}</div>`);
+  }
 
-  // Products & Technologies as tags
-  if (cd.products.length > 0) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Products:</span> ${cd.products.map(escapeHtml).join(', ')}</div>`);
-  if (cd.technologies.length > 0) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Technologies:</span> <div class="pm-intel__tags">${cd.technologies.map((t) => `<span class="pm-skill-tag">${escapeHtml(t)}</span>`).join('')}</div></div>`);
+  // ── Products as pills ──
+  if (cd.products.length > 0) {
+    sections.push(`<div class="pm-intel__group"><div class="pm-intel__group-title">Products</div><div class="pm-intel__tags">${cd.products.map((p) => `<span class="pm-skill-tag">${escapeHtml(p)}</span>`).join('')}</div></div>`);
+  }
 
-  // Recent News
+  // ── Technologies as pills ──
+  if (cd.technologies.length > 0) {
+    sections.push(`<div class="pm-intel__group"><div class="pm-intel__group-title">Technologies</div><div class="pm-intel__tags">${cd.technologies.map((t) => `<span class="pm-skill-tag">${escapeHtml(t)}</span>`).join('')}</div></div>`);
+  }
+
+  // ── Recent News ──
   if (cd.recentNews.length > 0) {
     const newsItems = cd.recentNews.slice(0, 5).map((n) => {
       const titleHtml = n.url ? `<a href="${escapeHtml(n.url)}" target="_blank" rel="noopener">${escapeHtml(n.title)}</a>` : escapeHtml(n.title);
       const dateHtml = n.date ? ` <span class="pm-intel__date">(${escapeHtml(n.date)})</span>` : '';
       return `<li>${titleHtml}${dateHtml}</li>`;
     }).join('');
-    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Recent News:</span><ul class="pm-intel__news">${newsItems}</ul></div>`);
+    sections.push(`<div class="pm-intel__group"><div class="pm-intel__group-title">Recent News</div><ul class="pm-intel__news">${newsItems}</ul></div>`);
   }
 
-  // Intent Signals
+  // ── Intent Signals ──
   if (cd.intentSignals.length > 0) {
     const signalItems = cd.intentSignals.map((s) => {
       return `<li><strong>${escapeHtml(s.signal)}</strong>${s.detail ? ': ' + escapeHtml(s.detail) : ''}</li>`;
     }).join('');
-    rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Intent Signals:</span><ul class="pm-intel__signals">${signalItems}</ul></div>`);
+    sections.push(`<div class="pm-intel__group"><div class="pm-intel__group-title">Intent Signals</div><ul class="pm-intel__signals">${signalItems}</ul></div>`);
   }
 
-  if (rows.length === 0) return '<div style="font-size:12px;color:#9ca3af;">No company intel available</div>';
-  return `<div class="pm-intel">${rows.join('')}</div>`;
+  // ── AI Overview (from deep enrichment) ──
+  const aiOverview = (cd as CompanyData & { aiOverview?: string }).aiOverview;
+  if (aiOverview) {
+    sections.push(`<div class="pm-intel__ai-overview"><div class="pm-intel__group-title">${icon('sparkles', 14)} AI Overview</div><div class="pm-intel__ai-text">${escapeHtml(aiOverview)}</div></div>`);
+  }
+
+  if (sections.length === 0) return '<div style="font-size:12px;color:#9ca3af;">No company intel available</div>';
+  return `<div class="pm-intel">${sections.join('')}</div>`;
 }
 
 function renderCompanyIntelSection(key: string, pd: PersonData): string {
