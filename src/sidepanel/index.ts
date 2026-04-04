@@ -2243,6 +2243,10 @@ function renderAllAttendees(meeting: MeetingEvent, attendees: EnrichedAttendee[]
     Els.meetingTitle.title = meeting.title;
   }
 
+  // Hide slogan when meeting is loaded
+  const slogan = document.querySelector('.pm-header__slogan') as HTMLElement | null;
+  if (slogan) slogan.style.display = 'none';
+
   if (Els.attendeeCount) {
     Els.attendeeCount.textContent = `${attendees.length} attendee${attendees.length !== 1 ? 's' : ''}`;
   }
