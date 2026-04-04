@@ -1362,6 +1362,59 @@
         align-items: center;
         gap: 4px;
       }
+
+      /* ── Avatar overlay (full-size image on click) ── */
+      .pm-avatar--clickable { cursor: pointer; }
+      .pm-avatar-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+        cursor: pointer;
+        animation: pm-fadeIn 150ms ease-out;
+      }
+      .pm-avatar-overlay img {
+        max-width: 280px;
+        max-height: 280px;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        object-fit: cover;
+      }
+
+      /* ── Card collapse toggle ── */
+      .pm-card__toggle {
+        background: none;
+        border: none;
+        color: var(--pm-text-tertiary);
+        padding: 4px;
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 200ms ease-out;
+        margin-left: auto;
+        cursor: pointer;
+      }
+      .pm-card__toggle:hover { color: var(--pm-text-secondary); }
+      .pm-card__toggle--collapsed {
+        transform: rotate(-90deg);
+      }
+      .pm-card__body-content {
+        overflow: hidden;
+        transition: max-height 300ms ease-out, opacity 200ms ease-out;
+      }
+      .pm-card__body-content--collapsed {
+        max-height: 0 !important;
+        opacity: 0;
+        padding: 0;
+      }
     </style>
   </head>
   <body>

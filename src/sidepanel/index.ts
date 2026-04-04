@@ -48,6 +48,9 @@ async function refreshUserTier(): Promise<void> {
 // Track which expandable sections are open per attendee
 const expandedSections = new Map<string, Set<string>>();
 
+// Track which cards are collapsed (body hidden, only header visible)
+const collapsedCards = new Map<string, boolean>();
+
 // Track company intel state per attendee: 'idle' | 'loading' | CompanyData | error string
 const companyIntelState = new Map<string, 'idle' | 'loading' | { data: CompanyData } | { error: string }>();
 
@@ -1324,17 +1327,31 @@ function deriveBriefPoints(attendee: EnrichedAttendee): string[] {
   if (!pd) return [];
   const points: string[] = [];
 
-  // Point 1 — Role: current title + company + tenure from work history
+  // Point 1 — Current position + tenure (most important for meeting context)
   if (pd.currentTitle && pd.currentCompany) {
     let tenure = '';
     const currentJob = pd.experience?.[0];
     if (currentJob?.startDate) {
-      tenure = ` since ${currentJob.startDate}`;
+      // Calculate tenure in years from start date
+      const startMatch = currentJob.startDate.match(/(\d{4})/);
+      if (startMatch) {
+        const startYear = parseInt(startMatch[1], 10);
+        const monthMatch = currentJob.startDate.match(/(\w+)\s+\d{4}/);
+        const startMonth = monthMatch ? new Date(`${monthMatch[1]} 1, ${startYear}`).getMonth() : 0;
+        const now = new Date();
+        const years = (now.getFullYear() - startYear) + (now.getMonth() - startMonth) / 12;
+        if (years >= 1) {
+          tenure = ` (${years.toFixed(1).replace(/\.0$/, '')} years)`;
+        } else if (years > 0) {
+          const months = Math.round(years * 12);
+          tenure = ` (${months} month${months !== 1 ? 's' : ''})`;
+        }
+      }
     }
     points.push(`${pd.currentTitle} at ${pd.currentCompany}${tenure}`);
   }
 
-  // Point 2 — Background: most notable prior role or education
+  // Point 2 — Previous notable role or education
   if (points.length < 3) {
     const priorRole = pd.experience?.find(
       (e) => e.company && e.company !== pd.currentCompany,
@@ -1350,7 +1367,7 @@ function deriveBriefPoints(attendee: EnrichedAttendee): string[] {
     }
   }
 
-  // Point 3 — Personal: first sentence of bio
+  // Point 3 — Bio snippet: first sentence
   if (points.length < 3 && pd.bio) {
     const firstSentence = pd.bio.split(/(?<=[.!?])\s+/)[0];
     if (firstSentence) points.push(firstSentence);
@@ -1598,19 +1615,26 @@ function renderCompactProfileHeader(key: string, attendee: EnrichedAttendee): st
     ? `<div class="pm-card__title">${titleCompanyParts.join(' at ')}</div>`
     : '';
 
-  // Avatar — 40px compact
+  // Avatar — 40px compact (clickable when has image)
   const avatarUrl = pd?.avatarUrl || sr?.avatarUrl;
   const avatarInner = avatarUrl
     ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" data-fallback-text="${escapeAttr(initials(name))}">`
     : escapeHtml(initials(name || '?'));
+  const avatarClickable = avatarUrl ? ' pm-avatar--clickable' : '';
+  const avatarDataAttr = avatarUrl ? ` data-avatar-url="${escapeAttr(avatarUrl)}"` : '';
+
+  // Collapse toggle chevron
+  const isCollapsed = collapsedCards.get(key) === true;
+  const collapseClass = isCollapsed ? ' pm-card__toggle--collapsed' : '';
 
   return `
     <div class="pm-card__header pm-card__header--compact">
-      <div class="pm-avatar pm-avatar--compact">${avatarInner}</div>
+      <div class="pm-avatar pm-avatar--compact${avatarClickable}"${avatarDataAttr}>${avatarInner}</div>
       <div class="pm-card__body">
         <div class="pm-card__name">${nameHtml} ${confidenceHtml}</div>
         ${titleCompanyHtml}
       </div>
+      <button class="pm-card__toggle${collapseClass}" data-card-toggle="${escapeAttr(key)}" aria-label="Toggle card">${icon('chevron-down', 16)}</button>
     </div>`;
 }
 
@@ -1737,13 +1761,16 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
     const compactHeader = renderCompactProfileHeader(key, attendee);
     const briefSkeleton = renderBriefBlock(key, attendee); // returns skeleton when no pd
     const microcopyId = `pm-microcopy-${escapeAttr(key)}`;
+    const bodyCollapsed = collapsedCards.get(key) === true ? ' pm-card__body-content--collapsed' : '';
 
     card.innerHTML = `
       ${compactHeader}
-      <div class="pm-microcopy-container" id="${microcopyId}"></div>
-      ${briefSkeleton}
-      <div class="pm-tabs pm-tabs--skeleton">
-        <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:100%;height:28px;border-radius:6px;"></div>
+      <div class="pm-card__body-content${bodyCollapsed}" data-card-body="${escapeAttr(key)}">
+        <div class="pm-microcopy-container" id="${microcopyId}"></div>
+        ${briefSkeleton}
+        <div class="pm-tabs pm-tabs--skeleton">
+          <div class="pm-skeleton pm-skeleton pm-skeleton--text" style="width:100%;height:28px;border-radius:6px;"></div>
+        </div>
       </div>
     `;
 
@@ -1763,12 +1790,15 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
     const briefBlock = renderBriefBlock(key, attendee);
     const tabBar = renderTabBar(key, userTier);
     const tabContent = renderTabContent(key, attendee);
+    const bodyCollapsed = collapsedCards.get(key) === true ? ' pm-card__body-content--collapsed' : '';
 
     card.innerHTML = `
       ${compactHeader}
-      ${briefBlock}
-      ${tabBar}
-      ${tabContent}
+      <div class="pm-card__body-content${bodyCollapsed}" data-card-body="${escapeAttr(key)}">
+        ${briefBlock}
+        ${tabBar}
+        ${tabContent}
+      </div>
     `;
 
     attachCardListeners(card, key);
@@ -1870,6 +1900,36 @@ function attachCardListeners(card: HTMLElement, key: string): void {
     });
   }
 
+  // Avatar click → full-size image overlay
+  const avatarEl = card.querySelector<HTMLElement>('.pm-avatar[data-avatar-url]');
+  if (avatarEl) {
+    avatarEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const url = avatarEl.dataset.avatarUrl;
+      if (!url) return;
+      const overlay = document.createElement('div');
+      overlay.className = 'pm-avatar-overlay';
+      overlay.innerHTML = `<img src="${url}" alt="Profile photo">`;
+      overlay.addEventListener('click', () => overlay.remove());
+      document.body.appendChild(overlay);
+    });
+  }
+
+  // Card collapse toggle
+  const cardToggle = card.querySelector<HTMLButtonElement>(`[data-card-toggle="${CSS.escape(key)}"]`);
+  if (cardToggle) {
+    cardToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isCollapsed = collapsedCards.get(key) === true;
+      collapsedCards.set(key, !isCollapsed);
+      cardToggle.classList.toggle('pm-card__toggle--collapsed', !isCollapsed);
+      const bodyContent = card.querySelector<HTMLElement>(`[data-card-body="${CSS.escape(key)}"]`);
+      if (bodyContent) {
+        bodyContent.classList.toggle('pm-card__body-content--collapsed', !isCollapsed);
+      }
+    });
+  }
+
   // Bio toggle
   const bioToggle = card.querySelector<HTMLButtonElement>(`[data-toggle-bio="${CSS.escape(key)}"]`);
   if (bioToggle) {
@@ -1888,6 +1948,16 @@ function attachCardListeners(card: HTMLElement, key: string): void {
         bioToggle.textContent = sections.has('bio') ? 'Show less' : 'Show more';
       }
     });
+
+    // Hide "Show more" if bio text is not actually clamped
+    const bioTextEl = card.querySelector<HTMLElement>(`[data-section-bio="${CSS.escape(key)}"]`);
+    if (bioTextEl) {
+      requestAnimationFrame(() => {
+        if (bioTextEl.scrollHeight <= bioTextEl.clientHeight) {
+          (bioToggle as HTMLElement).style.display = 'none';
+        }
+      });
+    }
   }
 
   // Company Intel fetch button
