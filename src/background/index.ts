@@ -485,11 +485,17 @@ async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
 async function autoSearchAllAttendees(senderTabId?: number): Promise<void> {
   if (!currentMeeting) return;
 
+  // Guard: skip entirely if not authenticated — no point firing waterfall calls that will all fail
+  const authState = await getAuthState();
+  if (!authState.isAuthenticated) {
+    console.log(LOG, 'Auto-search skipped: user is not signed in');
+    return;
+  }
+
   // Get current user email to exclude from auto-search
   let currentUserEmail: string | null = null;
   try {
-    const user = await getCurrentUser();
-    currentUserEmail = user?.email?.toLowerCase() ?? null;
+    currentUserEmail = authState.user?.email?.toLowerCase() ?? null;
   } catch {
     console.warn(LOG, 'Could not get current user for auto-search filter');
   }
@@ -543,6 +549,20 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
   // Skip if already searching, searched, enriching, or done
   const s = currentEnriched[idx].status;
   if (s === 'pending' || s === 'searched' || s === 'enriching' || s === 'done') return;
+
+  // Guard: require authentication before making any API calls
+  const authState = await getAuthState();
+  if (!authState.isAuthenticated) {
+    console.log(LOG, `Search skipped for ${email}: user is not signed in`);
+    currentEnriched[idx] = {
+      ...currentEnriched[idx],
+      status: 'error',
+      stage: 'complete',
+      error: 'Sign in to view meeting briefs',
+    };
+    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+    return;
+  }
 
   const attendee = currentMeeting.attendees[idx];
 

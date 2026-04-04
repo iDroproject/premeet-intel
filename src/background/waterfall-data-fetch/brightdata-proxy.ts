@@ -22,6 +22,11 @@ function isTransientError(status: number): boolean {
   return status === 429 || (status >= 500 && status <= 599);
 }
 
+/** Returns true for errors that will never succeed on retry (auth errors). */
+function isAuthError(message: string): boolean {
+  return /not authenticated/i.test(message) || /session expired/i.test(message);
+}
+
 /** Parses Retry-After header (seconds or HTTP-date) into milliseconds. */
 function parseRetryAfter(response: Response): number | null {
   const header = response.headers.get('retry-after');
@@ -95,6 +100,12 @@ export async function proxyFetch(
       return response;
     } catch (err) {
       lastError = err as Error;
+
+      // Auth errors will never succeed on retry — fail immediately
+      if (isAuthError(lastError.message)) {
+        console.warn(LOG_PREFIX, `${method} ${pathLabel} — not retrying auth error: ${lastError.message}`);
+        throw lastError;
+      }
 
       if (attempt < RETRY_MAX_ATTEMPTS) {
         const backoffMs = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1), RETRY_MAX_DELAY_MS);
