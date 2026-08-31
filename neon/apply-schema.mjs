@@ -45,13 +45,39 @@ if (schemaFiles.length === 0) {
 console.log('Connecting to Neon via WebSocket...');
 const pool = new Pool({ connectionString: databaseUrl });
 
+// Force re-apply a specific file even if recorded (e.g. after editing it).
+const force = process.argv.includes('--force');
+
 try {
+  // Ensure the migration ledger exists before we consult it. (004 also creates
+  // it idempotently; doing it here lets us skip already-applied files on runs
+  // where 004 has not been reached yet.)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      filename   text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+
+  const { rows: applied } = await pool.query('SELECT filename FROM schema_migrations');
+  const appliedSet = new Set(applied.map((r) => r.filename));
+
   for (const file of schemaFiles) {
+    if (appliedSet.has(file) && !force) {
+      console.log(`\nSkipping ${file} (already applied). Use --force to re-run.`);
+      continue;
+    }
+
     const schemaPath = join(schemaDir, file);
     const schemaSql = readFileSync(schemaPath, 'utf-8');
 
     console.log(`\nApplying schema: ${file}`);
     await pool.query(schemaSql);
+    await pool.query(
+      `INSERT INTO schema_migrations (filename) VALUES ($1)
+       ON CONFLICT (filename) DO UPDATE SET applied_at = now()`,
+      [file],
+    );
     console.log(`  ✓ ${file} applied successfully.`);
   }
 

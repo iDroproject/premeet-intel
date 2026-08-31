@@ -16,6 +16,7 @@ import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { requireAuth } from './_shared/auth-middleware';
 import { sql } from './_shared/db';
 import { deepLookup, CONTACT_LOOKUP_SPEC } from './_shared/deep-lookup';
+import { reserveCredits, refundCredits, rolloverIfNeeded } from './_shared/credits';
 
 const CACHE_TTL_DAYS = 14;
 const CREDITS_PER_CONTACT = 2;
@@ -145,18 +146,19 @@ export default async function handler(req: Request): Promise<Response> {
     }, cors);
   }
 
-  // Step 5: Check credits (contact costs 2 credits)
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  let creditsUsed = user.credits_used;
-  if (user.credits_reset_month !== currentMonth) {
-    await sql`UPDATE users SET credits_used = 0, credits_reset_month = ${currentMonth} WHERE id = ${userId}`;
-    creditsUsed = 0;
+  // Step 5: Reserve credits atomically BEFORE the paid lookup (contact costs 2).
+  // A single conditional UPDATE closes the check-then-spend race; we refund on
+  // failure so a failed lookup never charges.
+  await rolloverIfNeeded(userId);
+  const brightdataApiKey = process.env.BRIGHTDATA_API_KEY;
+  if (!brightdataApiKey) {
+    return jsonResponse({ error: 'Enrichment service not configured' }, cors, 503);
   }
 
-  if (creditsUsed + CREDITS_PER_CONTACT > user.credits_limit) {
+  const reserved = await reserveCredits(userId, CREDITS_PER_CONTACT);
+  if (reserved === null) {
     return jsonResponse({
       error: 'Credit limit reached',
-      creditsUsed,
       creditsLimit: user.credits_limit,
       creditsRequired: CREDITS_PER_CONTACT,
       tier: user.subscription_tier,
@@ -164,11 +166,6 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Step 6: Deep Lookup for contact info
-  const brightdataApiKey = process.env.BRIGHTDATA_API_KEY;
-  if (!brightdataApiKey) {
-    return jsonResponse({ error: 'Enrichment service not configured' }, cors, 503);
-  }
-
   const input: Record<string, string> = {
     linkedin_url: body.linkedinUrl,
     full_name: body.fullName,
@@ -177,6 +174,7 @@ export default async function handler(req: Request): Promise<Response> {
   const result = await deepLookup(CONTACT_LOOKUP_SPEC, input, brightdataApiKey, 20_000);
 
   if (!result.data) {
+    await refundCredits(userId, CREDITS_PER_CONTACT);
     await sql`
       INSERT INTO enrichment_requests (user_id, entity_type, entity_key, credits_used, status, cache_hit)
       VALUES (${userId}, 'person', ${entityKey}, 0, 'failed', false)
@@ -204,8 +202,7 @@ export default async function handler(req: Request): Promise<Response> {
   `;
   sql`SELECT upsert_cache_stat(CURRENT_DATE, 'person', 0, 1)`.catch(() => {});
 
-  // Step 8: Deduct 2 credits
-  await sql`UPDATE users SET credits_used = credits_used + ${CREDITS_PER_CONTACT} WHERE id = ${userId}`;
+  // Step 8: Credits already reserved atomically above; just log the success.
   await sql`
     INSERT INTO enrichment_requests (user_id, entity_type, entity_key, credits_used, status, cache_hit, completed_at)
     VALUES (${userId}, 'person', ${entityKey}, ${CREDITS_PER_CONTACT}, 'success', false, now())
