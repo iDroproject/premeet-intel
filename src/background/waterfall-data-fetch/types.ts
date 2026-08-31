@@ -150,6 +150,7 @@ export interface DeepLookupSpec {
 export interface CompanyData {
   name: string;
   linkedinUrl: string | null;
+  linkedinId: string | null;
   logo: string | null;
   industry: string | null;
   sizeRange: string | null;

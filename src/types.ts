@@ -161,6 +161,8 @@ export type PopupToBackground =
   | { type: 'GET_CACHE_STATS' }
   | { type: 'CLEAR_CACHE' }
   | { type: 'GET_ACTIVITY_LOG' }
+  | { type: 'GET_SEARCH_QUOTA' }
+  | { type: 'OPEN_UPGRADE'; payload?: { tier?: 'pro' | 'enterprise' } }
   | { type: 'AUTH_SIGN_IN' }
   | { type: 'AUTH_SIGN_OUT' }
   | { type: 'AUTH_GET_STATE' }
