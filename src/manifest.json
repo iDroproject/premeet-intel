@@ -14,7 +14,6 @@
   },
   "host_permissions": [
     "https://calendar.google.com/*",
-    "https://www.gravatar.com/*",
     "https://api-js.mixpanel.com/*"
   ],
   "background": {

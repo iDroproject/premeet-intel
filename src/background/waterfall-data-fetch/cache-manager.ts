@@ -3,7 +3,10 @@
 const LOG_PREFIX = '[PreMeet][Cache]';
 
 const KEY_PREFIX = 'pm_';
-const MAX_ENTRIES = 500;
+const MAX_ENTRIES = 300;
+// chrome.storage.local has a ~10MB quota shared with auth tokens/settings; keep
+// the enrichment cache well under it so a run of large profiles can't exhaust it.
+const MAX_CACHE_BYTES = 4 * 1024 * 1024; // 4 MB
 const DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 const INDEX_KEY = `${KEY_PREFIX}_index`;
 
@@ -27,6 +30,19 @@ export interface CacheStats {
 }
 
 export class CacheManager {
+  // Serialize every index read-modify-write through one promise chain so
+  // concurrent set()/get() calls (auto-search runs attendees in parallel) can't
+  // clobber each other's index updates and leave orphaned storage entries that
+  // never get evicted.
+  private _indexOp: Promise<void> = Promise.resolve();
+
+  private queueIndexOp<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this._indexOp.then(fn, fn);
+    // Keep the chain alive even if an op rejects.
+    this._indexOp = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
   private storageKey(key: string): string {
     if (key.startsWith(KEY_PREFIX)) return key;
     return `${KEY_PREFIX}${key}`;
@@ -42,39 +58,64 @@ export class CacheManager {
     await chrome.storage.local.set({ [INDEX_KEY]: index });
   }
 
-  private async upsertIndex(key: string, createdAt: number, lastUsed: number): Promise<void> {
-    const index = await this.readIndex();
-    const existingIdx = index.findIndex((e) => e.key === key);
-
-    if (existingIdx >= 0) {
-      index[existingIdx].lastUsed = lastUsed;
-      index[existingIdx].createdAt = createdAt;
-    } else {
-      index.push({ key, createdAt, lastUsed });
-    }
-
-    await this.writeIndex(index);
+  private upsertIndex(key: string, createdAt: number, lastUsed: number): Promise<void> {
+    return this.queueIndexOp(async () => {
+      const index = await this.readIndex();
+      const existingIdx = index.findIndex((e) => e.key === key);
+      if (existingIdx >= 0) {
+        index[existingIdx].lastUsed = lastUsed;
+        index[existingIdx].createdAt = createdAt;
+      } else {
+        index.push({ key, createdAt, lastUsed });
+      }
+      await this.writeIndex(index);
+    });
   }
 
-  private async removeFromIndex(key: string): Promise<void> {
-    const index = await this.readIndex();
-    const filtered = index.filter((e) => e.key !== key);
-    await this.writeIndex(filtered);
+  private removeFromIndex(key: string): Promise<void> {
+    return this.queueIndexOp(async () => {
+      const index = await this.readIndex();
+      await this.writeIndex(index.filter((e) => e.key !== key));
+    });
   }
 
-  private async evictIfNeeded(): Promise<void> {
-    const index = await this.readIndex();
-    if (index.length <= MAX_ENTRIES) return;
+  private evictIfNeeded(): Promise<void> {
+    return this.queueIndexOp(async () => {
+      let index = await this.readIndex();
 
-    const sorted = [...index].sort((a, b) => a.lastUsed - b.lastUsed);
-    const toEvict = sorted.slice(0, index.length - MAX_ENTRIES);
-    const toKeep = sorted.slice(index.length - MAX_ENTRIES);
+      // 1. Count-based cap.
+      if (index.length > MAX_ENTRIES) {
+        const sorted = [...index].sort((a, b) => a.lastUsed - b.lastUsed);
+        const toEvict = sorted.slice(0, index.length - MAX_ENTRIES);
+        await chrome.storage.local.remove(toEvict.map((e) => this.storageKey(e.key)));
+        index = sorted.slice(index.length - MAX_ENTRIES);
+        await this.writeIndex(index);
+        console.log(LOG_PREFIX, `LRU eviction (count) removed ${toEvict.length} entries`);
+      }
 
-    const evictStorageKeys = toEvict.map((e) => this.storageKey(e.key));
-    await chrome.storage.local.remove(evictStorageKeys);
-    await this.writeIndex(toKeep);
-
-    console.log(LOG_PREFIX, `LRU eviction removed ${toEvict.length} entries`);
+      // 2. Size-based cap: evict least-recently-used until under the byte budget.
+      try {
+        let used = await chrome.storage.local.getBytesInUse(null);
+        if (used > MAX_CACHE_BYTES && index.length > 1) {
+          const sorted = [...index].sort((a, b) => a.lastUsed - b.lastUsed);
+          const evicted = new Set<string>();
+          while (used > MAX_CACHE_BYTES && sorted.length > 1) {
+            const victim = sorted.shift()!;
+            const vk = this.storageKey(victim.key);
+            const vBytes = await chrome.storage.local.getBytesInUse(vk);
+            await chrome.storage.local.remove(vk);
+            evicted.add(victim.key);
+            used -= vBytes;
+          }
+          if (evicted.size > 0) {
+            await this.writeIndex(index.filter((e) => !evicted.has(e.key)));
+            console.log(LOG_PREFIX, `LRU eviction (size) removed ${evicted.size} entries`);
+          }
+        }
+      } catch (err) {
+        console.warn(LOG_PREFIX, 'Size-based eviction check failed:', (err as Error).message);
+      }
+    });
   }
 
   async get<T = unknown>(key: string): Promise<T | null> {
