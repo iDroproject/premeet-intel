@@ -16,6 +16,7 @@ import { sql } from './_shared/db';
 import { executeFallbackChain, type FallbackLayer, type EnrichmentLevel } from './_shared/fallback-chain';
 import { serpDiscoverCompany } from './_shared/serp-api';
 import { reserveCredits, rolloverIfNeeded } from './_shared/credits';
+import { searchDataset, SEARCH_DATASETS } from './_shared/search-dataset';
 
 const CACHE_TTL_DAYS = 30;
 
@@ -227,7 +228,34 @@ export default async function handler(req: Request): Promise<Response> {
       },
     },
 
-    // Layer 2: Return SERP discovery data as basic company profile
+    // Layer 2: Synchronous Search Dataset API on the raw LinkedIn company dataset.
+    // Returns real company data (name, industry, size, website, HQ, about) inline
+    // in ~1s — the sub-second Search API removes the 25s edge-timeout reason this
+    // data used to be deferred to a second request. Empty results are free
+    // (BrightData does not charge for zero hits), so this only ever adds value.
+    {
+      name: 'search-company',
+      level: 'standard' as EnrichmentLevel,
+      execute: async () => {
+        if (!discoveredLinkedinId) return null;
+        const search = await searchDataset(
+          SEARCH_DATASETS.companyInfo,
+          [{ name: 'id', operator: '=', value: discoveredLinkedinId }],
+          brightdataApiKey,
+          { size: 1, timeoutMs: 12_000 },
+        );
+        if (search.records.length === 0) {
+          if (search.error) console.warn(`[enrichment-company] search error: ${search.error}`);
+          return null;
+        }
+        const data = normalizeCompanyData(search.records[0], discoveredLinkedinId);
+        // Preserve the discovered URL if the record lacks one.
+        if (!data.linkedinUrl) data.linkedinUrl = discoveredLinkedinUrl;
+        return data;
+      },
+    },
+
+    // Layer 3: Return SERP discovery data as basic company profile
     // SERP results include the LinkedIn URL, company name from title, and ZoomInfo/RocketReach links.
     // This gives the client enough to display a card and trigger deeper enrichment.
     {
@@ -259,9 +287,10 @@ export default async function handler(req: Request): Promise<Response> {
       },
     },
 
-    // NOTE: For deep company enrichment (331 datapoints), the client should use
-    // enrichment-proxy to call Dataset Filter or MCP directly. These APIs exceed
-    // the 25s Vercel Hobby edge timeout. Upgrade to Pro for 60s+ maxDuration.
+    // NOTE: The 'search-company' layer above now delivers core company fields
+    // inline. For the full 331-datapoint merged profile (funding/revenue, which
+    // live only in the merged dataset that Search does not support), the client
+    // calls /api/enrichment-company-deep as a background second phase.
   ];
 
   const chainResult = await executeFallbackChain(layers, 'enrichment-company');

@@ -17,6 +17,7 @@ import { requireAuth } from './_shared/auth-middleware';
 import { sql } from './_shared/db';
 import { deepLookup, CONTACT_LOOKUP_SPEC } from './_shared/deep-lookup';
 import { reserveCredits, refundCredits, rolloverIfNeeded } from './_shared/credits';
+import { searchDataset, SEARCH_DATASETS } from './_shared/search-dataset';
 
 const CACHE_TTL_DAYS = 14;
 const CREDITS_PER_CONTACT = 2;
@@ -165,38 +166,65 @@ export default async function handler(req: Request): Promise<Response> {
     }, cors, 402);
   }
 
-  // Step 6: Deep Lookup for contact info
-  const input: Record<string, string> = {
-    linkedin_url: body.linkedinUrl,
-    full_name: body.fullName,
-  };
+  // Step 6: fetch contact info. Fast path first — the synchronous Search API on
+  // the contact-enriched people dataset returns phone/email inline in ~1s. Fall
+  // back to the slower Deep Lookup only when search has no usable contact fields.
+  let contactRaw: Record<string, unknown> | null = null;
+  let source = 'search-dataset';
+  let latencyMs = 0;
 
-  const result = await deepLookup(CONTACT_LOOKUP_SPEC, input, brightdataApiKey, 20_000);
-
-  if (!result.data) {
-    await refundCredits(userId, CREDITS_PER_CONTACT);
-    await sql`
-      INSERT INTO enrichment_requests (user_id, entity_type, entity_key, credits_used, status, cache_hit)
-      VALUES (${userId}, 'person', ${entityKey}, 0, 'failed', false)
-    `;
-    return jsonResponse({
-      error: 'No contact data found',
-      detail: result.error,
-      latencyMs: result.latencyMs,
-    }, cors, 404);
+  try {
+    const search = await searchDataset(
+      SEARCH_DATASETS.peopleContactEnriched,
+      [{ name: 'url', operator: '=', value: body.linkedinUrl }],
+      brightdataApiKey,
+      { size: 1, timeoutMs: 12_000 },
+    );
+    latencyMs = search.latencyMs;
+    if (search.records.length > 0) {
+      const candidate = normalizeContactData(search.records[0]);
+      if (candidate.phone || candidate.email) {
+        contactRaw = search.records[0];
+      }
+    }
+  } catch (err) {
+    console.warn('[enrichment-contact] Search API error (falling back to deep-lookup):', (err as Error).message);
   }
 
-  const contactData = normalizeContactData(result.data);
+  if (!contactRaw) {
+    const input: Record<string, string> = {
+      linkedin_url: body.linkedinUrl,
+      full_name: body.fullName,
+    };
+    const result = await deepLookup(CONTACT_LOOKUP_SPEC, input, brightdataApiKey, 20_000);
+    latencyMs = result.latencyMs;
+    source = 'deep-lookup';
+    if (!result.data) {
+      await refundCredits(userId, CREDITS_PER_CONTACT);
+      await sql`
+        INSERT INTO enrichment_requests (user_id, entity_type, entity_key, credits_used, status, cache_hit)
+        VALUES (${userId}, 'person', ${entityKey}, 0, 'failed', false)
+      `;
+      return jsonResponse({
+        error: 'No contact data found',
+        detail: result.error,
+        latencyMs,
+      }, cors, 404);
+    }
+    contactRaw = result.data;
+  }
+
+  const contactData = normalizeContactData(contactRaw);
   const enrichmentJson = JSON.stringify(contactData);
 
   // Step 7: Cache (14-day TTL)
   await sql`
     INSERT INTO enrichment_cache (entity_type, entity_key, enrichment_data, source, expires_at)
-    VALUES ('person', ${entityKey}, ${enrichmentJson}::jsonb, 'deep-lookup', now() + make_interval(days => ${CACHE_TTL_DAYS}))
+    VALUES ('person', ${entityKey}, ${enrichmentJson}::jsonb, ${source}, now() + make_interval(days => ${CACHE_TTL_DAYS}))
     ON CONFLICT (entity_type, entity_key)
     DO UPDATE SET
       enrichment_data = ${enrichmentJson}::jsonb,
-      source = 'deep-lookup',
+      source = ${source},
       fetched_at = now(),
       expires_at = now() + make_interval(days => ${CACHE_TTL_DAYS})
   `;
@@ -210,10 +238,10 @@ export default async function handler(req: Request): Promise<Response> {
 
   return jsonResponse({
     data: contactData,
-    source: 'deep-lookup',
+    source,
     cached: false,
     fetchedAt: new Date().toISOString(),
-    latencyMs: result.latencyMs,
+    latencyMs,
     creditsUsed: CREDITS_PER_CONTACT,
   }, cors);
 }

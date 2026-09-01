@@ -195,17 +195,6 @@ export function queryCompany(companyLinkedinId: string, apiKey: string, timeoutM
   );
 }
 
-/** Query enriched employee dataset by LinkedIn profile URL. */
-export function queryEmployee(linkedinUrl: string, apiKey: string, timeoutMs = 50_000): Promise<DatasetFilterResult> {
-  return queryDataset(
-    'gd_m18zt6ec11wfqohyrs',
-    [{ name: 'url', operator: '=', value: linkedinUrl }],
-    apiKey,
-    1,
-    timeoutMs,
-  );
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
