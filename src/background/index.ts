@@ -497,11 +497,15 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
  * This avoids redundant SERP/deep-lookup calls for repeat attendees.
  */
 async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
+  // Capture the generation of the meeting we're warming. If a newer meeting
+  // replaces the state during the async cache reads below, our writes must not
+  // splice stale cached data into the new meeting's slots.
+  const gen = meetingGeneration;
   const auth = await getAuthState();
   const serverCache = auth.isAuthenticated ? new EnrichmentCacheService() : null;
   let warmed = 0;
 
-  const checks = meeting.attendees.map(async (attendee, idx) => {
+  const checks = meeting.attendees.map(async (attendee, _idx) => {
     const cacheKey = `person_${normaliseCacheKey(attendee.email || attendee.name || 'unknown')}`;
 
     // Check local Chrome cache first
@@ -523,10 +527,14 @@ async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
 
     if (!personData) return;
 
+    // Re-resolve the slot against the CURRENT meeting; skip if it was superseded.
+    const slot = liveSlot(attendee.email, gen);
+    if (slot === null) return;
+
     warmed++;
     // Mark as searched with cached search result so auto-search skips this attendee
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
+    currentEnriched[slot] = {
+      ...currentEnriched[slot],
       status: 'searched',
       stage: 'searching',
       searchResult: {
@@ -547,7 +555,7 @@ async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
       personData,
     };
 
-    emitAttendeeUpdate(attendee.email, currentEnriched[idx]);
+    emitAttendeeUpdate(attendee.email, currentEnriched[slot]);
   });
 
   await Promise.all(checks);
@@ -631,18 +639,23 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
   const s = currentEnriched[idx].status;
   if (s === 'pending' || s === 'searched' || s === 'enriching' || s === 'done') return;
 
-  // Guard: require authentication before making any API calls
+  // Guard: require authentication before making any API calls. Re-resolve the
+  // slot after the await — a new meeting may have replaced currentEnriched.
   const authState = await getAuthState();
-  if (!authState.isAuthenticated) {
-    console.log(LOG, `Search skipped for ${email}: user is not signed in`);
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
-      status: 'error',
-      stage: 'complete',
-      error: 'Sign in to view meeting briefs',
-    };
-    emitAttendeeUpdate(email, currentEnriched[idx]);
-    return;
+  {
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
+    if (!authState.isAuthenticated) {
+      console.log(LOG, `Search skipped for ${email}: user is not signed in`);
+      currentEnriched[slot] = {
+        ...currentEnriched[slot],
+        status: 'error',
+        stage: 'complete',
+        error: 'Sign in to view meeting briefs',
+      };
+      emitAttendeeUpdate(email, currentEnriched[slot]);
+      return;
+    }
   }
 
   const attendee = currentMeeting.attendees[idx];
@@ -650,23 +663,29 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
   // Phase 1: client-side daily rate limit
   if (!(await hasSearchQuota())) {
     const quota = await getSearchQuota();
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
     console.warn(LOG, `Daily search limit reached (${quota.used}/${quota.limit})`);
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
+    currentEnriched[slot] = {
+      ...currentEnriched[slot],
       status: 'error',
       stage: 'complete',
       error: `Daily search limit reached (${quota.limit}/day). Resets tomorrow.`,
     };
-    emitAttendeeUpdate(email, currentEnriched[idx]);
+    emitAttendeeUpdate(email, currentEnriched[slot]);
     return;
   }
 
   console.log(LOG, `Search for: "${attendee.name}" <${attendee.email}>`);
   debugLog('Background', 'info', `Search started for "${attendee.name}" <${attendee.email}>`);
 
-  // Mark as pending/searching
-  currentEnriched[idx] = { ...currentEnriched[idx], status: 'pending', stage: 'searching' };
-  emitAttendeeUpdate(email, currentEnriched[idx]);
+  // Mark as pending/searching (re-resolve after the quota check above).
+  {
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
+    currentEnriched[slot] = { ...currentEnriched[slot], status: 'pending', stage: 'searching' };
+    emitAttendeeUpdate(email, currentEnriched[slot]);
+  }
 
   // Count this search against the daily quota
   await useSearchQuota().catch(() => {});
@@ -753,8 +772,16 @@ async function handleGenerateBrief(email: string, _senderTabId?: number): Promis
     return;
   }
 
-  currentEnriched[idx] = { ...currentEnriched[idx], status: 'enriching', stage: 'fetching' };
-  emitAttendeeUpdate(email, currentEnriched[idx]);
+  // Re-resolve the slot after the async credit check — a new meeting may have
+  // replaced currentEnriched while we awaited, and this 'enriching' write must
+  // not land in the new meeting's array (it would strand that attendee, since
+  // auto-search skips anything already 'enriching').
+  {
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
+    currentEnriched[slot] = { ...currentEnriched[slot], status: 'enriching', stage: 'fetching' };
+    emitAttendeeUpdate(email, currentEnriched[slot]);
+  }
 
   let personData: PersonData | null = null;
   let enrichFailed = false;

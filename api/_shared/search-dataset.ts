@@ -29,6 +29,21 @@ export interface SearchDatasetResult {
   error: string | null;
 }
 
+/**
+ * Normalize a single hit into a plain record. BrightData's Search API returns
+ * the record directly, but be defensive against an Elasticsearch-style
+ * `{_source, _score}` envelope so downstream normalizers never receive a wrapped
+ * object (which would silently produce empty profiles).
+ */
+function unwrapHit(hit: unknown): Record<string, unknown> {
+  if (hit && typeof hit === 'object') {
+    const src = (hit as { _source?: unknown })._source;
+    if (src && typeof src === 'object') return src as Record<string, unknown>;
+    return hit as Record<string, unknown>;
+  }
+  return {};
+}
+
 /** Build the request `filter` from one-or-many FilterSpecs (same rule as the filter API). */
 function buildFilter(filters: FilterSpec[]): FilterSpec | { operator: 'and'; filters: FilterSpec[] } {
   return filters.length === 1 ? filters[0] : { operator: 'and', filters };
@@ -73,7 +88,7 @@ export async function searchDataset(
     }
 
     const body = await resp.json() as { hits?: unknown; total_hits?: number; took?: number };
-    const records = Array.isArray(body.hits) ? (body.hits as Array<Record<string, unknown>>) : [];
+    const records = Array.isArray(body.hits) ? body.hits.map(unwrapHit) : [];
     return {
       records,
       totalHits: typeof body.total_hits === 'number' ? body.total_hits : records.length,

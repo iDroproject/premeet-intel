@@ -33,8 +33,17 @@ async function searchByLinkedInId(
   }
 
   const body = await res.json().catch(() => null) as { hits?: unknown } | null;
-  const hits = body && Array.isArray(body.hits) ? (body.hits as Array<Record<string, unknown>>) : [];
-  return hits;
+  if (!body || !Array.isArray(body.hits)) return [];
+  // Be defensive against an Elasticsearch-style { _source } envelope so the
+  // normalizer always receives a plain record.
+  return body.hits.map((hit) => {
+    if (hit && typeof hit === 'object') {
+      const src = (hit as { _source?: unknown })._source;
+      if (src && typeof src === 'object') return src as Record<string, unknown>;
+      return hit as Record<string, unknown>;
+    }
+    return {} as Record<string, unknown>;
+  });
 }
 
 const POLL_INITIAL_MS = 800;

@@ -86,4 +86,13 @@ describe('searchDataset', () => {
     const res = await searchDataset(SEARCH_DATASETS.peopleContactEnriched, [{ name: 'url', operator: '=', value: 'u' }], 'KEY', { size: 5 });
     expect(res.records).toEqual([{ a: 1 }, { a: 2 }]);
   });
+
+  it('unwraps an Elasticsearch-style { _source } envelope defensively', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, {
+      hits: [{ _score: 1.2, _source: { name: 'Acme', id: 'acme' } }],
+      total_hits: 1,
+    }));
+    const res = await searchDataset(SEARCH_DATASETS.companyInfo, [{ name: 'id', operator: '=', value: 'acme' }], 'KEY');
+    expect(res.records).toEqual([{ name: 'Acme', id: 'acme' }]);
+  });
 });
