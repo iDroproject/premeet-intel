@@ -27,6 +27,14 @@ export interface PostEntry {
   link: string | null;
   imageUrl: string | null;
   interaction: string | null;
+  /** ISO date or human string for when the post was published. */
+  date: string | null;
+  /** Like/reaction count, when available. */
+  likes: number | null;
+  /** Share/repost count, when available. */
+  shares: number | null;
+  /** Platform/source label, e.g. "LinkedIn". */
+  source: string | null;
 }
 
 export interface IcpProfile {

@@ -879,6 +879,9 @@ async function handleFetchCompanyIntel(
   if (website) fastBody.website = website;
 
   let basicData: CompanyData | null = null;
+  // Track whether we broadcast ANY terminal result, so the sidepanel's loading
+  // skeleton always resolves — even when every phase fails.
+  let sent = false;
 
   try {
     const fastRes = await authFetch(`${apiBase}/enrichment-company`, {
@@ -893,6 +896,7 @@ async function handleFetchCompanyIntel(
       console.log(LOG, `Company fast profile for "${companyName}" (cached: ${fastJson.cached})`);
       // Broadcast basic result immediately so UI renders fast
       broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: basicData, cached: fastJson.cached } });
+      sent = true;
     } else {
       const errBody = await fastRes.json().catch(() => ({ error: `HTTP ${fastRes.status}` }));
       console.warn(LOG, 'Company fast profile failed:', (errBody as { error?: string }).error);
@@ -907,7 +911,7 @@ async function handleFetchCompanyIntel(
 
   if (!discoveredLinkedinId) {
     console.log(LOG, `No LinkedIn company ID for "${companyName}" — skipping deep enrichment`);
-    if (!basicData) {
+    if (!sent) {
       broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: 'No company data found' } });
     }
     return;
@@ -959,14 +963,20 @@ async function handleFetchCompanyIntel(
 
       // Broadcast the enriched update — UI should merge/replace
       broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: mergedData, cached: deepJson.cached, deep: true } });
+      sent = true;
     } else {
       const errBody = await deepRes.json().catch(() => ({ error: `HTTP ${deepRes.status}` }));
       console.warn(LOG, 'Company deep enrichment failed:', (errBody as { error?: string }).error);
-      // Not fatal — basic data was already broadcast
+      // Not fatal if basic data was already broadcast.
     }
   } catch (err) {
     console.warn(LOG, 'Company deep enrichment error:', (err as Error).message);
-    // Not fatal — basic data was already broadcast
+    // Not fatal if basic data was already broadcast.
+  }
+
+  // Guarantee the loading skeleton resolves even if every phase failed.
+  if (!sent) {
+    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: 'Company details unavailable' } });
   }
 }
 
