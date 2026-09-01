@@ -142,8 +142,18 @@ vercel deploy --prod
 
 ### Deploy checklist (v2.6.0)
 
-Apply pending database migrations (the runner records applied files and skips
-them, so this is safe to re-run):
+Apply pending database migrations. The runner records applied files in the
+`schema_migrations` ledger and skips them, so it is safe to re-run.
+
+**One-time baseline.** A database provisioned before the ledger existed has no
+record of `001`/`002`. The runner detects this and refuses to start, because
+replaying `001_initial_schema.sql` would fail (it uses bare `CREATE TYPE` /
+`CREATE TABLE`). Record them as applied without executing them:
+```bash
+NEON_DATABASE_URL=... node neon/apply-schema.mjs --baseline 001_initial_schema.sql 002_enrichment_extensions.sql
+```
+
+Then apply the outstanding migrations:
 ```bash
 NEON_DATABASE_URL=... node neon/apply-schema.mjs
 ```
@@ -151,6 +161,18 @@ This applies `003_mcp_enrichment.sql` (adds `enrichment_requests.tool_name` /
 `latency_ms`) and `004_hardening.sql` (adds `api_rate_limits`, `purge_expired()`,
 and the `schema_migrations` ledger). Until they run, the proxy's per-user rate
 limit fails open and the cleanup cron is a no-op — the app still works.
+
+Use the **direct** (non-pooled) connection string — the hostname must not carry
+the `-pooler` suffix. `neon connection-string <branch>` returns it by default.
+
+Test the migration on a Neon branch of production first:
+```bash
+neon branch create --name migration-test --parent production
+NEON_DATABASE_URL="$(neon connection-string migration-test)" node neon/apply-schema.mjs
+```
+Note that `purge_expired()` is destructive by design (it deletes long-expired
+cache rows and expired sessions). Creating the function is all the migration
+does; only the nightly cron invokes it.
 
 Set the new server env vars (see `.env.example`):
 - `GOOGLE_OAUTH_CLIENT_ID` — server-side copy for OAuth audience validation.
