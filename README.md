@@ -1,6 +1,6 @@
 # PreMeet
 
-**v2.5.1**
+**v2.6.0**
 
 > Turn every calendar invite into a complete business brief.
 
@@ -36,6 +36,7 @@ Vercel Backend (TypeScript Edge/Serverless Functions)
 | 1 | **SERP API** | Sync | ~2s | Discover LinkedIn URL/ID from name + email |
 | 2a | **Web Scraper API (WSA)** | Sync | ~10-16s | Real-time LinkedIn profile scrape (668M profiles) |
 | 2b | **Dataset Filter API** | Async | ~15-60s | Query pre-collected enriched datasets (331 company datapoints, 55 employee datapoints) |
+| 2c | **Search Dataset API** | Sync | ~1s | Sub-second inline query of LinkedIn people/company datasets — search-first, falls back to 2b (v2.6.0) |
 | 3 | **BrightData MCP** | SSE | 5-90s | Social media, Crunchbase, ZoomInfo (22 tools) |
 | 4a | **Deep Lookup — Enrichment** | Async | ~60-120s | Enrich entities (email, phone, funding, CEO) |
 | 4b | **Deep Lookup — Discovery** | Async | ~60-120s | Find entities matching business questions |
@@ -46,9 +47,11 @@ Vercel Backend (TypeScript Edge/Serverless Functions)
 
 | Dataset | ID | Records | Datapoints | Use |
 |---|---|---|---|---|
-| LinkedIn Profiles | `gd_l1viktl72bvl7bjuj0` | 668M | 34 | Person profile scrape (WSA) |
+| LinkedIn Profiles | `gd_l1viktl72bvl7bjuj0` | 668M | 34 | Person profile scrape (WSA) + Search API |
 | Enriched Employee | `gd_m18zt6ec11wfqohyrs` | 267M | 55 | Person enrichment (Dataset Filter) |
 | Enriched Company | `gd_m3fl0mwzmfpfn4cw4` | 58.71M | 331 | Company enrichment (Dataset Filter) |
+| Contact-enriched People | `gd_me5ppxjr2ge6icjuh0` | — | — | Contact info fast path (Search API) |
+| LinkedIn Company | `gd_l1vikfnt1wgvvqz95w` | — | — | Company core fields fast path (Search API) |
 | Google AI Mode | `gd_mcswdt6z2elth3zqr2` | — | — | AI-generated company overview + products |
 
 ### Fallback Chains (Progressive Enrichment)
@@ -136,6 +139,26 @@ pnpm run build
 ```bash
 vercel deploy --prod
 ```
+
+### Deploy checklist (v2.6.0)
+
+Apply pending database migrations (the runner records applied files and skips
+them, so this is safe to re-run):
+```bash
+NEON_DATABASE_URL=... node neon/apply-schema.mjs
+```
+This applies `003_mcp_enrichment.sql` (adds `enrichment_requests.tool_name` /
+`latency_ms`) and `004_hardening.sql` (adds `api_rate_limits`, `purge_expired()`,
+and the `schema_migrations` ledger). Until they run, the proxy's per-user rate
+limit fails open and the cleanup cron is a no-op — the app still works.
+
+Set the new server env vars (see `.env.example`):
+- `GOOGLE_OAUTH_CLIENT_ID` — server-side copy for OAuth audience validation.
+- `BRIGHTDATA_SERP_CUSTOMER_ID` — injected into SERP calls server-side.
+- `PREMEET_EXTENSION_IDS` — comma-separated published extension id(s) to pin CORS.
+- `CRON_SECRET` — bearer secret required by the daily cleanup cron.
+- Do **not** set `PREMEET_DEV_AUTH` in production (the dev-auth endpoint hard-fails
+  on production deployments regardless, and also requires `PREMEET_DEV_AUTH_SECRET`).
 
 ## Credit System
 
