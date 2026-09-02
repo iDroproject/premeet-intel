@@ -9,7 +9,9 @@ import type { CompanyInfo } from './types';
 
 const LOG_PREFIX = '[PreMeet][SERP]';
 
-const DEFAULT_CUSTOMER_ID = 'hl_cf5c4907';
+// The BrightData SERP `customer` id is injected server-side by /api/enrichment-proxy
+// (rewriteSerpPath) so it is never shipped in the extension bundle. The client only
+// declares the zone; the proxy pins customer + zone.
 const ZONE = 'serp';
 
 const SERP_POLL_INTERVAL_MS = 2000;
@@ -67,7 +69,7 @@ function extractLinkedInUrl(data: unknown): string | null {
  * Returns the raw response data (object, array, or string).
  */
 async function _serpRequest(searchUrl: string): Promise<unknown> {
-  const sendPath = `/unblocker/req?customer=${DEFAULT_CUSTOMER_ID}&zone=${ZONE}`;
+  const sendPath = `/unblocker/req?zone=${ZONE}`;
 
   console.log(LOG_PREFIX, 'Sending SERP request:', searchUrl.slice(0, 120));
 
@@ -95,7 +97,7 @@ async function _serpRequest(searchUrl: string): Promise<unknown> {
   console.log(LOG_PREFIX, 'SERP request sent, response_id:', responseId);
 
   // Step 2: Poll for result
-  const resultPath = `/unblocker/get_result?customer=${DEFAULT_CUSTOMER_ID}&zone=${ZONE}&response_id=${responseId}`;
+  const resultPath = `/unblocker/get_result?zone=${ZONE}&response_id=${responseId}`;
 
   for (let attempt = 1; attempt <= SERP_MAX_POLL_ATTEMPTS; attempt++) {
     console.log(LOG_PREFIX, `Polling SERP result (attempt ${attempt}/${SERP_MAX_POLL_ATTEMPTS})`);
