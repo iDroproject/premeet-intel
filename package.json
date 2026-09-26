@@ -1,8 +1,9 @@
 {
   "name": "premeet-extension",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "description": "PreMeet Chrome Extension — turn every calendar invite into a complete business brief",
   "private": true,
+  "packageManager": "pnpm@10.32.1",
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build",
@@ -21,13 +22,14 @@
     "@types/chrome": "^0.0.268",
     "@types/mixpanel-browser": "^2.60.0",
     "@types/node": "^25.5.0",
+    "@types/ws": "^8.5.10",
     "jose": "^6.2.2",
-    "puppeteer": "^24.40.0",
     "stripe": "^21.0.1",
     "typescript": "^5.4.5",
     "vite": "^5.2.11",
     "vite-plugin-web-extension": "^4.1.1",
-    "vitest": "^4.1.1"
+    "vitest": "^3.2.4",
+    "ws": "^8.18.0"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",

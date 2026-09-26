@@ -15,8 +15,8 @@ import { requireAuth } from './_shared/auth-middleware';
 import { sql } from './_shared/db';
 import { executeFallbackChain, type FallbackLayer, type EnrichmentLevel } from './_shared/fallback-chain';
 import { serpDiscoverCompany } from './_shared/serp-api';
-import { queryCompany } from './_shared/dataset-filter';
-import { callMcpTool } from './_shared/mcp-client';
+import { reserveCredits, rolloverIfNeeded } from './_shared/credits';
+import { searchDataset, SEARCH_DATASETS } from './_shared/search-dataset';
 
 const CACHE_TTL_DAYS = 30;
 
@@ -161,18 +161,15 @@ export default async function handler(req: Request): Promise<Response> {
 
   const entityKey = buildEntityKey(body);
 
-  // Credits check
-  const userRows = await sql`SELECT credits_used, credits_limit, credits_reset_month, subscription_tier FROM users WHERE id = ${userId} LIMIT 1`;
+  // Credits pre-check (cheap; enforced atomically at charge time below). Rollover
+  // is idempotent and race-safe. The limit is enforced for ALL tiers — enterprise
+  // is stored with a very large credits_limit so it effectively never blocks.
+  await rolloverIfNeeded(userId);
+  const userRows = await sql`SELECT credits_used, credits_limit, subscription_tier FROM users WHERE id = ${userId} LIMIT 1`;
   if (userRows.length === 0) return jsonResponse({ error: 'User not found' }, cors, 404);
   const user = userRows[0];
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  let creditsUsed = user.credits_used;
-  if (user.credits_reset_month !== currentMonth) {
-    await sql`UPDATE users SET credits_used = 0, credits_reset_month = ${currentMonth} WHERE id = ${userId}`;
-    creditsUsed = 0;
-  }
-  if (user.subscription_tier === 'free' && creditsUsed >= user.credits_limit) {
-    return jsonResponse({ error: 'Credit limit reached', creditsUsed, creditsLimit: user.credits_limit }, cors, 402);
+  if (user.credits_used >= user.credits_limit) {
+    return jsonResponse({ error: 'Credit limit reached', creditsUsed: user.credits_used, creditsLimit: user.credits_limit }, cors, 402);
   }
 
   const brightdataApiKey = process.env.BRIGHTDATA_API_KEY;
@@ -231,7 +228,34 @@ export default async function handler(req: Request): Promise<Response> {
       },
     },
 
-    // Layer 2: Return SERP discovery data as basic company profile
+    // Layer 2: Synchronous Search Dataset API on the raw LinkedIn company dataset.
+    // Returns real company data (name, industry, size, website, HQ, about) inline
+    // in ~1s — the sub-second Search API removes the 25s edge-timeout reason this
+    // data used to be deferred to a second request. Empty results are free
+    // (BrightData does not charge for zero hits), so this only ever adds value.
+    {
+      name: 'search-company',
+      level: 'standard' as EnrichmentLevel,
+      execute: async () => {
+        if (!discoveredLinkedinId) return null;
+        const search = await searchDataset(
+          SEARCH_DATASETS.companyInfo,
+          [{ name: 'id', operator: '=', value: discoveredLinkedinId }],
+          brightdataApiKey,
+          { size: 1, timeoutMs: 12_000 },
+        );
+        if (search.records.length === 0) {
+          if (search.error) console.warn(`[enrichment-company] search error: ${search.error}`);
+          return null;
+        }
+        const data = normalizeCompanyData(search.records[0], discoveredLinkedinId);
+        // Preserve the discovered URL if the record lacks one.
+        if (!data.linkedinUrl) data.linkedinUrl = discoveredLinkedinUrl;
+        return data;
+      },
+    },
+
+    // Layer 3: Return SERP discovery data as basic company profile
     // SERP results include the LinkedIn URL, company name from title, and ZoomInfo/RocketReach links.
     // This gives the client enough to display a card and trigger deeper enrichment.
     {
@@ -263,9 +287,10 @@ export default async function handler(req: Request): Promise<Response> {
       },
     },
 
-    // NOTE: For deep company enrichment (331 datapoints), the client should use
-    // enrichment-proxy to call Dataset Filter or MCP directly. These APIs exceed
-    // the 25s Vercel Hobby edge timeout. Upgrade to Pro for 60s+ maxDuration.
+    // NOTE: The 'search-company' layer above now delivers core company fields
+    // inline. For the full 331-datapoint merged profile (funding/revenue, which
+    // live only in the merged dataset that Search does not support), the client
+    // calls /api/enrichment-company-deep as a background second phase.
   ];
 
   const chainResult = await executeFallbackChain(layers, 'enrichment-company');
@@ -278,6 +303,12 @@ export default async function handler(req: Request): Promise<Response> {
   const isCacheHit = chainResult.source === 'cache';
 
   if (!isCacheHit) {
+    // Atomically reserve the credit BEFORE persisting — a single conditional
+    // UPDATE closes the check-then-spend race and enforces the limit uniformly.
+    const newUsed = await reserveCredits(userId, 1);
+    if (newUsed === null) {
+      return jsonResponse({ error: 'Credit limit reached', creditsLimit: user.credits_limit }, cors, 402);
+    }
     const enrichmentJson = JSON.stringify(chainResult.data);
     await sql`
       INSERT INTO enrichment_cache (entity_type, entity_key, enrichment_data, source, expires_at)
@@ -286,7 +317,6 @@ export default async function handler(req: Request): Promise<Response> {
       DO UPDATE SET enrichment_data = ${enrichmentJson}::jsonb, source = ${chainResult.source}, fetched_at = now(), expires_at = now() + make_interval(days => ${CACHE_TTL_DAYS})
     `;
     sql`SELECT upsert_cache_stat(CURRENT_DATE, 'company', 0, 1)`.catch(() => {});
-    await sql`UPDATE users SET credits_used = credits_used + 1 WHERE id = ${userId}`;
   } else {
     sql`SELECT upsert_cache_stat(CURRENT_DATE, 'company', 1, 0)`.catch(() => {});
   }

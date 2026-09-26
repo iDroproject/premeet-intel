@@ -41,16 +41,28 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  // Log the event for audit trail (idempotent via unique stripe_event_id)
+  // Log the event for audit trail AND enforce idempotency: if this event id was
+  // already recorded, a prior delivery already processed it, so skip re-applying
+  // the DB mutations (Stripe retries deliver the same event more than once).
   const userId = extractUserId(event);
+  let alreadyProcessed = false;
   try {
-    await sql`
+    const inserted = await sql`
       INSERT INTO billing_events (stripe_event_id, event_type, user_id, data)
       VALUES (${event.id}, ${event.type}, ${userId}, ${JSON.stringify(event.data.object)})
       ON CONFLICT (stripe_event_id) DO NOTHING
+      RETURNING id
     `;
+    alreadyProcessed = inserted.length === 0;
   } catch (err) {
     console.error('Failed to log billing event:', (err as Error).message);
+  }
+
+  if (alreadyProcessed) {
+    return new Response(JSON.stringify({ received: true, duplicate: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Process event

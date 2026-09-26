@@ -52,3 +52,25 @@ export function remainingCredits(credits: Credits): number {
   if (credits.plan === 'pro') return Infinity;
   return Math.max(0, credits.limit - credits.used);
 }
+
+/**
+ * Overwrite the local credit store with the server's authoritative tier + usage.
+ * The server (Neon) is the source of truth — without this, a paying subscriber
+ * stays pinned at the local free default (10 credits) forever. Called on sign-in
+ * and whenever we refresh the user from /auth-me.
+ */
+export async function syncCreditsFromServer(user: {
+  tier: string;
+  credits?: { used?: number; limit?: number; resetMonth?: string };
+}): Promise<Credits> {
+  const plan: Plan = user.tier === 'free' ? 'free' : 'pro';
+  const serverCredits = user.credits ?? {};
+  const credits: Credits = {
+    plan,
+    used: typeof serverCredits.used === 'number' ? serverCredits.used : 0,
+    limit: typeof serverCredits.limit === 'number' ? serverCredits.limit : (plan === 'free' ? FREE_LIMIT : PRO_LIMIT),
+    resetMonth: serverCredits.resetMonth || currentMonth(),
+  };
+  await chrome.storage.local.set({ [STORAGE_KEY]: credits });
+  return credits;
+}

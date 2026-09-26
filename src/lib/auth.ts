@@ -2,6 +2,8 @@
 // Manages Google OAuth sign-in via chrome.identity and session tokens
 // via the PreMeet API.
 
+import { syncCreditsFromServer } from '../utils/credits';
+
 const LOG = '[PreMeet][Auth]';
 
 // Storage keys
@@ -34,6 +36,21 @@ function getApiBaseUrl(): string {
   // API base URL for PreMeet edge functions, injected at build time
   const url = import.meta.env.VITE_API_BASE_URL as string;
   return url || '';
+}
+
+/**
+ * Broadcast an auth-state change so open popup/sidepanel views can re-render
+ * their auth UI and credits without being reopened. Best-effort (no receiver is
+ * fine).
+ */
+function notifyAuthChanged(): void {
+  try {
+    chrome.runtime.sendMessage({ type: 'AUTH_STATE_CHANGED' }, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch {
+    // no receiver / not in an extension context — ignore
+  }
 }
 
 // ── Token Storage ─────────────────────────────────────────────────────────
@@ -139,8 +156,12 @@ export async function signInWithGoogle(): Promise<AuthState> {
 
   const user: AuthUser = data.user;
   await storeTokens(data.accessToken, data.refreshToken, data.expiresAt, user);
+  // Adopt the server's authoritative tier + credits so paying users are not
+  // pinned at the local free default.
+  await syncCreditsFromServer(user).catch(() => {});
 
   console.log(LOG, `Signed in as ${user.email}`);
+  notifyAuthChanged();
 
   return { isAuthenticated: true, user, accessToken: data.accessToken };
 }
@@ -214,8 +235,11 @@ export async function signOut(): Promise<void> {
   }
 
   await clearStoredTokens();
+  // Reset local credits to the free default and notify open views.
+  await syncCreditsFromServer({ tier: 'free', credits: { used: 0, limit: 10 } }).catch(() => {});
 
   console.log(LOG, 'Signed out');
+  notifyAuthChanged();
 }
 
 // ── Get Current Auth State ────────────────────────────────────────────────
@@ -255,8 +279,9 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 
   const { user } = await res.json();
 
-  // Update stored user data
+  // Update stored user data and adopt the server's tier + credits locally.
   await chrome.storage.local.set({ [STORAGE_KEYS.user]: JSON.stringify(user) });
+  await syncCreditsFromServer(user).catch(() => {});
 
   return user;
 }

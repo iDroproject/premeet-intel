@@ -10,7 +10,7 @@ import type { PersonData, ProgressPayload, SearchResult, CompanyData, ContactInf
 import { addLogEntry, getActivityLog } from '../utils/activityLog';
 import type { ActivityLogEntry, DataSourceLabel } from '../types';
 import { signInWithGoogle, signOut, getAuthState, getCurrentUser, authFetch } from '../lib/auth';
-import { getSettings } from '../utils/settings';
+import { getSettings, cacheDurationMs } from '../utils/settings';
 import { createLogBuffer, log as debugLog } from '../utils/logger';
 import { hasSearchQuota, useSearchQuota, getSearchQuota } from '../utils/rateLimit';
 
@@ -47,10 +47,76 @@ function friendlyErrorMessage(rawMsg: string): string {
 
 const cache = new CacheManager();
 
+/**
+ * Build a WaterfallOrchestrator configured with the user's cache-duration
+ * setting, so 'never' truly disables caching and 1d/7d/30d are honored (the
+ * setting was previously ignored).
+ */
+async function makeOrchestrator(): Promise<WaterfallOrchestrator> {
+  let ttlMs: number | undefined;
+  try {
+    ttlMs = cacheDurationMs((await getSettings()).cacheDuration);
+  } catch {
+    ttlMs = undefined; // fall back to the orchestrator default
+  }
+  return new WaterfallOrchestrator(cache, waterfallLogBuffer, ttlMs);
+}
+
 // ─── In-Memory State ─────────────────────────────────────────────────────────
+// MV3 service workers are terminated when idle and restarted on demand, which
+// wipes module-level state. We mirror the active meeting to chrome.storage.session
+// (survives SW restarts, cleared when the browser closes) and rehydrate lazily.
 
 let currentMeeting: MeetingEvent | null = null;
 let currentEnriched: EnrichedAttendee[] = [];
+
+// Monotonic generation token — bumped on every MEETING_DETECTED. Long-running
+// search/enrich handlers capture the value at start and abort their writes if a
+// newer meeting has since replaced the state, so results never land in the wrong
+// meeting's attendee slot.
+let meetingGeneration = 0;
+
+const SESSION_KEYS = {
+  meeting: 'pm_active_meeting',
+  enriched: 'pm_active_enriched',
+  generation: 'pm_active_generation',
+} as const;
+
+async function persistMeetingState(): Promise<void> {
+  try {
+    await chrome.storage.session.set({
+      [SESSION_KEYS.meeting]: currentMeeting,
+      [SESSION_KEYS.enriched]: currentEnriched,
+      [SESSION_KEYS.generation]: meetingGeneration,
+    });
+  } catch (err) {
+    console.warn(LOG, 'Failed to persist meeting state:', (err as Error).message);
+  }
+}
+
+let _rehydrated = false;
+async function ensureRehydrated(): Promise<void> {
+  if (_rehydrated || currentMeeting) {
+    _rehydrated = true;
+    return;
+  }
+  try {
+    const stored = await chrome.storage.session.get([
+      SESSION_KEYS.meeting,
+      SESSION_KEYS.enriched,
+      SESSION_KEYS.generation,
+    ]);
+    if (stored[SESSION_KEYS.meeting]) {
+      currentMeeting = stored[SESSION_KEYS.meeting] as MeetingEvent;
+      currentEnriched = (stored[SESSION_KEYS.enriched] as EnrichedAttendee[]) ?? [];
+      meetingGeneration = (stored[SESSION_KEYS.generation] as number) ?? 0;
+      console.log(LOG, 'Rehydrated meeting state from session storage');
+    }
+  } catch (err) {
+    console.warn(LOG, 'Failed to rehydrate meeting state:', (err as Error).message);
+  }
+  _rehydrated = true;
+}
 
 // ─── Install ─────────────────────────────────────────────────────────────────
 
@@ -84,8 +150,17 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (msg.type === 'GET_CURRENT_MEETING') {
-      sendResponse({ ok: true, meeting: currentMeeting, attendees: currentEnriched });
-      return false;
+      ensureRehydrated().then(() => {
+        sendResponse({ ok: true, meeting: currentMeeting, attendees: currentEnriched });
+      });
+      return true; // async response
+    }
+
+    if (msg.type === 'OPEN_UPGRADE') {
+      handleOpenUpgrade(msg.payload?.tier ?? 'pro')
+        .then(() => sendResponse({ ok: true }))
+        .catch((err) => sendResponse({ ok: false, error: (err as Error).message }));
+      return true; // async response
     }
 
     if (msg.type === 'ENRICH_ATTENDEE') {
@@ -290,7 +365,7 @@ async function handleFetchPersonBackground(
   console.log(LOG, `Waterfall fetch for: "${payload.name}" <${payload.email}>`);
   debugLog('Background', 'info', `Waterfall fetch started for "${payload.name}" <${payload.email}>`);
 
-  const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+  const orchestrator = await makeOrchestrator();
 
   orchestrator.onProgress = (progress: ProgressPayload) => {
     broadcastToPopups({ type: 'FETCH_PROGRESS', payload: progress });
@@ -322,7 +397,7 @@ async function handleSearchPerson(
   console.log(LOG, `Search for: "${payload.name}" <${payload.email}>`);
   debugLog('Background', 'info', `Search started for "${payload.name}" <${payload.email}>`);
 
-  const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+  const orchestrator = await makeOrchestrator();
 
   orchestrator.onProgress = (progress: ProgressPayload) => {
     broadcastToPopups({ type: 'FETCH_PROGRESS', payload: progress });
@@ -350,7 +425,7 @@ async function handleEnrichPerson(
   console.log(LOG, `Enrich for: "${payload.name}" <${payload.email}> (LinkedIn: ${payload.linkedInUrl})`);
   debugLog('Background', 'info', `Enrich started for "${payload.name}" <${payload.email}>`);
 
-  const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+  const orchestrator = await makeOrchestrator();
 
   orchestrator.onProgress = (progress: ProgressPayload) => {
     broadcastToPopups({ type: 'FETCH_PROGRESS', payload: progress });
@@ -379,6 +454,8 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
   console.log(LOG, `Meeting detected: "${meeting.title}" with ${meeting.attendees.length} attendee(s)`);
 
   currentMeeting = meeting;
+  meetingGeneration++; // invalidate any in-flight work from the previous meeting
+  const generation = meetingGeneration;
   // Show attendees immediately as idle — no enrichment until user clicks a card
   currentEnriched = meeting.attendees.map((a) => ({
     ...a,
@@ -386,8 +463,10 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
     enrichedAt: Date.now(),
     status: 'idle' as const,
   }));
+  _rehydrated = true;
+  await persistMeetingState();
 
-  broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meeting, attendees: currentEnriched } });
+  broadcastToPopups({ type: 'MEETING_UPDATE', payload: { meetingGen: generation, meeting, attendees: currentEnriched } });
 
   if (senderTabId != null) {
     chrome.sidePanel.open({ tabId: senderTabId }).catch((err) => {
@@ -418,11 +497,15 @@ async function handleMeetingDetected(meeting: MeetingEvent, senderTabId?: number
  * This avoids redundant SERP/deep-lookup calls for repeat attendees.
  */
 async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
+  // Capture the generation of the meeting we're warming. If a newer meeting
+  // replaces the state during the async cache reads below, our writes must not
+  // splice stale cached data into the new meeting's slots.
+  const gen = meetingGeneration;
   const auth = await getAuthState();
   const serverCache = auth.isAuthenticated ? new EnrichmentCacheService() : null;
   let warmed = 0;
 
-  const checks = meeting.attendees.map(async (attendee, idx) => {
+  const checks = meeting.attendees.map(async (attendee, _idx) => {
     const cacheKey = `person_${normaliseCacheKey(attendee.email || attendee.name || 'unknown')}`;
 
     // Check local Chrome cache first
@@ -444,10 +527,14 @@ async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
 
     if (!personData) return;
 
+    // Re-resolve the slot against the CURRENT meeting; skip if it was superseded.
+    const slot = liveSlot(attendee.email, gen);
+    if (slot === null) return;
+
     warmed++;
     // Mark as searched with cached search result so auto-search skips this attendee
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
+    currentEnriched[slot] = {
+      ...currentEnriched[slot],
       status: 'searched',
       stage: 'searching',
       searchResult: {
@@ -468,7 +555,7 @@ async function preWarmAttendeeCache(meeting: MeetingEvent): Promise<void> {
       personData,
     };
 
-    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email: attendee.email, attendee: currentEnriched[idx] } });
+    emitAttendeeUpdate(attendee.email, currentEnriched[slot]);
   });
 
   await Promise.all(checks);
@@ -541,8 +628,10 @@ async function autoSearchAllAttendees(senderTabId?: number): Promise<void> {
 // ─── Phase A: Search Only (free, no credits) ───────────────────────────────
 
 async function handleSearchSingleAttendee(email: string, _senderTabId?: number): Promise<void> {
+  await ensureRehydrated();
   if (!currentMeeting) return;
 
+  const gen = meetingGeneration;
   const idx = currentEnriched.findIndex((a) => a.email.toLowerCase() === email.toLowerCase());
   if (idx === -1) return;
 
@@ -550,18 +639,23 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
   const s = currentEnriched[idx].status;
   if (s === 'pending' || s === 'searched' || s === 'enriching' || s === 'done') return;
 
-  // Guard: require authentication before making any API calls
+  // Guard: require authentication before making any API calls. Re-resolve the
+  // slot after the await — a new meeting may have replaced currentEnriched.
   const authState = await getAuthState();
-  if (!authState.isAuthenticated) {
-    console.log(LOG, `Search skipped for ${email}: user is not signed in`);
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
-      status: 'error',
-      stage: 'complete',
-      error: 'Sign in to view meeting briefs',
-    };
-    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
-    return;
+  {
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
+    if (!authState.isAuthenticated) {
+      console.log(LOG, `Search skipped for ${email}: user is not signed in`);
+      currentEnriched[slot] = {
+        ...currentEnriched[slot],
+        status: 'error',
+        stage: 'complete',
+        error: 'Sign in to view meeting briefs',
+      };
+      emitAttendeeUpdate(email, currentEnriched[slot]);
+      return;
+    }
   }
 
   const attendee = currentMeeting.attendees[idx];
@@ -569,28 +663,34 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
   // Phase 1: client-side daily rate limit
   if (!(await hasSearchQuota())) {
     const quota = await getSearchQuota();
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
     console.warn(LOG, `Daily search limit reached (${quota.used}/${quota.limit})`);
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
+    currentEnriched[slot] = {
+      ...currentEnriched[slot],
       status: 'error',
       stage: 'complete',
       error: `Daily search limit reached (${quota.limit}/day). Resets tomorrow.`,
     };
-    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+    emitAttendeeUpdate(email, currentEnriched[slot]);
     return;
   }
 
   console.log(LOG, `Search for: "${attendee.name}" <${attendee.email}>`);
   debugLog('Background', 'info', `Search started for "${attendee.name}" <${attendee.email}>`);
 
-  // Mark as pending/searching
-  currentEnriched[idx] = { ...currentEnriched[idx], status: 'pending', stage: 'searching' };
-  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+  // Mark as pending/searching (re-resolve after the quota check above).
+  {
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
+    currentEnriched[slot] = { ...currentEnriched[slot], status: 'pending', stage: 'searching' };
+    emitAttendeeUpdate(email, currentEnriched[slot]);
+  }
 
   // Count this search against the daily quota
   await useSearchQuota().catch(() => {});
 
-  const orchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+  const orchestrator = await makeOrchestrator();
 
   let searchResult: SearchResult | null = null;
   try {
@@ -600,15 +700,19 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
       company: attendee.company || '',
     });
 
+    // The meeting may have changed while we were searching — abandon a stale write.
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
+
     // Stop at "searched" — user must click "Generate Brief" to continue
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
+    currentEnriched[slot] = {
+      ...currentEnriched[slot],
       status: 'searched',
       stage: 'searching',
       searchResult,
       hasLinkedIn: !!searchResult.linkedinUrl,
     };
-    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+    emitAttendeeUpdate(email, currentEnriched[slot]);
   } catch (searchErr) {
     const errMsg = (searchErr as Error).message;
     const errStack = (searchErr as Error).stack || '';
@@ -616,15 +720,18 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
     debugLog('Background', 'error', `Search failed for ${email}: ${errMsg}`);
     // Persist last error for diagnostics (retrievable via chrome.storage.local.get('pm_last_error'))
     chrome.storage.local.set({ pm_last_error: { email, error: errMsg, stack: errStack, ts: Date.now() } }).catch(() => {});
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
+
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
+    currentEnriched[slot] = {
+      ...currentEnriched[slot],
       status: 'error',
       stage: 'complete',
       error: `Search failed: ${friendlyErrorMessage(errMsg)}`,
     };
-    broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+    emitAttendeeUpdate(email, currentEnriched[slot]);
 
-    const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, 'error', null, false);
+    const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting?.title ?? '', 'error', null, false);
     addLogEntry(logEntry).catch((e) => console.warn(LOG, 'Failed to write activity log:', e));
   }
 }
@@ -632,8 +739,10 @@ async function handleSearchSingleAttendee(email: string, _senderTabId?: number):
 // ─── Phase B: Generate Brief (1 credit) ────────────────────────────────────
 
 async function handleGenerateBrief(email: string, _senderTabId?: number): Promise<void> {
+  await ensureRehydrated();
   if (!currentMeeting) return;
 
+  const gen = meetingGeneration;
   const idx = currentEnriched.findIndex((a) => a.email.toLowerCase() === email.toLowerCase());
   if (idx === -1) return;
 
@@ -663,15 +772,28 @@ async function handleGenerateBrief(email: string, _senderTabId?: number): Promis
     return;
   }
 
-  currentEnriched[idx] = { ...currentEnriched[idx], status: 'enriching', stage: 'fetching' };
-  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+  // Re-resolve the slot after the async credit check — a new meeting may have
+  // replaced currentEnriched while we awaited, and this 'enriching' write must
+  // not land in the new meeting's array (it would strand that attendee, since
+  // auto-search skips anything already 'enriching').
+  {
+    const slot = liveSlot(email, gen);
+    if (slot === null) return;
+    currentEnriched[slot] = { ...currentEnriched[slot], status: 'enriching', stage: 'fetching' };
+    emitAttendeeUpdate(email, currentEnriched[slot]);
+  }
 
   let personData: PersonData | null = null;
+  let enrichFailed = false;
   try {
-    const enrichOrchestrator = new WaterfallOrchestrator(cache, waterfallLogBuffer);
+    const enrichOrchestrator = await makeOrchestrator();
     enrichOrchestrator.onInterimResult = (interim: PersonData) => {
-      currentEnriched[idx] = {
-        ...currentEnriched[idx],
+      // The meeting may have changed while enriching — never write into a
+      // superseded meeting's slot.
+      const s = liveSlot(email, gen);
+      if (s === null) return;
+      currentEnriched[s] = {
+        ...currentEnriched[s],
         personData: interim,
         hasLinkedIn: !!interim.linkedinUrl,
         person: {
@@ -686,7 +808,7 @@ async function handleGenerateBrief(email: string, _senderTabId?: number): Promis
           } : null,
         },
       };
-      broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+      emitAttendeeUpdate(email, currentEnriched[s]);
     };
     personData = await enrichOrchestrator.enrich({
       name: attendee.name,
@@ -695,20 +817,29 @@ async function handleGenerateBrief(email: string, _senderTabId?: number): Promis
       linkedInUrl,
     });
   } catch (enrichErr) {
+    enrichFailed = true;
     const errMsg = (enrichErr as Error).message;
     console.error(LOG, `Enrich failed for ${email}:`, errMsg);
     debugLog('Background', 'error', `Enrich failed for ${email}: ${errMsg}`);
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
-      status: 'error',
-      stage: 'complete',
-      error: `Enrichment failed: ${friendlyErrorMessage(errMsg)}`,
-    };
+    const s = liveSlot(email, gen);
+    if (s !== null) {
+      currentEnriched[s] = {
+        ...currentEnriched[s],
+        status: 'error',
+        stage: 'complete',
+        error: `Enrichment failed: ${friendlyErrorMessage(errMsg)}`,
+      };
+    }
   }
 
+  // If the meeting changed while we were enriching, abandon the result entirely
+  // (do not write, do not charge for a brief the user can no longer see).
+  const slot = liveSlot(email, gen);
+  if (slot === null) return;
+
   if (personData) {
-    currentEnriched[idx] = {
-      ...currentEnriched[idx],
+    currentEnriched[slot] = {
+      ...currentEnriched[slot],
       status: 'done',
       stage: 'complete',
       personData,
@@ -728,21 +859,25 @@ async function handleGenerateBrief(email: string, _senderTabId?: number): Promis
     };
   }
 
-  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { email, attendee: currentEnriched[idx] } });
+  emitAttendeeUpdate(email, currentEnriched[slot]);
 
-  // Log and consume credit
-  const logEa = currentEnriched[idx];
-  const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting.title, logEa.status === 'error' ? 'error' : 'done', logEa.personData ?? null, logEa.fromCache ?? false);
+  // Log the outcome.
+  const logEa = currentEnriched[slot];
+  const logEntry = buildLogEntry(attendee.name, attendee.email, currentMeeting?.title ?? '', logEa.status === 'error' ? 'error' : 'done', logEa.personData ?? null, logEa.fromCache ?? false);
   addLogEntry(logEntry).catch((e) => console.warn(LOG, 'Failed to write activity log:', e));
 
-  await useCredit().catch((e) => console.warn(LOG, 'Failed to use credit:', e));
+  // Consume a credit ONLY on a successful fresh brief — never charge for a failed
+  // enrichment, and never for a cache hit.
+  if (personData && !enrichFailed && !logEa.fromCache) {
+    await useCredit().catch((e) => console.warn(LOG, 'Failed to use credit:', e));
+  }
 
   // Check if all attendees are now enriched
   const allDone = currentEnriched.every((a) => a.status === 'done' || a.status === 'error');
   if (allDone) {
     notifyContentScript({ type: 'ENRICHMENT_COMPLETE' });
-    debugLog('Background', 'info', `All attendees enriched for "${currentMeeting.title}"`);
-    console.log(LOG, `All attendees enriched for "${currentMeeting.title}"`);
+    debugLog('Background', 'info', `All attendees enriched for "${currentMeeting?.title ?? ''}"`);
+    console.log(LOG, `All attendees enriched for "${currentMeeting?.title ?? ''}"`);
   }
 }
 
@@ -771,6 +906,9 @@ async function handleFetchCompanyIntel(
   if (website) fastBody.website = website;
 
   let basicData: CompanyData | null = null;
+  // Track whether we broadcast ANY terminal result, so the sidepanel's loading
+  // skeleton always resolves — even when every phase fails.
+  let sent = false;
 
   try {
     const fastRes = await authFetch(`${apiBase}/enrichment-company`, {
@@ -785,6 +923,7 @@ async function handleFetchCompanyIntel(
       console.log(LOG, `Company fast profile for "${companyName}" (cached: ${fastJson.cached})`);
       // Broadcast basic result immediately so UI renders fast
       broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: basicData, cached: fastJson.cached } });
+      sent = true;
     } else {
       const errBody = await fastRes.json().catch(() => ({ error: `HTTP ${fastRes.status}` }));
       console.warn(LOG, 'Company fast profile failed:', (errBody as { error?: string }).error);
@@ -799,7 +938,7 @@ async function handleFetchCompanyIntel(
 
   if (!discoveredLinkedinId) {
     console.log(LOG, `No LinkedIn company ID for "${companyName}" — skipping deep enrichment`);
-    if (!basicData) {
+    if (!sent) {
       broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: 'No company data found' } });
     }
     return;
@@ -851,14 +990,20 @@ async function handleFetchCompanyIntel(
 
       // Broadcast the enriched update — UI should merge/replace
       broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, data: mergedData, cached: deepJson.cached, deep: true } });
+      sent = true;
     } else {
       const errBody = await deepRes.json().catch(() => ({ error: `HTTP ${deepRes.status}` }));
       console.warn(LOG, 'Company deep enrichment failed:', (errBody as { error?: string }).error);
-      // Not fatal — basic data was already broadcast
+      // Not fatal if basic data was already broadcast.
     }
   } catch (err) {
     console.warn(LOG, 'Company deep enrichment error:', (err as Error).message);
-    // Not fatal — basic data was already broadcast
+    // Not fatal if basic data was already broadcast.
+  }
+
+  // Guarantee the loading skeleton resolves even if every phase failed.
+  if (!sent) {
+    broadcastToPopups({ type: 'COMPANY_INTEL_RESULT', payload: { email, error: 'Company details unavailable' } });
   }
 }
 
@@ -1131,6 +1276,51 @@ async function handleFetchReputation(
   }
 }
 
+// ─── Upgrade / Paywall ───────────────────────────────────────────────────────
+
+const PRICING_PAGE_URL = 'https://premeet-mu.vercel.app/pricing';
+
+/**
+ * Open the paywall. For signed-in users we create a real Stripe Checkout session
+ * via billing-checkout and open it; otherwise (or on any failure) we fall back to
+ * the pricing page so the CTA is never a dead click.
+ */
+async function handleOpenUpgrade(tier: 'pro' | 'enterprise'): Promise<void> {
+  const apiBase = import.meta.env.VITE_API_BASE_URL as string;
+  const authState = await getAuthState().catch(() => ({ isAuthenticated: false }));
+
+  const openTab = (url: string) => {
+    chrome.tabs.create({ url }).catch((err) => console.warn(LOG, 'Failed to open upgrade tab:', err));
+  };
+
+  if (!apiBase || !authState.isAuthenticated) {
+    openTab(PRICING_PAGE_URL);
+    return;
+  }
+
+  try {
+    const res = await authFetch(`${apiBase}/billing-checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tier,
+        successUrl: `${PRICING_PAGE_URL}?checkout=success`,
+        cancelUrl: `${PRICING_PAGE_URL}?checkout=cancel`,
+      }),
+    });
+    if (res.ok) {
+      const { url } = (await res.json()) as { url?: string };
+      openTab(url || PRICING_PAGE_URL);
+    } else {
+      console.warn(LOG, `billing-checkout HTTP ${res.status} — falling back to pricing page`);
+      openTab(PRICING_PAGE_URL);
+    }
+  } catch (err) {
+    console.warn(LOG, 'billing-checkout failed — falling back to pricing page:', (err as Error).message);
+    openTab(PRICING_PAGE_URL);
+  }
+}
+
 function notifyContentScript(msg: object): void {
   chrome.tabs.query({ url: 'https://calendar.google.com/*' }, (tabs) => {
     for (const tab of tabs) {
@@ -1147,4 +1337,26 @@ function broadcastToPopups(msg: object): void {
   chrome.runtime.sendMessage(msg, () => {
     void chrome.runtime.lastError;
   });
+}
+
+/**
+ * Broadcast a single attendee's updated state, stamped with the current meeting
+ * generation so the sidepanel can drop updates that belong to a superseded
+ * meeting, and mirror the state to session storage for SW-restart survival.
+ */
+function emitAttendeeUpdate(email: string, attendee: EnrichedAttendee): void {
+  broadcastToPopups({ type: 'ATTENDEE_UPDATE', payload: { meetingGen: meetingGeneration, email, attendee } });
+  void persistMeetingState();
+}
+
+/**
+ * Re-resolve an attendee's slot after an await. Returns null if the meeting has
+ * been replaced since the caller started (generation changed) or the attendee is
+ * no longer present — callers must then abandon their write so results never
+ * land in the wrong meeting's slot.
+ */
+function liveSlot(email: string, gen: number): number | null {
+  if (gen !== meetingGeneration) return null;
+  const i = currentEnriched.findIndex((a) => a.email.toLowerCase() === email.toLowerCase());
+  return i === -1 ? null : i;
 }

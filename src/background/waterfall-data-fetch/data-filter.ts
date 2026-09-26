@@ -8,7 +8,43 @@ const LOG_PREFIX = '[PreMeet][Filter]';
 
 const FILTER_PATH = '/datasets/filter';
 const SNAPSHOT_BASE = '/datasets/snapshots';
+const SEARCH_BASE = '/datasets/search';
 const DEFAULT_DATASET_ID = 'gd_l1viktl72bvl7bjuj0';
+
+/**
+ * Try the synchronous Search Dataset API (inline results, no polling).
+ * Returns the matched records, or null if the API errored (so the caller can
+ * fall back to the async snapshot flow). An empty array means "found nothing".
+ */
+async function searchByLinkedInId(
+  linkedInId: string,
+  datasetId: string,
+): Promise<Array<Record<string, unknown>> | null> {
+  const res = await proxyFetch(`${SEARCH_BASE}/${datasetId}`, 'POST', {
+    filter: { name: 'linkedin_id', operator: '=', value: linkedInId },
+    size: 1,
+  });
+
+  if (!res.ok) {
+    // 422 is BrightData's "no matches" for search — a real empty result.
+    if (res.status === 422) return [];
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Search API HTTP ${res.status}: ${errText.slice(0, 160)}`);
+  }
+
+  const body = await res.json().catch(() => null) as { hits?: unknown } | null;
+  if (!body || !Array.isArray(body.hits)) return [];
+  // Be defensive against an Elasticsearch-style { _source } envelope so the
+  // normalizer always receives a plain record.
+  return body.hits.map((hit) => {
+    if (hit && typeof hit === 'object') {
+      const src = (hit as { _source?: unknown })._source;
+      if (src && typeof src === 'object') return src as Record<string, unknown>;
+      return hit as Record<string, unknown>;
+    }
+    return {} as Record<string, unknown>;
+  });
+}
 
 const POLL_INITIAL_MS = 800;
 const POLL_MAX_MS = 4000;
@@ -24,6 +60,20 @@ export async function filterByLinkedInId(
   datasetId?: string,
 ): Promise<Array<Record<string, unknown>>> {
   const dsId = datasetId || DEFAULT_DATASET_ID;
+
+  // Fast path: the synchronous Search Dataset API returns matching records inline
+  // in ~1s (no snapshot trigger/poll/download). Fall through to the async snapshot
+  // flow only if search errors or finds nothing.
+  try {
+    const searchHits = await searchByLinkedInId(linkedInId, dsId);
+    if (searchHits && searchHits.length > 0) {
+      console.log(LOG_PREFIX, `Search API returned ${searchHits.length} record(s) for "${linkedInId}" — skipping snapshot flow`);
+      return searchHits;
+    }
+    console.log(LOG_PREFIX, `Search API found no records for "${linkedInId}" — falling back to snapshot filter`);
+  } catch (err) {
+    console.warn(LOG_PREFIX, `Search API failed (${(err as Error).message}) — falling back to snapshot filter`);
+  }
 
   console.log(LOG_PREFIX, `Filtering dataset ${dsId} by linkedin_id: "${linkedInId}"`);
 

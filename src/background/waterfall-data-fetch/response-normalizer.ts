@@ -84,6 +84,11 @@ function normalizePostEntry(entry: Record<string, unknown>): PostEntry {
     link: toStringOrNull(entry.link),
     imageUrl: toStringOrNull(entry.img),
     interaction: toStringOrNull(entry.interaction),
+    // Metadata varies across BrightData datasets — accept the common field names.
+    date: toStringOrNull(entry.posted_date ?? entry.date ?? entry.created ?? entry.time ?? entry.published_at),
+    likes: toIntOrNull(entry.num_likes ?? entry.likes ?? entry.reactions ?? entry.likes_count),
+    shares: toIntOrNull(entry.num_shares ?? entry.shares ?? entry.reposts ?? entry.shares_count),
+    source: toStringOrNull(entry.source ?? entry.platform) ?? 'LinkedIn',
   };
 }
 
