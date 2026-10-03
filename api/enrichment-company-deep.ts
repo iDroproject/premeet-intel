@@ -17,6 +17,7 @@ import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { requireAuth } from './_shared/auth-middleware';
 import { sql } from './_shared/db';
 import { queryCompany } from './_shared/dataset-filter';
+import { reserveCredits, rolloverIfNeeded } from './_shared/credits';
 
 const CACHE_TTL_DAYS = 30;
 const BRIGHTDATA_SCRAPE_URL = 'https://api.brightdata.com/datasets/v3/scrape';
@@ -157,10 +158,12 @@ function normalizeFilterData(raw: Record<string, unknown>, linkedinId: string): 
 
 // ── Google AI Mode normalizer ──────────────────────────────────────────────
 
-function normalizeAiModeData(raw: Record<string, unknown>): Partial<CompanyData> {
-  // The Web Scraper returns the AI-generated response as text content
+function normalizeAiModeData(raw: Record<string, unknown>): Partial<CompanyData> | null {
+  // The Web Scraper returns the AI-generated response as text content.
+  // Return null (not {}) on empty so callers don't treat an empty object as a
+  // successful result and charge/cache for nothing.
   const content = String(raw.content || raw.text || raw.response || raw.ai_response || '');
-  if (!content) return {};
+  if (!content.trim()) return null;
 
   // Extract products from the AI overview if mentioned
   const products: string[] = [];
@@ -213,18 +216,13 @@ export default async function handler(req: Request): Promise<Response> {
     }, cors);
   }
 
-  // Credits check
-  const userRows = await sql`SELECT credits_used, credits_limit, credits_reset_month, subscription_tier FROM users WHERE id = ${userId} LIMIT 1`;
+  // Credits pre-check (enforced atomically at charge time below; uniform tier).
+  await rolloverIfNeeded(userId);
+  const userRows = await sql`SELECT credits_used, credits_limit, subscription_tier FROM users WHERE id = ${userId} LIMIT 1`;
   if (userRows.length === 0) return jsonResponse({ error: 'User not found' }, cors, 404);
   const user = userRows[0];
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  let creditsUsed = user.credits_used;
-  if (user.credits_reset_month !== currentMonth) {
-    await sql`UPDATE users SET credits_used = 0, credits_reset_month = ${currentMonth} WHERE id = ${userId}`;
-    creditsUsed = 0;
-  }
-  if (user.subscription_tier === 'free' && creditsUsed >= user.credits_limit) {
-    return jsonResponse({ error: 'Credit limit reached', creditsUsed, creditsLimit: user.credits_limit }, cors, 402);
+  if (user.credits_used >= user.credits_limit) {
+    return jsonResponse({ error: 'Credit limit reached', creditsUsed: user.credits_used, creditsLimit: user.credits_limit }, cors, 402);
   }
 
   const brightdataApiKey = process.env.BRIGHTDATA_API_KEY;
@@ -270,6 +268,11 @@ export default async function handler(req: Request): Promise<Response> {
         const errText = await scrapeResp.text().catch(() => '');
         throw new Error(`AI Mode HTTP ${scrapeResp.status}: ${errText.slice(0, 200)}`);
       }
+      // 202 means the scrape was accepted for async processing (a snapshot) and
+      // there is no inline result — treat as a miss rather than a synchronous hit.
+      if (scrapeResp.status === 202) {
+        throw new Error('AI Mode returned 202 (async); no inline data');
+      }
 
       const scrapeData = await scrapeResp.json();
       // WSA v3 scrape returns array of results
@@ -279,9 +282,10 @@ export default async function handler(req: Request): Promise<Response> {
     SOURCE_TIMEOUT_MS,
     'google-ai-mode',
   ).then((raw) => {
-    if (!raw) return null;
-    sourceLog.push({ source: 'google-ai-mode', status: 'ok', latencyMs: Math.round(performance.now() - start) });
-    return normalizeAiModeData(raw as Record<string, unknown>);
+    if (!raw || typeof raw !== 'object') return null;
+    const normalized = normalizeAiModeData(raw as Record<string, unknown>);
+    sourceLog.push({ source: 'google-ai-mode', status: normalized ? 'ok' : 'empty', latencyMs: Math.round(performance.now() - start) });
+    return normalized;
   }).catch((err) => {
     sourceLog.push({ source: 'google-ai-mode', status: 'error', latencyMs: Math.round(performance.now() - start) });
     console.warn('[enrichment-company-deep] Google AI Mode error:', (err as Error).message);
@@ -292,6 +296,12 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (!filterData && !aiData) {
     return jsonResponse({ error: 'No deep company data found', sourceLog }, cors, 404);
+  }
+
+  // Atomically reserve the credit now that we have real data (uniform tier cap).
+  const newUsed = await reserveCredits(userId, 1);
+  if (newUsed === null) {
+    return jsonResponse({ error: 'Credit limit reached', creditsLimit: user.credits_limit }, cors, 402);
   }
 
   // Merge: Dataset Filter is the primary source, AI Mode fills gaps
@@ -326,7 +336,6 @@ export default async function handler(req: Request): Promise<Response> {
     DO UPDATE SET enrichment_data = ${enrichmentJson}::jsonb, source = 'deep', fetched_at = now(), expires_at = now() + make_interval(days => ${CACHE_TTL_DAYS})
   `;
   sql`SELECT upsert_cache_stat(CURRENT_DATE, 'company', 0, 1)`.catch(() => {});
-  await sql`UPDATE users SET credits_used = credits_used + 1 WHERE id = ${userId}`;
 
   await sql`
     INSERT INTO enrichment_requests (user_id, entity_type, entity_key, credits_used, status, cache_hit, completed_at)

@@ -121,6 +121,9 @@ export async function deepLookup(
         body: JSON.stringify({ spec, input: [input] }),
       },
       'deep-lookup',
+      // trigger_enrichment starts a billed job — only retry on 429 so a network
+      // or 5xx retry can't silently create a duplicate billed job.
+      { retryMode: 'safe' },
     );
 
     if (!triggerResp.ok) {

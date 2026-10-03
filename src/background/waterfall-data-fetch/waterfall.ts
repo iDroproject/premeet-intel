@@ -152,14 +152,17 @@ export class WaterfallOrchestrator {
   private _logBuffer: LogBuffer | null;
   private _personName: string = '';
   private _stepsState: StepState[];
+  /** Cache TTL in ms. 0 disables caching entirely (respects the 'never' setting). */
+  private _cacheTtlMs: number;
 
   onProgress: ((payload: ProgressPayload) => void) | null = null;
   onInterimResult: ((data: PersonData) => void) | null = null;
 
-  constructor(cacheManager: CacheManager, logBuffer?: LogBuffer | null) {
+  constructor(cacheManager: CacheManager, logBuffer?: LogBuffer | null, cacheTtlMs: number = CACHE_TTL_MS) {
     this._cache = cacheManager;
     this._serverCache = new EnrichmentCacheService();
     this._logBuffer = logBuffer || null;
+    this._cacheTtlMs = cacheTtlMs;
     this._stepsState = PIPELINE_STEPS.map((s) => ({ ...s, status: 'pending' as const }));
   }
 
@@ -839,30 +842,37 @@ export class WaterfallOrchestrator {
       personData.email = email;
     }
 
-    // Write to both local Chrome cache and server cache (primary key + LinkedIn alias)
+    // Write to both local Chrome cache and server cache (primary key + LinkedIn alias).
+    // Respect the user's cache-duration setting: a TTL of 0 ('never') skips all
+    // caching so no PII is retained.
     const aliasKey = personData.linkedinUrl ? linkedInAliasKey(personData.linkedinUrl) : null;
     const cacheKeysToWrite = aliasKey && aliasKey !== cacheKey ? [cacheKey, aliasKey] : [cacheKey];
 
-    for (const key of cacheKeysToWrite) {
-      try {
-        await this._cache.set(key, personData, CACHE_TTL_MS);
-      } catch (err) {
-        console.warn(LOG_PREFIX, `Local cache write failed for "${key}":`, (err as Error).message);
+    if (this._cacheTtlMs <= 0) {
+      console.log(LOG_PREFIX, 'Caching disabled (cacheDuration: never) — skipping cache writes');
+    } else {
+      for (const key of cacheKeysToWrite) {
+        try {
+          await this._cache.set(key, personData, this._cacheTtlMs);
+        } catch (err) {
+          console.warn(LOG_PREFIX, `Local cache write failed for "${key}":`, (err as Error).message);
+        }
       }
-    }
 
-    for (const key of cacheKeysToWrite) {
-      try {
-        await this._serverCache.put({
-          entityType: 'person',
-          entityKey: key,
-          enrichmentData: personData as unknown as Record<string, unknown>,
-          confidence: personData._confidence ?? null,
-          confidenceScore: personData._confidenceScore ?? null,
-          source: personData._source ?? null,
-        });
-      } catch (err) {
-        console.warn(LOG_PREFIX, `Server cache write failed for "${key}":`, (err as Error).message);
+      for (const key of cacheKeysToWrite) {
+        try {
+          await this._serverCache.put({
+            entityType: 'person',
+            entityKey: key,
+            enrichmentData: personData as unknown as Record<string, unknown>,
+            confidence: personData._confidence ?? null,
+            confidenceScore: personData._confidenceScore ?? null,
+            source: personData._source ?? null,
+            ttlMs: this._cacheTtlMs,
+          });
+        } catch (err) {
+          console.warn(LOG_PREFIX, `Server cache write failed for "${key}":`, (err as Error).message);
+        }
       }
     }
 
