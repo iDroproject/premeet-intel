@@ -10,3 +10,6 @@ dist/
 brd-intel/
 premeet-intel/
 .vercel
+
+# Local tool skill artifacts
+.*/skills/ui-ux-pro-max/

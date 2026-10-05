@@ -90,7 +90,16 @@ export async function queryDataset(
         headers: { Authorization: `Bearer ${apiKey}` },
       });
 
-      if (!statusResp.ok) continue;
+      if (!statusResp.ok) {
+        // 404 can occur briefly before the snapshot is registered — keep polling.
+        // Other 4xx (401/403/400) are permanent: fail fast instead of burning the
+        // whole timeout budget silently.
+        if (statusResp.status !== 404 && statusResp.status < 500) {
+          const errText = await statusResp.text().catch(() => '');
+          return { data: null, fields: 0, snapshotId, latencyMs: elapsed(start), error: `Snapshot status HTTP ${statusResp.status}: ${errText.slice(0, 120)}` };
+        }
+        continue;
+      }
 
       const statusData = await statusResp.json();
       const status = statusData.status;
@@ -129,31 +138,45 @@ async function downloadSnapshot(
     }
 
     const text = await dlResp.text();
+    const trimmed = text.trim();
 
-    // "Snapshot is building" means data isn't ready yet despite status=ready
-    if (text.includes('building') || text.includes('Try again')) {
-      await sleep(3000);
-      continue;
-    }
-
+    // Try to parse as JSON FIRST. Only if it is NOT valid JSON do we consider the
+    // "snapshot is building / try again" status heuristic — otherwise a perfectly
+    // valid record that merely contains the word "building" (e.g. a company in
+    // construction) would be wrongly discarded.
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(text);
-      const record = Array.isArray(parsed) ? parsed[0] : parsed;
-
-      if (!record || (typeof record === 'object' && Object.keys(record).length === 0)) {
-        return { data: null, fields: 0, snapshotId, latencyMs: elapsed(start), error: 'Empty result set' };
-      }
-
-      return {
-        data: record,
-        fields: Object.keys(record).length,
-        snapshotId,
-        latencyMs: elapsed(start),
-        error: null,
-      };
+      parsed = JSON.parse(trimmed);
     } catch {
-      return { data: null, fields: 0, snapshotId, latencyMs: elapsed(start), error: `Parse error: ${text.slice(0, 100)}` };
+      const looksLikeBuilding = /"?status"?\s*[:=]?\s*"?building|snapshot is building|try again/i.test(trimmed);
+      if (looksLikeBuilding) {
+        await sleep(3000);
+        continue;
+      }
+      return { data: null, fields: 0, snapshotId, latencyMs: elapsed(start), error: `Parse error: ${trimmed.slice(0, 100)}` };
     }
+
+    // Valid JSON, but BrightData sometimes returns a status object while building.
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const status = (parsed as { status?: unknown }).status;
+      if (typeof status === 'string' && /building|running|scheduled/i.test(status)) {
+        await sleep(3000);
+        continue;
+      }
+    }
+
+    const record = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (!record || (typeof record === 'object' && Object.keys(record).length === 0)) {
+      return { data: null, fields: 0, snapshotId, latencyMs: elapsed(start), error: 'Empty result set' };
+    }
+
+    return {
+      data: record as Record<string, unknown>,
+      fields: Object.keys(record).length,
+      snapshotId,
+      latencyMs: elapsed(start),
+      error: null,
+    };
   }
 
   return { data: null, fields: 0, snapshotId, latencyMs: elapsed(start), error: 'Download retries exhausted (still building)' };
@@ -166,17 +189,6 @@ export function queryCompany(companyLinkedinId: string, apiKey: string, timeoutM
   return queryDataset(
     'gd_m3fl0mwzmfpfn4cw4',
     [{ name: 'id_lc', operator: '=', value: companyLinkedinId }],
-    apiKey,
-    1,
-    timeoutMs,
-  );
-}
-
-/** Query enriched employee dataset by LinkedIn profile URL. */
-export function queryEmployee(linkedinUrl: string, apiKey: string, timeoutMs = 50_000): Promise<DatasetFilterResult> {
-  return queryDataset(
-    'gd_m18zt6ec11wfqohyrs',
-    [{ name: 'url', operator: '=', value: linkedinUrl }],
     apiKey,
     1,
     timeoutMs,

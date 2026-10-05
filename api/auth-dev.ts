@@ -28,8 +28,17 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(null, { status: 204, headers });
   }
 
-  // ── Gate: only available when explicitly enabled ──────────────
-  if (process.env.PREMEET_DEV_AUTH !== '1') {
+  // ── Gate: never reachable in production, and requires a shared secret ──────
+  // This endpoint mints a JWT for any account, so a single boolean env flag is
+  // not a sufficient guard. It hard-fails on production deployments regardless
+  // of env vars, and otherwise requires both the enable flag AND a high-entropy
+  // secret supplied via the x-premeet-dev-secret header.
+  const isProd = process.env.VERCEL_ENV === 'production';
+  const enabled = process.env.PREMEET_DEV_AUTH === '1';
+  const devSecret = process.env.PREMEET_DEV_AUTH_SECRET;
+  const providedSecret = req.headers.get('x-premeet-dev-secret');
+
+  if (isProd || !enabled || !devSecret || providedSecret !== devSecret) {
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers,
