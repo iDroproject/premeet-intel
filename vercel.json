@@ -2,6 +2,9 @@
   "buildCommand": null,
   "outputDirectory": null,
   "framework": null,
+  "crons": [
+    { "path": "/api/cron-cleanup", "schedule": "0 4 * * *" }
+  ],
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/:path*" }
   ],

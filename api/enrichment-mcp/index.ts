@@ -9,12 +9,15 @@
 //
 // Feature flag: MCP_ENRICHMENT (env). When "false", returns 503.
 
-export const config = { runtime: 'edge' };
+// Node.js runtime: MCP is reached over SSE, which does not work on the edge
+// runtime, and needs a longer budget than the 25s edge limit.
+export const config = { runtime: 'nodejs', maxDuration: 60 };
 
 import { corsHeadersFor, corsResponse } from '../_shared/cors';
 import { requireAuth } from '../_shared/auth-middleware';
 import { sql } from '../_shared/db';
 import { aggregateCompanyIntel } from './aggregator';
+import { reserveCredits, rolloverIfNeeded } from '../_shared/credits';
 import type { EnrichmentMcpRequest } from './types';
 
 function jsonResponse(body: unknown, cors: Record<string, string>, status = 200): Response {
@@ -75,22 +78,11 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const user = userRows[0];
-  const currentMonth = new Date().toISOString().slice(0, 7);
-
-  let creditsUsed = user.credits_used;
-  if (user.credits_reset_month !== currentMonth) {
-    await sql`
-      UPDATE users
-      SET credits_used = 0, credits_reset_month = ${currentMonth}
-      WHERE id = ${userId}
-    `;
-    creditsUsed = 0;
-  }
-
-  if (user.subscription_tier === 'free' && creditsUsed >= user.credits_limit) {
+  await rolloverIfNeeded(userId);
+  if (user.credits_used >= user.credits_limit) {
     return jsonResponse({
       error: 'Credit limit reached',
-      creditsUsed,
+      creditsUsed: user.credits_used,
       creditsLimit: user.credits_limit,
       tier: user.subscription_tier,
     }, cors, 402);
@@ -119,12 +111,17 @@ export default async function handler(req: Request): Promise<Response> {
       }, cors, 502);
     }
 
-    // Deduct 1 credit only if we got fresh data from at least one source
-    const anyFreshFetch = !sources.crunchbase.cached || !sources.zoominfo.cached;
+    // Charge only when a source produced a FRESH SUCCESS (not merely non-cached
+    // because it failed). Reserve atomically to enforce the tier cap uniformly.
+    const anyFreshFetch =
+      (sources.crunchbase.success && !sources.crunchbase.cached) ||
+      (sources.zoominfo.success && !sources.zoominfo.cached);
+
     if (anyFreshFetch) {
-      await sql`
-        UPDATE users SET credits_used = credits_used + 1 WHERE id = ${userId}
-      `;
+      const reserved = await reserveCredits(userId, 1);
+      if (reserved === null) {
+        return jsonResponse({ error: 'Credit limit reached', creditsLimit: user.credits_limit }, cors, 402);
+      }
     }
 
     return jsonResponse({
