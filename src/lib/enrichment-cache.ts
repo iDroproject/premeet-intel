@@ -161,24 +161,6 @@ export class EnrichmentCacheService {
     }
   }
 
-  // ── Invalidate ──────────────────────────────────────────────────────────
-
-  async invalidate(entityType: EntityType, entityKey: string): Promise<boolean> {
-    try {
-      await this._call({
-        action: 'invalidate',
-        entityType,
-        entityKey,
-      });
-
-      console.log(LOG_PREFIX, `Invalidated ${entityType}/${entityKey}`);
-      return true;
-    } catch (err) {
-      console.error(LOG_PREFIX, 'Invalidate error:', (err as Error).message);
-      return false;
-    }
-  }
-
   // ── Get Stats ───────────────────────────────────────────────────────────
 
   async getStats(days: number = 7): Promise<{

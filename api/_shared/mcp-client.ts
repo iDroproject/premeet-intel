@@ -108,8 +108,16 @@ export async function callMcpTool(
               const content = msg.result.content || [];
               for (const c of content) {
                 if (c.type === 'text') {
-                  const parsed = JSON.parse(c.text);
-                  resultData = Array.isArray(parsed) ? parsed[0] : parsed;
+                  // The tool text is usually JSON, but not always. If it is not
+                  // parseable, fall back to the raw text rather than letting the
+                  // throw bubble to the outer catch (which would drop this whole
+                  // id=1 response and stall the call until timeout).
+                  try {
+                    const parsed = JSON.parse(c.text);
+                    resultData = Array.isArray(parsed) ? parsed[0] : parsed;
+                  } catch {
+                    resultData = { text: c.text };
+                  }
                   break;
                 }
               }

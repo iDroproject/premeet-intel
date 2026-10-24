@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS: Settings = {
   showConfidenceScores: true,
   compactMode: false,
   autoSearchAttendees: true,
+  autoFetchCompanyIntel: true,
 };
 
 export function getDefaultSettings(): Settings {
