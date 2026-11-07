@@ -23,6 +23,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface RetryOptions {
+  /**
+   * 'all'  — retry 5xx, 429, and network errors (default; safe for idempotent GETs).
+   * 'safe' — retry ONLY 429 (rate-limited, request provably not accepted). Use for
+   *          non-idempotent triggers where a network/5xx retry could create a
+   *          duplicate billed job.
+   */
+  retryMode?: 'all' | 'safe';
+}
+
 /**
  * Fetch with automatic retry for transient failures (5xx, 429, network errors).
  * Returns the Response on success or final attempt; throws on exhausted network errors.
@@ -31,14 +41,17 @@ export async function fetchWithRetry(
   url: string,
   init: RequestInit,
   label = 'fetch',
+  opts: RetryOptions = {},
 ): Promise<Response> {
+  const safeOnly = opts.retryMode === 'safe';
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
     try {
       const response = await fetch(url, init);
 
-      if (response.ok || response.status === 202 || !isTransientStatus(response.status)) {
+      const retryable = safeOnly ? response.status === 429 : isTransientStatus(response.status);
+      if (response.ok || response.status === 202 || !retryable) {
         return response;
       }
 
@@ -57,7 +70,9 @@ export async function fetchWithRetry(
     } catch (err) {
       lastError = err as Error;
 
-      if (attempt < RETRY_MAX_ATTEMPTS) {
+      // In 'safe' mode a network error is ambiguous (the request may have been
+      // accepted and started a billed job), so do not retry it — surface it.
+      if (!safeOnly && attempt < RETRY_MAX_ATTEMPTS) {
         const backoffMs = Math.min(RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1), RETRY_MAX_DELAY_MS);
         console.warn(`[${label}] network error: ${lastError.message} — retrying in ${backoffMs}ms (attempt ${attempt}/${RETRY_MAX_ATTEMPTS})`);
         await sleep(backoffMs);
