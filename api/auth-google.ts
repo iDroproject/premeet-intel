@@ -19,15 +19,48 @@ interface GoogleUserInfo {
 }
 
 async function verifyGoogleToken(accessToken: string): Promise<GoogleUserInfo> {
+  // Step 1: Validate the token's audience. A Google access token is a bearer
+  // token not bound to the presenting client, so a token issued for *another*
+  // OAuth app could be replayed here to mint a PreMeet session (token
+  // substitution / confused deputy). tokeninfo tells us who the token was
+  // actually issued to — we require it to be PreMeet's own OAuth client.
+  const expectedClientId =
+    process.env.GOOGLE_OAUTH_CLIENT_ID || process.env.VITE_GOOGLE_OAUTH_CLIENT_ID;
+  if (!expectedClientId) {
+    throw new Error('GOOGLE_OAUTH_CLIENT_ID is not configured on the server');
+  }
+
+  const tokenInfoRes = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`,
+  );
+  if (!tokenInfoRes.ok) {
+    throw new Error(`Google token introspection failed (${tokenInfoRes.status})`);
+  }
+  const tokenInfo = (await tokenInfoRes.json()) as {
+    aud?: string;
+    azp?: string;
+    email?: string;
+    email_verified?: string | boolean;
+    exp?: string;
+  };
+
+  const audience = tokenInfo.aud || tokenInfo.azp;
+  if (audience !== expectedClientId) {
+    throw new Error('Google token was not issued for this application');
+  }
+  const emailVerified = tokenInfo.email_verified === true || tokenInfo.email_verified === 'true';
+  if (!emailVerified) {
+    throw new Error('Google account email is not verified');
+  }
+
+  // Step 2: Fetch the profile (name, picture, canonical sub/email).
   const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Google token verification failed (${res.status}): ${body}`);
   }
-
   return res.json();
 }
 

@@ -48,10 +48,21 @@ export const TIER_CONFIG: Record<string, { creditsLimit: number; priceId?: strin
 
 export type TierName = keyof typeof TIER_CONFIG;
 
-/** Map a Stripe Price ID to a PreMeet tier name */
+/**
+ * Map a Stripe Price ID to a PreMeet tier name.
+ *
+ * Guards against misconfiguration: an empty/absent price id, or a price id that
+ * matches an UNSET env var (also empty), must never resolve to a paid tier.
+ * Unknown non-empty price ids are logged and treated as 'free' rather than
+ * silently upgrading someone.
+ */
 export function priceIdToTier(priceId: string): TierName {
-  if (priceId === TIER_CONFIG.pro.priceId) return 'pro';
-  if (priceId === TIER_CONFIG.enterprise.priceId) return 'enterprise';
+  if (!priceId) return 'free';
+  const proPrice = TIER_CONFIG.pro.priceId;
+  const entPrice = TIER_CONFIG.enterprise.priceId;
+  if (proPrice && priceId === proPrice) return 'pro';
+  if (entPrice && priceId === entPrice) return 'enterprise';
+  console.warn(`[stripe] Unknown price id "${priceId}" — defaulting to free. Check STRIPE_PRO_PRICE_ID / STRIPE_ENTERPRISE_PRICE_ID.`);
   return 'free';
 }
 
