@@ -5,6 +5,7 @@
 import type { MeetingEvent, EnrichedAttendee, EnrichmentStage, BackgroundToPopup, CustomEnrichmentResult } from '../types';
 import type { PersonData, SearchResult, ExperienceEntry, EducationEntry, ConfidenceCitation, CompanyData, ContactInfo, HiringSignals, StakeholderMap, SocialPulse, ReputationData } from '../background/waterfall-data-fetch/types';
 import { getCredits, remainingCredits } from '../utils/credits';
+import { getSettings } from '../utils/settings';
 import { maskPersonData, skillsPreviewCount } from '../utils/masking';
 import { initMixpanel, identifyUser, resetUser, track } from '../lib/mixpanel';
 import { icon } from './icons';
@@ -30,6 +31,7 @@ const Els = {
   credits:      $('pm-credits'),
   ctaBanner:    $('pm-cta-banner'),
   ctaSignin:    $('pm-cta-signin'),
+  ctaError:     $('pm-cta-error'),
 };
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -37,6 +39,32 @@ const Els = {
 let currentMeeting: MeetingEvent | null = null;
 let attendeeMap = new Map<string, EnrichedAttendee>();
 let isAuthenticated = false;
+
+// Generation of the meeting currently rendered. Attendee updates stamped with a
+// different generation belong to a superseded meeting and are dropped so stale
+// cards never appear.
+let currentMeetingGen = -1;
+
+// Whether the user dismissed the credit banner this session (dismiss must stick
+// across background messages, not reappear on every refresh).
+let creditBannerDismissed = false;
+
+// UI preferences mirrored from settings so the sync render functions can honor
+// them (previously these toggles were saved but never read).
+const uiPrefs = { showConfidenceScores: true, compactMode: false };
+
+/** Load UI preferences and apply the compact-mode class. */
+async function applyUiPrefs(): Promise<void> {
+  try {
+    const s = await getSettings();
+    uiPrefs.showConfidenceScores = s.showConfidenceScores;
+    uiPrefs.compactMode = s.compactMode;
+  } catch {
+    /* keep defaults */
+  }
+  Els.list?.classList.toggle('pm-compact', uiPrefs.compactMode);
+  document.body.classList.toggle('pm-compact', uiPrefs.compactMode);
+}
 let cachedUserTier: 'free' | 'pro' = 'free';
 
 /** Read the user tier from the credits/storage system and cache it. */
@@ -246,14 +274,22 @@ async function refreshCredits(): Promise<void> {
   Els.credits.classList.remove('pm-hidden');
   Els.credits.classList.toggle('pm-credits--low', cachedUserTier !== 'pro' && remaining <= 2);
 
-  // Update credit banner slot
+  // Update credit banner slot. A dismissed banner stays dismissed for the
+  // session instead of reappearing on the next background message.
   const bannerSlot = document.getElementById('pm-credit-banner-slot');
   if (bannerSlot) {
+    if (creditBannerDismissed) {
+      bannerSlot.innerHTML = '';
+      return;
+    }
     bannerSlot.innerHTML = renderCreditBanner(credits.used, credits.limit, cachedUserTier);
     // Wire dismiss button if banner is shown
     const dismissBtn = bannerSlot.querySelector('[data-dismiss-banner]');
     if (dismissBtn) {
-      dismissBtn.addEventListener('click', () => { bannerSlot.innerHTML = ''; });
+      dismissBtn.addEventListener('click', () => {
+        creditBannerDismissed = true;
+        bannerSlot.innerHTML = '';
+      });
     }
     const upgradeBtn = bannerSlot.querySelector('[data-upgrade]');
     if (upgradeBtn) {
@@ -357,7 +393,7 @@ function updateCounter(): void {
 function renderAvatar(name: string, pd: PersonData | undefined, sr?: SearchResult | null): string {
   const avatarUrl = pd?.avatarUrl || sr?.avatarUrl;
   if (avatarUrl) {
-    return `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" data-fallback-text="${escapeAttr(initials(name))}">`;
+    return `<img src="${escapeAttr(avatarUrl)}" alt="${escapeAttr(name)}" loading="lazy" data-fallback-text="${escapeAttr(initials(name))}">`;
   }
   return escapeHtml(initials(name || '?'));
 }
@@ -384,6 +420,8 @@ function renderSearchConfidenceBadge(score: number, label: string): string {
 }
 
 function renderConfidenceDot(score: number | null, explanation?: string): string {
+  // Respect the "Show confidence scores" setting.
+  if (!uiPrefs.showConfidenceScores) return '';
   if (score === null || score === undefined) return '';
   const level = score >= 70 ? 'green' : score >= 50 ? 'amber' : 'red';
   const levelLabel = score >= 70 ? 'High' : score >= 50 ? 'Medium' : 'Low';
@@ -405,6 +443,30 @@ function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
 }
 
+/** Format a post date as a short relative/absolute label; falls back to the raw string. */
+function formatPostDate(raw: string): string {
+  const ts = Date.parse(raw);
+  if (Number.isNaN(ts)) return raw; // already human-readable (e.g. "2mo")
+  const diffDays = Math.floor((Date.now() - ts) / 86_400_000);
+  if (diffDays < 0) return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
+
+/** True only for http(s) URLs — blocks javascript:/data: and other schemes. */
+function isSafeHttpUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' || u.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 // ─── Company Section ─────────────────────────────────────────────────────────
 
 function renderCompanySection(pd: PersonData): string {
@@ -412,14 +474,14 @@ function renderCompanySection(pd: PersonData): string {
   if (!companyName) return '';
 
   const logo = pd.companyLogoUrl
-    ? `<img class="pm-company-section__logo" src="${escapeHtml(pd.companyLogoUrl)}" alt="" data-hide-on-error>`
+    ? `<img class="pm-company-section__logo" src="${escapeAttr(pd.companyLogoUrl)}" alt="" data-hide-on-error>`
     : '';
   const industry = pd.companyIndustry ? `<span class="pm-company-section__meta">${escapeHtml(pd.companyIndustry)}</span>` : '';
   const desc = pd.companyDescription
     ? `<div class="pm-company-section__desc">${escapeHtml(pd.companyDescription)}</div>`
     : '';
   const website = pd.companyWebsite
-    ? `<a href="${escapeHtml(pd.companyWebsite)}" target="_blank" rel="noopener">${escapeHtml(pd.companyWebsite.replace(/^https?:\/\//, ''))}</a>`
+    ? `<a href="${escapeAttr(pd.companyWebsite)}" target="_blank" rel="noopener">${escapeHtml(pd.companyWebsite.replace(/^https?:\/\//, ''))}</a>`
     : '';
 
   return `
@@ -441,8 +503,8 @@ function renderBio(bio: string, key: string): string {
   const collapseClass = expanded ? '' : ' pm-bio--collapsed';
   const label = expanded ? 'Show less' : 'Show more';
   return `
-    <div class="pm-bio${collapseClass} pm-fadein" data-section-bio="${escapeHtml(key)}">${escapeHtml(bio)}</div>
-    <button class="pm-bio__toggle" data-toggle-bio="${escapeHtml(key)}">${label}</button>`;
+    <div class="pm-bio${collapseClass} pm-fadein" data-section-bio="${escapeAttr(key)}">${escapeHtml(bio)}</div>
+    <button class="pm-bio__toggle" data-toggle-bio="${escapeAttr(key)}">${label}</button>`;
 }
 
 // ─── Expandable Sections ──────────────────────────────────────────────────────
@@ -451,8 +513,8 @@ function renderExpandableSection(key: string, sectionId: string, label: string, 
   const isOpen = expandedSections.get(key)?.has(sectionId);
   const openClass = isOpen ? ' pm-section--open' : '';
   return `
-    <div class="pm-section${openClass}" data-section="${escapeHtml(sectionId)}" data-attendee="${escapeHtml(key)}">
-      <button class="pm-section__toggle" data-toggle-section="${escapeHtml(sectionId)}" data-attendee="${escapeHtml(key)}">
+    <div class="pm-section${openClass}" data-section="${escapeAttr(sectionId)}" data-attendee="${escapeAttr(key)}">
+      <button class="pm-section__toggle" data-toggle-section="${escapeAttr(sectionId)}" data-attendee="${escapeAttr(key)}">
         ${escapeHtml(label)}
         <span class="pm-section__arrow">\u25BC</span>
       </button>
@@ -516,7 +578,7 @@ function renderCompanyIntelFromData(cd: CompanyData): string {
 
   // ── Header: logo + name + industry tag ──
   const logoHtml = cd.logo
-    ? `<img class="pm-intel__logo" src="${escapeHtml(cd.logo)}" alt="" data-hide-on-error>`
+    ? `<img class="pm-intel__logo" src="${escapeAttr(cd.logo)}" alt="" data-hide-on-error>`
     : '';
   const industryTag = cd.industry
     ? `<span class="pm-intel__industry-tag">${escapeHtml(cd.industry)}</span>`
@@ -536,8 +598,8 @@ function renderCompanyIntelFromData(cd: CompanyData): string {
   if (cd.foundedYear) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Founded:</span> ${cd.foundedYear}</div>`);
   if (cd.hqAddress) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">HQ:</span> ${escapeHtml(cd.hqAddress)}</div>`);
   if (cd.revenueRange) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Revenue:</span> ${escapeHtml(cd.revenueRange)}</div>`);
-  if (cd.website) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Website:</span> <a href="${escapeHtml(cd.website)}" target="_blank" rel="noopener">${escapeHtml(cd.website.replace(/^https?:\/\//, ''))}</a></div>`);
-  if (cd.linkedinUrl) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">LinkedIn:</span> <a href="${escapeHtml(cd.linkedinUrl)}" target="_blank" rel="noopener">View profile</a></div>`);
+  if (cd.website) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Website:</span> <a href="${escapeAttr(cd.website)}" target="_blank" rel="noopener">${escapeHtml(cd.website.replace(/^https?:\/\//, ''))}</a></div>`);
+  if (cd.linkedinUrl) rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">LinkedIn:</span> <a href="${escapeAttr(cd.linkedinUrl)}" target="_blank" rel="noopener">View profile</a></div>`);
 
   if (rows.length > 0) sections.push(`<div class="pm-intel__facts">${rows.join('')}</div>`);
 
@@ -565,7 +627,7 @@ function renderCompanyIntelFromData(cd: CompanyData): string {
   // ── Recent News ──
   if (cd.recentNews.length > 0) {
     const newsItems = cd.recentNews.slice(0, 5).map((n) => {
-      const titleHtml = n.url ? `<a href="${escapeHtml(n.url)}" target="_blank" rel="noopener">${escapeHtml(n.title)}</a>` : escapeHtml(n.title);
+      const titleHtml = n.url ? `<a href="${escapeAttr(n.url)}" target="_blank" rel="noopener">${escapeHtml(n.title)}</a>` : escapeHtml(n.title);
       const dateHtml = n.date ? ` <span class="pm-intel__date">(${escapeHtml(n.date)})</span>` : '';
       return `<li>${titleHtml}${dateHtml}</li>`;
     }).join('');
@@ -618,8 +680,8 @@ function renderCompanyIntelSection(key: string, pd: PersonData): string {
 
   // idle — show fetch button
   return `
-    <div class="pm-section" data-section="intel" data-attendee="${escapeHtml(key)}">
-      <button class="pm-intel-fetch-btn" data-fetch-intel="${escapeHtml(key)}">
+    <div class="pm-section" data-section="intel" data-attendee="${escapeAttr(key)}">
+      <button class="pm-intel-fetch-btn" data-fetch-intel="${escapeAttr(key)}">
         <span class="pm-intel-fetch-btn__icon">${icon('building', 14)}</span>
         Company Intel
         <span class="pm-intel-fetch-btn__arrow">→</span>
@@ -655,7 +717,7 @@ function renderHiringSignalsData(data: unknown): string {
   }
   if (hs.openRoles.length > 0) {
     const roleItems = hs.openRoles.slice(0, 5).map(r => {
-      const titleHtml = r.url ? `<a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>` : escapeHtml(r.title);
+      const titleHtml = r.url ? `<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>` : escapeHtml(r.title);
       const meta = [r.department, r.location].filter(Boolean).join(' · ');
       return `<li>${titleHtml}${meta ? ` <span class="pm-intel__date">(${escapeHtml(meta)})</span>` : ''}</li>`;
     }).join('');
@@ -677,7 +739,7 @@ function renderStakeholderMapData(data: unknown): string {
   if (sm.stakeholders.length > 0) {
     const items = sm.stakeholders.slice(0, 8).map(s => {
       const nameHtml = s.linkedinUrl
-        ? `<a href="${escapeHtml(s.linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(s.name)}</a>`
+        ? `<a href="${escapeAttr(s.linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(s.name)}</a>`
         : escapeHtml(s.name);
       const badge = s.isDecisionMaker ? ' <span class="pm-skill-tag" style="background:#D1FAE5;color:#059669;">Decision Maker</span>' : '';
       return `<li>${nameHtml} — ${escapeHtml(s.title)}${badge}</li>`;
@@ -702,14 +764,14 @@ function renderSocialPulseData(data: unknown): string {
   if (sp.socialPresence.length > 0) {
     const presence = sp.socialPresence.map(p => {
       const foll = p.followers != null ? ` (${formatNumber(p.followers)})` : '';
-      return p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.platform)}</a>${foll}` : `${escapeHtml(p.platform)}${foll}`;
+      return p.url ? `<a href="${escapeAttr(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.platform)}</a>${foll}` : `${escapeHtml(p.platform)}${foll}`;
     }).join(' · ');
     rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Presence:</span> ${presence}</div>`);
   }
   if (sp.mentions.length > 0) {
     const items = sp.mentions.slice(0, 5).map(m => {
       const icon = m.sentiment === 'positive' ? '+' : m.sentiment === 'negative' ? '-' : '~';
-      const contentHtml = m.url ? `<a href="${escapeHtml(m.url)}" target="_blank" rel="noopener">${escapeHtml(m.content.slice(0, 100))}</a>` : escapeHtml(m.content.slice(0, 100));
+      const contentHtml = m.url ? `<a href="${escapeAttr(m.url)}" target="_blank" rel="noopener">${escapeHtml(m.content.slice(0, 100))}</a>` : escapeHtml(m.content.slice(0, 100));
       return `<li>[${icon}] ${contentHtml} <span class="pm-intel__date">(${escapeHtml(m.platform)}, ${escapeHtml(m.date)})</span></li>`;
     }).join('');
     rows.push(`<div class="pm-intel__row"><span class="pm-intel__label">Recent Mentions:</span><ul class="pm-intel__news">${items}</ul></div>`);
@@ -819,7 +881,7 @@ function renderPowerUpButton(key: string, pu: PowerUpConfig, pd: PersonData): st
   if (typeof state === 'object' && 'error' in state) {
     if (state.error.includes('Pro subscription required') || state.error.includes('Pro plan')) {
       return `
-        <div class="pm-section" data-section="${escapeHtml(pu.id)}" data-attendee="${escapeHtml(key)}">
+        <div class="pm-section" data-section="${escapeAttr(pu.id)}" data-attendee="${escapeAttr(key)}">
           <div class="pm-pro-prompt">
             <strong>Pro feature</strong> — Upgrade to access ${escapeHtml(pu.label.toLowerCase())}.
             <button class="pm-pro-prompt__btn" data-open-upgrade>Upgrade to Pro</button>
@@ -832,8 +894,8 @@ function renderPowerUpButton(key: string, pu: PowerUpConfig, pd: PersonData): st
 
   // idle — show power-up button with cost
   return `
-    <div class="pm-section" data-section="${escapeHtml(pu.id)}" data-attendee="${escapeHtml(key)}">
-      <button class="pm-powerup-btn" data-powerup="${escapeHtml(pu.id)}" data-powerup-key="${escapeHtml(key)}">
+    <div class="pm-section" data-section="${escapeAttr(pu.id)}" data-attendee="${escapeAttr(key)}">
+      <button class="pm-powerup-btn" data-powerup="${escapeAttr(pu.id)}" data-powerup-key="${escapeAttr(key)}">
         <span class="pm-powerup-btn__icon">${pu.icon}</span>
         ${escapeHtml(pu.label)}
         <span class="pm-powerup-btn__cost">${escapeHtml(pu.cost)}</span>
@@ -875,7 +937,7 @@ function renderContactInfoSection(key: string, pd: PersonData): string {
 
   if (state === 'loading') {
     return `
-      <div class="pm-section" data-section="contact" data-attendee="${escapeHtml(key)}">
+      <div class="pm-section" data-section="contact" data-attendee="${escapeAttr(key)}">
         <div class="pm-intel-skeleton" style="padding:10px 12px;">
           <div class="pm-skeleton-row pm-skeleton-row--medium"></div>
           <div class="pm-skeleton-row pm-skeleton-row--short"></div>
@@ -891,7 +953,7 @@ function renderContactInfoSection(key: string, pd: PersonData): string {
     // Show upgrade prompt for Pro-gated errors
     if (state.error.includes('Pro subscription required') || state.error.includes('Pro plan')) {
       return `
-        <div class="pm-section" data-section="contact" data-attendee="${escapeHtml(key)}">
+        <div class="pm-section" data-section="contact" data-attendee="${escapeAttr(key)}">
           <div class="pm-pro-prompt">
             <strong>Pro feature</strong> — Upgrade to access direct phone and email.
             <button class="pm-pro-prompt__btn" data-open-upgrade>Upgrade to Pro</button>
@@ -906,8 +968,8 @@ function renderContactInfoSection(key: string, pd: PersonData): string {
   const lockedClass = '';
   const lockIcon = '\uD83D\uDCDE';
   return `
-    <div class="pm-section" data-section="contact" data-attendee="${escapeHtml(key)}">
-      <button class="pm-contact-btn${lockedClass}" data-fetch-contact="${escapeHtml(key)}">
+    <div class="pm-section" data-section="contact" data-attendee="${escapeAttr(key)}">
+      <button class="pm-contact-btn${lockedClass}" data-fetch-contact="${escapeAttr(key)}">
         <span class="pm-contact-btn__icon">${lockIcon}</span>
         Get Contact Info
         <span class="pm-contact-btn__arrow">\u2192</span>
@@ -923,7 +985,7 @@ function renderCustomEnrichResultsContent(data: CustomEnrichmentResult, prompt: 
   }
   const items = data.results.slice(0, 8).map((r) => {
     const titleHtml = r.url
-      ? `<a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>`
+      ? `<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>`
       : escapeHtml(r.title);
     const dateHtml = r.date ? `<div class="pm-custom-results__date">${escapeHtml(r.date)}</div>` : '';
     return `
@@ -964,8 +1026,8 @@ function renderCustomEnrichSection(key: string, pd: PersonData): string {
     const formHtml = `
       <div class="pm-custom-enrich__form" style="margin-top:12px;border-top:1px solid var(--pm-border-light);padding-top:8px;">
         <div class="pm-custom-enrich__input-row">
-          <textarea class="pm-custom-enrich__input" data-custom-input="${escapeHtml(key)}" placeholder="Ask another question..." rows="1"></textarea>
-          <button class="pm-custom-enrich__submit" data-custom-submit="${escapeHtml(key)}">Search</button>
+          <textarea class="pm-custom-enrich__input" data-custom-input="${escapeAttr(key)}" placeholder="Ask another question..." rows="1"></textarea>
+          <button class="pm-custom-enrich__submit" data-custom-submit="${escapeAttr(key)}">Search</button>
         </div>
         <div class="pm-custom-enrich__cost">2 credits per search</div>
       </div>`;
@@ -989,19 +1051,19 @@ function renderCustomEnrichSection(key: string, pd: PersonData): string {
 
   if (state === 'input') {
     const suggestionsItems = CUSTOM_ENRICH_SUGGESTIONS.map(
-      (s) => `<li class="pm-suggestions__item" data-suggestion="${escapeHtml(s)}" data-suggestion-key="${escapeHtml(key)}">${escapeHtml(s)}</li>`
+      (s) => `<li class="pm-suggestions__item" data-suggestion="${escapeAttr(s)}" data-suggestion-key="${escapeAttr(key)}">${escapeHtml(s)}</li>`
     ).join('');
 
     return `
       <div class="pm-custom-enrich">
         <div class="pm-custom-enrich__form">
           <div class="pm-custom-enrich__input-row">
-            <textarea class="pm-custom-enrich__input" data-custom-input="${escapeHtml(key)}" placeholder="e.g. Find their recent podcast appearances" rows="1"></textarea>
-            <button class="pm-custom-enrich__submit" data-custom-submit="${escapeHtml(key)}">Search</button>
+            <textarea class="pm-custom-enrich__input" data-custom-input="${escapeAttr(key)}" placeholder="e.g. Find their recent podcast appearances" rows="1"></textarea>
+            <button class="pm-custom-enrich__submit" data-custom-submit="${escapeAttr(key)}">Search</button>
           </div>
           <div class="pm-custom-enrich__cost">2 credits per search</div>
-          <div class="pm-suggestions" data-suggestions-key="${escapeHtml(key)}">
-            <button class="pm-suggestions__toggle" data-suggestions-toggle="${escapeHtml(key)}">
+          <div class="pm-suggestions" data-suggestions-key="${escapeAttr(key)}">
+            <button class="pm-suggestions__toggle" data-suggestions-toggle="${escapeAttr(key)}">
               Suggestions <span class="pm-suggestions__arrow">&#9660;</span>
             </button>
             <ul class="pm-suggestions__list">${suggestionsItems}</ul>
@@ -1014,7 +1076,7 @@ function renderCustomEnrichSection(key: string, pd: PersonData): string {
   if (!isPro) {
     return `
       <div class="pm-custom-enrich">
-        <button class="pm-custom-enrich__btn pm-custom-enrich__btn--locked" data-custom-enrich-locked="${escapeHtml(key)}">
+        <button class="pm-custom-enrich__btn pm-custom-enrich__btn--locked" data-custom-enrich-locked="${escapeAttr(key)}">
           <span class="pm-custom-enrich__icon">&#128274;</span>
           Custom Research
           <span class="pm-custom-enrich__arrow">&#8594;</span>
@@ -1024,7 +1086,7 @@ function renderCustomEnrichSection(key: string, pd: PersonData): string {
 
   return `
     <div class="pm-custom-enrich">
-      <button class="pm-custom-enrich__btn" data-custom-enrich="${escapeHtml(key)}">
+      <button class="pm-custom-enrich__btn" data-custom-enrich="${escapeAttr(key)}">
         <span class="pm-custom-enrich__icon">&#128269;</span>
         Custom Research
         <span class="pm-custom-enrich__arrow">&#8594;</span>
@@ -1037,7 +1099,7 @@ function renderRecentPosts(pd: PersonData): string {
   return pd.recentPosts.map((p) => {
     const title = p.title || 'Untitled post';
     const titleHtml = p.link
-      ? `<a href="${escapeHtml(p.link)}" target="_blank" rel="noopener">${escapeHtml(title)}</a>`
+      ? `<a href="${escapeAttr(p.link)}" target="_blank" rel="noopener">${escapeHtml(title)}</a>`
       : escapeHtml(title);
     const interaction = p.interaction ? `<div class="pm-post__interaction">${escapeHtml(p.interaction)}</div>` : '';
     return `<div class="pm-post"><div class="pm-post__title">${titleHtml}</div>${interaction}</div>`;
@@ -1233,7 +1295,7 @@ function renderTabContent(key: string, attendee: EnrichedAttendee): string {
 
         // Image thumbnail
         const imageHtml = p.imageUrl
-          ? `<img src="${escapeHtml(p.imageUrl)}" alt="" class="pm-post-snippet__image" loading="lazy" data-hide-on-error>`
+          ? `<img src="${escapeAttr(p.imageUrl)}" alt="" class="pm-post-snippet__image" loading="lazy" data-hide-on-error>`
           : '';
 
         // Post text with 2-line clamp + show more/less
@@ -1242,19 +1304,27 @@ function renderTabContent(key: string, attendee: EnrichedAttendee): string {
              <button class="pm-post-snippet__toggle pm-hidden" data-post-toggle="${escapeAttr(postId)}">Show more</button>`
           : '';
 
-        // Metadata line: interaction (e.g. "shared", "liked") + engagement
-        const interaction = p.interaction ? `<span>${escapeHtml(p.interaction)}</span>` : '';
+        // Metadata: source · date · likes · shares · interaction — each guarded.
+        const metaBits: string[] = [];
+        if (p.source) metaBits.push(`<span>${escapeHtml(p.source)}</span>`);
+        if (p.date) metaBits.push(`<span>${escapeHtml(formatPostDate(p.date))}</span>`);
+        if (typeof p.likes === 'number' && p.likes > 0) metaBits.push(`<span>&#128077; ${p.likes.toLocaleString()}</span>`);
+        if (typeof p.shares === 'number' && p.shares > 0) metaBits.push(`<span>&#8635; ${p.shares.toLocaleString()}</span>`);
+        if (p.interaction) metaBits.push(`<span>${escapeHtml(p.interaction)}</span>`);
+        const metaLine = metaBits.length
+          ? `<div class="pm-post-snippet__stats">${metaBits.join('<span class="pm-post-snippet__dot">&middot;</span>')}</div>`
+          : '';
 
         // Link to original post
         const linkHtml = p.link
-          ? `<a href="${escapeHtml(p.link)}" target="_blank" rel="noopener" class="pm-post-snippet__link">View post &rarr;</a>`
+          ? `<a href="${escapeAttr(p.link)}" target="_blank" rel="noopener" class="pm-post-snippet__link">View post &rarr;</a>`
           : '';
 
         return `<div class="pm-post-snippet">
           ${imageHtml}
           ${textHtml}
           <div class="pm-post-snippet__meta">
-            ${interaction}
+            ${metaLine}
             ${linkHtml}
           </div>
         </div>`;
@@ -1638,7 +1708,7 @@ function renderCompactProfileHeader(key: string, attendee: EnrichedAttendee): st
   const linkedinUrl = pd?.linkedinUrl || sr?.linkedinUrl;
 
   const nameHtml = linkedinUrl
-    ? `<a href="${escapeHtml(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
+    ? `<a href="${escapeAttr(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
     : escapeHtml(name);
 
   // Confidence dot
@@ -1662,7 +1732,7 @@ function renderCompactProfileHeader(key: string, attendee: EnrichedAttendee): st
   // Avatar — 40px compact (clickable when has image)
   const avatarUrl = pd?.avatarUrl || sr?.avatarUrl;
   const avatarInner = avatarUrl
-    ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" data-fallback-text="${escapeAttr(initials(name))}">`
+    ? `<img src="${escapeAttr(avatarUrl)}" alt="${escapeAttr(name)}" loading="lazy" data-fallback-text="${escapeAttr(initials(name))}">`
     : escapeHtml(initials(name || '?'));
   const avatarClickable = avatarUrl ? ' pm-avatar--clickable' : '';
   const avatarDataAttr = avatarUrl ? ` data-avatar-url="${escapeAttr(avatarUrl)}"` : '';
@@ -1748,7 +1818,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   if (isSearched) {
     const linkedinUrl = pd?.linkedinUrl || sr?.linkedinUrl;
     const nameHtml = linkedinUrl
-      ? `<a href="${escapeHtml(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
+      ? `<a href="${escapeAttr(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
       : escapeHtml(name);
 
     const location = pd?.location || sr?.location;
@@ -1854,7 +1924,7 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
   const fadeClass = ' pm-fadein';
   const linkedinUrl = pd?.linkedinUrl || sr?.linkedinUrl;
   const nameHtml = linkedinUrl
-    ? `<a href="${escapeHtml(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
+    ? `<a href="${escapeAttr(linkedinUrl)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
     : escapeHtml(name);
 
   card.innerHTML = `
@@ -1877,7 +1947,8 @@ function updateCardContent(card: HTMLElement, attendee: EnrichedAttendee): void 
 function attachCardListeners(card: HTMLElement, key: string): void {
   // Click-to-enrich: clicking the card header triggers enrichment for idle attendees
   const header = card.querySelector<HTMLElement>('.pm-card__header');
-  if (header) {
+  if (header && !header.dataset.pmBound) {
+    header.dataset.pmBound = "1";
     header.addEventListener('click', (e) => {
       // Don't trigger enrichment if clicking a link or the confidence badge
       const target = e.target as HTMLElement;
@@ -1899,7 +1970,8 @@ function attachCardListeners(card: HTMLElement, key: string): void {
 
   // "Generate Brief" button click (legacy selector)
   const briefBtn = card.querySelector<HTMLButtonElement>(`[data-generate-brief="${CSS.escape(key)}"]`);
-  if (briefBtn) {
+  if (briefBtn && !briefBtn.dataset.pmBound) {
+    briefBtn.dataset.pmBound = "1";
     briefBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const attendee = attendeeMap.get(key);
@@ -1910,7 +1982,8 @@ function attachCardListeners(card: HTMLElement, key: string): void {
 
   // CTA "Get Meeting Brief" button click (new renderCTAButton)
   const ctaEnrichBtn = card.querySelector<HTMLButtonElement>(`[data-enrich="${CSS.escape(key)}"]`);
-  if (ctaEnrichBtn) {
+  if (ctaEnrichBtn && !ctaEnrichBtn.dataset.pmBound) {
+    ctaEnrichBtn.dataset.pmBound = "1";
     ctaEnrichBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const attendee = attendeeMap.get(key);
@@ -1921,7 +1994,8 @@ function attachCardListeners(card: HTMLElement, key: string): void {
 
   // Retry button from error card
   const retryBtn = card.querySelector<HTMLButtonElement>(`[data-retry="${CSS.escape(key)}"]`);
-  if (retryBtn) {
+  if (retryBtn && !retryBtn.dataset.pmBound) {
+    retryBtn.dataset.pmBound = "1";
     retryBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const attendee = attendeeMap.get(key);
@@ -1936,7 +2010,8 @@ function attachCardListeners(card: HTMLElement, key: string): void {
 
   // Confidence ring click → open modal
   const confBadge = card.querySelector<HTMLElement>('[data-confidence-click]');
-  if (confBadge) {
+  if (confBadge && !confBadge.dataset.pmBound) {
+    confBadge.dataset.pmBound = "1";
     confBadge.addEventListener('click', (e) => {
       e.stopPropagation();
       const attendee = attendeeMap.get(key);
@@ -1946,14 +2021,20 @@ function attachCardListeners(card: HTMLElement, key: string): void {
 
   // Avatar click → full-size image overlay
   const avatarEl = card.querySelector<HTMLElement>('.pm-avatar[data-avatar-url]');
-  if (avatarEl) {
+  if (avatarEl && !avatarEl.dataset.pmBound) {
+    avatarEl.dataset.pmBound = "1";
     avatarEl.addEventListener('click', (e) => {
       e.stopPropagation();
       const url = avatarEl.dataset.avatarUrl;
-      if (!url) return;
+      if (!url || !isSafeHttpUrl(url)) return;
       const overlay = document.createElement('div');
       overlay.className = 'pm-avatar-overlay';
-      overlay.innerHTML = `<img src="${url}" alt="Profile photo">`;
+      // Build via DOM (not innerHTML): assigning to img.src treats the scraped
+      // URL as data, never as markup — no attribute-breakout injection.
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = 'Profile photo';
+      overlay.appendChild(img);
       overlay.addEventListener('click', () => overlay.remove());
       document.body.appendChild(overlay);
     });
@@ -1961,7 +2042,8 @@ function attachCardListeners(card: HTMLElement, key: string): void {
 
   // Card collapse toggle
   const cardToggle = card.querySelector<HTMLButtonElement>(`[data-card-toggle="${CSS.escape(key)}"]`);
-  if (cardToggle) {
+  if (cardToggle && !cardToggle.dataset.pmBound) {
+    cardToggle.dataset.pmBound = "1";
     cardToggle.addEventListener('click', (e) => {
       e.stopPropagation();
       const isCollapsed = collapsedCards.get(key) === true;
@@ -2298,8 +2380,33 @@ function updateSingleAttendee(email: string, attendee: EnrichedAttendee): void {
 // ─── Background Message Listener ─────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
+  if (msg.type === 'AUTH_STATE_CHANGED') {
+    // Auth changed elsewhere (sign-in/out) — re-sync this view.
+    checkAuthState().then((authed) => {
+      isAuthenticated = authed;
+      updateCtaBanner();
+      refreshUserTier().then(() => refreshCredits());
+    }).catch(() => {});
+    return;
+  }
+
+  if (msg.type === 'CREDITS_EXHAUSTED') {
+    // Out of credits — surface the paywall banner instead of the brief button
+    // silently doing nothing.
+    const { resetDate } = msg.payload;
+    creditBannerDismissed = false; // force the banner back so the user sees why
+    refreshCredits();
+    if (Els.errorMsg && resetDate) {
+      // Non-fatal inline note; keep the list visible.
+      console.log(LOG, `Credits exhausted — resets ${resetDate}`);
+    }
+    track('credits_exhausted', {});
+    return;
+  }
+
   if (msg.type === 'MEETING_UPDATE') {
     const { meeting, attendees } = msg.payload;
+    if (typeof msg.payload.meetingGen === 'number') currentMeetingGen = msg.payload.meetingGen;
     track('meeting_detected', { attendee_count: attendees.length });
     renderAllAttendees(meeting, attendees);
     refreshCredits();
@@ -2307,27 +2414,41 @@ chrome.runtime.onMessage.addListener((msg: BackgroundToPopup) => {
 
   if (msg.type === 'ATTENDEE_UPDATE') {
     const { email, attendee } = msg.payload;
+    // Drop updates that belong to a superseded meeting so stale cards from the
+    // previous meeting never appear.
+    if (typeof msg.payload.meetingGen === 'number' && currentMeetingGen >= 0 && msg.payload.meetingGen !== currentMeetingGen) {
+      return;
+    }
+    // Never materialize a card for someone who isn't in the current meeting.
+    if (!attendeeMap.has((email || attendee.name).toLowerCase())) {
+      return;
+    }
     if (attendee.status === 'done' && attendee.personData) {
       track('brief_completed', {
         from_cache: attendee.fromCache ?? false,
         has_linkedin: !!attendee.hasLinkedIn,
       });
 
-      // Auto-trigger company intel fetch when enrichment completes
+      // Auto-trigger company intel fetch when enrichment completes — but only if
+      // the user has the auto-fetch setting enabled (default on).
       const aKey = (email || attendee.name).toLowerCase();
       const ciState = companyIntelState.get(aKey);
       const pd = attendee.personData;
       if (pd.currentCompany && (!ciState || ciState === 'idle')) {
-        companyIntelState.set(aKey, 'loading');
-        chrome.runtime.sendMessage({
-          type: 'FETCH_COMPANY_INTEL',
-          payload: {
-            email,
-            companyName: pd.currentCompany,
-            linkedinUrl: pd.companyLinkedinUrl || undefined,
-            website: pd.companyWebsite || undefined,
-          },
-        });
+        getSettings().then((settings) => {
+          if (settings.autoFetchCompanyIntel === false) return;
+          if (companyIntelState.get(aKey) !== 'idle' && companyIntelState.get(aKey) !== undefined) return;
+          companyIntelState.set(aKey, 'loading');
+          chrome.runtime.sendMessage({
+            type: 'FETCH_COMPANY_INTEL',
+            payload: {
+              email,
+              companyName: pd.currentCompany,
+              linkedinUrl: pd.companyLinkedinUrl || undefined,
+              website: pd.companyWebsite || undefined,
+            },
+          });
+        }).catch(() => {});
       }
     }
     updateSingleAttendee(email, attendee);
@@ -2481,7 +2602,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check auth state for freemium preview mode
   isAuthenticated = await checkAuthState();
   await refreshUserTier();
+  await applyUiPrefs();
   updateCtaBanner();
+
+  // Re-apply UI prefs and re-render when settings change in the popup.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'sync' || !changes.pm_settings) return;
+    applyUiPrefs().then(() => {
+      if (currentMeeting) renderAllAttendees(currentMeeting, [...attendeeMap.values()]);
+    });
+  });
 
   track('sidepanel_opened');
 
@@ -2489,18 +2619,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   Els.ctaSignin?.addEventListener('click', () => {
     const btn = Els.ctaSignin as HTMLButtonElement | null;
     if (btn) btn.disabled = true;
+    // Clear any prior inline error.
+    if (Els.ctaError) { Els.ctaError.textContent = ''; Els.ctaError.classList.add('pm-hidden'); }
     chrome.runtime.sendMessage({ type: 'AUTH_SIGN_IN' }, (response) => {
       if (btn) btn.disabled = false;
+      // Surface sign-in failures inline in the banner — do NOT replace the whole
+      // attendee list with a full-screen error view.
+      const showSigninError = (message: string) => {
+        console.warn(LOG, 'Sign-in failed:', message);
+        if (Els.ctaError) {
+          Els.ctaError.textContent = message;
+          Els.ctaError.classList.remove('pm-hidden');
+        }
+      };
       if (chrome.runtime.lastError) {
-        console.warn(LOG, 'Sign-in failed:', chrome.runtime.lastError.message);
-        if (Els.errorMsg) Els.errorMsg.textContent = 'Sign-in failed. Please try again.';
-        showView('error');
+        showSigninError('Sign-in failed. Please try again.');
         return;
       }
       if (!response?.ok) {
-        console.warn(LOG, 'Sign-in failed:', response?.error || 'Unknown error');
-        if (Els.errorMsg) Els.errorMsg.textContent = response?.error || 'Sign-in failed. Please try again.';
-        showView('error');
+        showSigninError(response?.error || 'Sign-in failed. Please try again.');
         return;
       }
       if (response?.ok) {

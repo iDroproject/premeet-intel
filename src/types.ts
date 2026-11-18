@@ -60,6 +60,8 @@ export interface Settings {
   compactMode: boolean;
   /** Auto-search all attendees when a calendar event is clicked */
   autoSearchAttendees: boolean;
+  /** Auto-fetch company intel when a person's brief finishes loading */
+  autoFetchCompanyIntel: boolean;
 }
 
 // ─── Credits ─────────────────────────────────────────────────────────────────
@@ -128,10 +130,11 @@ export type ContentToBackground =
   | { type: 'PING' };
 
 export type BackgroundToPopup =
-  | { type: 'MEETING_UPDATE'; payload: { meeting: MeetingEvent; attendees: EnrichedAttendee[] } }
-  | { type: 'ATTENDEE_UPDATE'; payload: { email: string; attendee: EnrichedAttendee } }
+  | { type: 'MEETING_UPDATE'; payload: { meetingGen?: number; meeting: MeetingEvent; attendees: EnrichedAttendee[] } }
+  | { type: 'ATTENDEE_UPDATE'; payload: { meetingGen?: number; email: string; attendee: EnrichedAttendee } }
   | { type: 'ENRICHMENT_PROGRESS'; payload: { email: string; attendee: EnrichedAttendee } }
   | { type: 'CREDITS_EXHAUSTED'; payload: { meeting: MeetingEvent; resetDate: string } }
+  | { type: 'AUTH_STATE_CHANGED' }
   | { type: 'FETCH_PROGRESS'; payload: unknown }
   | { type: 'INTERIM_PERSON_DATA'; payload: unknown }
   | { type: 'PERSON_BACKGROUND_RESULT'; payload: unknown }
@@ -161,6 +164,8 @@ export type PopupToBackground =
   | { type: 'GET_CACHE_STATS' }
   | { type: 'CLEAR_CACHE' }
   | { type: 'GET_ACTIVITY_LOG' }
+  | { type: 'GET_SEARCH_QUOTA' }
+  | { type: 'OPEN_UPGRADE'; payload?: { tier?: 'pro' | 'enterprise' } }
   | { type: 'AUTH_SIGN_IN' }
   | { type: 'AUTH_SIGN_OUT' }
   | { type: 'AUTH_GET_STATE' }

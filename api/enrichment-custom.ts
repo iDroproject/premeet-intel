@@ -10,13 +10,17 @@
 //
 // Returns: { results: Array<{ title, snippet, url, source }>, summary: string }
 
-export const config = { runtime: 'edge' };
+// Node.js runtime (not edge): this endpoint calls the BrightData MCP over SSE,
+// which does not work on the edge runtime, and needs a longer budget than the
+// 25s edge limit. maxDuration 60 gives the MCP + Discover fallback layers room.
+export const config = { runtime: 'nodejs', maxDuration: 60 };
 
 import { corsHeadersFor, corsResponse } from './_shared/cors';
 import { requireAuth } from './_shared/auth-middleware';
 import { sql } from './_shared/db';
 import { executeFallbackChain, type FallbackLayer, type EnrichmentLevel } from './_shared/fallback-chain';
 import { callMcpTool } from './_shared/mcp-client';
+import { reserveCredits, rolloverIfNeeded } from './_shared/credits';
 
 const CACHE_TTL_DAYS = 7;
 const CREDITS_PER_SEARCH = 2;
@@ -85,14 +89,9 @@ export default async function handler(req: Request): Promise<Response> {
   if (userRows.length === 0) return jsonResponse({ error: 'User not found' }, cors, 404);
   const user = userRows[0];
   if (user.subscription_tier === 'free') return jsonResponse({ error: 'Pro subscription required' }, cors, 403);
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  let creditsUsed = user.credits_used;
-  if (user.credits_reset_month !== currentMonth) {
-    await sql`UPDATE users SET credits_used = 0, credits_reset_month = ${currentMonth} WHERE id = ${userId}`;
-    creditsUsed = 0;
-  }
-  if (creditsUsed + CREDITS_PER_SEARCH > user.credits_limit) {
-    return jsonResponse({ error: 'Credit limit reached', creditsUsed, creditsRequired: CREDITS_PER_SEARCH }, cors, 402);
+  await rolloverIfNeeded(userId);
+  if (user.credits_used >= user.credits_limit) {
+    return jsonResponse({ error: 'Credit limit reached', creditsUsed: user.credits_used, creditsRequired: CREDITS_PER_SEARCH }, cors, 402);
   }
 
   const entityKey = await buildEntityKey(body.linkedinUrl, body.prompt);
@@ -249,8 +248,15 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const isCacheHit = chainResult.source === 'cache';
+  let creditsCharged = 0;
 
   if (!isCacheHit) {
+    // Atomic reserve closes the check-then-spend race and enforces the tier cap.
+    const newUsed = await reserveCredits(userId, CREDITS_PER_SEARCH);
+    if (newUsed === null) {
+      return jsonResponse({ error: 'Credit limit reached', creditsRequired: CREDITS_PER_SEARCH }, cors, 402);
+    }
+    creditsCharged = CREDITS_PER_SEARCH;
     const enrichmentJson = JSON.stringify(chainResult.data);
     await sql`
       INSERT INTO enrichment_cache (entity_type, entity_key, enrichment_data, source, expires_at)
@@ -259,14 +265,13 @@ export default async function handler(req: Request): Promise<Response> {
       DO UPDATE SET enrichment_data = ${enrichmentJson}::jsonb, source = ${chainResult.source}, fetched_at = now(), expires_at = now() + make_interval(days => ${CACHE_TTL_DAYS})
     `;
     sql`SELECT upsert_cache_stat(CURRENT_DATE, 'person', 0, 1)`.catch(() => {});
-    await sql`UPDATE users SET credits_used = credits_used + ${CREDITS_PER_SEARCH} WHERE id = ${userId}`;
   } else {
     sql`SELECT upsert_cache_stat(CURRENT_DATE, 'person', 1, 0)`.catch(() => {});
   }
 
   await sql`
     INSERT INTO enrichment_requests (user_id, entity_type, entity_key, credits_used, status, cache_hit, completed_at)
-    VALUES (${userId}, 'person', ${entityKey}, ${isCacheHit ? 0 : CREDITS_PER_SEARCH}, 'success', ${isCacheHit}, now())
+    VALUES (${userId}, 'person', ${entityKey}, ${creditsCharged}, 'success', ${isCacheHit}, now())
   `;
 
   return jsonResponse({

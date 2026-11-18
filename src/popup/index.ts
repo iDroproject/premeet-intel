@@ -74,6 +74,7 @@ const Els = {
   setConfidence:  $<HTMLInputElement>('pm-set-confidence'),
   setCompact:     $<HTMLInputElement>('pm-set-compact'),
   setAutoSearch:  $<HTMLInputElement>('pm-set-auto-search'),
+  setAutoCompany: $<HTMLInputElement>('pm-set-auto-company'),
   ctaBanner:      $('pm-cta-banner'),
   ctaSignin:      $('pm-cta-signin'),
   // Auth UI
@@ -750,6 +751,9 @@ function applySettingsToUI(s: Settings): void {
   if (Els.setAutoSearch) {
     (Els.setAutoSearch as HTMLInputElement).checked = s.autoSearchAttendees;
   }
+  if (Els.setAutoCompany) {
+    (Els.setAutoCompany as HTMLInputElement).checked = s.autoFetchCompanyIntel;
+  }
 }
 
 function wireSettingsEvents(): void {
@@ -787,6 +791,11 @@ function wireSettingsEvents(): void {
   // Auto-search attendees
   Els.setAutoSearch?.addEventListener('change', async () => {
     await saveSettings({ autoSearchAttendees: (Els.setAutoSearch as HTMLInputElement).checked });
+  });
+
+  // Auto-fetch company intel
+  Els.setAutoCompany?.addEventListener('change', async () => {
+    await saveSettings({ autoFetchCompanyIntel: (Els.setAutoCompany as HTMLInputElement).checked });
   });
 
 }
